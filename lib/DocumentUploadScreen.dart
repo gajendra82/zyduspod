@@ -513,34 +513,45 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                   selected: {_selectedDocType ?? 'POD'},
                   onSelectionChanged: _isUploading
                       ? null
-                      : (value) =>
-                            setState(() => _selectedDocType = value.first),
+                      : (value) {
+                          setState(() {
+                            _selectedDocType = value.first;
+                            // Clear Stockist and Chemist if not POD
+                            if (!_isPodDoc()) {
+                              _selectedStockist = null;
+                              _selectedChemist = null;
+                            }
+                          });
+                        },
                 ),
               ),
-              _buildSectionCard(
-                icon: Icons.store_mall_directory,
-                title: 'Stockist',
-                subtitle: 'Search and select a stockist',
-                child: _customAutocomplete(
-                  options: _allStockists,
-                  selected: _selectedStockist,
-                  label: "Search Stockist",
-                  onSelected: (opt) => setState(() => _selectedStockist = opt),
-                  onClear: () => setState(() => _selectedStockist = null),
+              if (_isPodDoc()) ...[
+                _buildSectionCard(
+                  icon: Icons.store_mall_directory,
+                  title: 'Stockist',
+                  subtitle: 'Search and select a stockist',
+                  child: _customAutocomplete(
+                    options: _allStockists,
+                    selected: _selectedStockist,
+                    label: "Search Stockist",
+                    onSelected: (opt) =>
+                        setState(() => _selectedStockist = opt),
+                    onClear: () => setState(() => _selectedStockist = null),
+                  ),
                 ),
-              ),
-              _buildSectionCard(
-                icon: Icons.local_hospital,
-                title: 'Hospital',
-                subtitle: 'Search and select a hospital',
-                child: _customAutocomplete(
-                  options: _allChemists,
-                  selected: _selectedChemist,
-                  label: "Search Hospital",
-                  onSelected: (opt) => setState(() => _selectedChemist = opt),
-                  onClear: () => setState(() => _selectedChemist = null),
+                _buildSectionCard(
+                  icon: Icons.local_hospital,
+                  title: 'Hospital',
+                  subtitle: 'Search and select a hospital',
+                  child: _customAutocomplete(
+                    options: _allChemists,
+                    selected: _selectedChemist,
+                    label: "Search Hospital",
+                    onSelected: (opt) => setState(() => _selectedChemist = opt),
+                    onClear: () => setState(() => _selectedChemist = null),
+                  ),
                 ),
-              ),
+              ],
               _buildSectionCard(
                 icon: Icons.receipt_long,
                 title: 'POD',

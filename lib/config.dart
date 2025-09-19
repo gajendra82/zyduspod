@@ -1,4 +1,4 @@
-const String API_BASE_URL = "https://zydus.mediola.in/api/";
+const String API_BASE_URL = "https://zydus.mediola.in/pod/api/";
 const String API_DOC_UPLOAD_URL = "${API_BASE_URL}grn/upload-pdf";
 const String API_POD_UPLOAD_URL = "${API_BASE_URL}pod/upload-pdf";
 const String API_GRNS_URL = "${API_BASE_URL}grns";

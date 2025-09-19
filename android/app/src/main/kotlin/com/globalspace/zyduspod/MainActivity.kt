@@ -1,4 +1,4 @@
-package com.example.zyduspod
+package com.globalspace.zyduspod
 
 import io.flutter.embedding.android.FlutterActivity
 
