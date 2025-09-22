@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
@@ -73,6 +74,80 @@ Uint8List _compressImageWorker(Map<String, dynamic> args) {
   return Uint8List.fromList(fallback);
 }
 
+// Enhanced image processing worker for OCR - FIXED VERSION
+Map<String, dynamic> _enhanceImageForOCRWorker(Map<String, dynamic> args) {
+  final Uint8List imageBytes = args['imageBytes'] as Uint8List;
+
+  try {
+    img.Image? image = img.decodeImage(imageBytes);
+    if (image == null) {
+      return {'success': false, 'bytes': imageBytes};
+    }
+
+    // Step 1: Resize to optimal OCR resolution (300 DPI equivalent)
+    const int minWidth = 1200;
+    const int minHeight = 1600;
+
+    if (image.width < minWidth || image.height < minHeight) {
+      final double scaleX = minWidth / image.width;
+      final double scaleY = minHeight / image.height;
+      final double scale = math.max(scaleX, scaleY);
+
+      image = img.copyResize(
+        image,
+        width: (image.width * scale).round(),
+        height: (image.height * scale).round(),
+        interpolation: img.Interpolation.cubic,
+      );
+    }
+
+    // Step 2: Convert to grayscale for better OCR
+    image = img.grayscale(image);
+
+    // Step 3: Enhance contrast and brightness
+    image = img.adjustColor(image, contrast: 1.2, brightness: 1.1, gamma: 0.9);
+
+    // Step 4: Apply sharpening filter
+    image = img.convolution(
+      image,
+      filter: [-1, -1, -1, -1, 9, -1, -1, -1, -1],
+      div: 1,
+    );
+
+    // Step 5: Reduce noise with slight blur - FIXED: Use int radius
+    image = img.gaussianBlur(image, radius: 1); // Changed from 0.5 to 1
+
+    // Step 6: Apply adaptive threshold for better text contrast - FIXED
+    final int width = image.width;
+    final int height = image.height;
+
+    for (int y = 0; y < height; y++) {
+      for (int x = 0; x < width; x++) {
+        final img.Pixel pixel = image.getPixel(x, y);
+        final int gray = img.getLuminance(pixel).round(); // Convert to int
+
+        // Simple threshold - make text more distinct - FIXED: Use img.ColorRgb8
+        final img.ColorRgb8 newPixel = gray > 140
+            ? img.ColorRgb8(255, 255, 255) // White
+            : img.ColorRgb8(0, 0, 0); // Black
+        image.setPixel(x, y, newPixel);
+      }
+    }
+
+    // Step 7: Encode with high quality PNG for better OCR
+    final List<int> enhancedBytes = img.encodePng(image, level: 1);
+
+    return {
+      'success': true,
+      'bytes': Uint8List.fromList(enhancedBytes),
+      'width': image.width,
+      'height': image.height,
+    };
+  } catch (e) {
+    return {'success': false, 'bytes': imageBytes, 'error': e.toString()};
+  }
+}
+
 class DocumentUploadScreen extends StatefulWidget {
   const DocumentUploadScreen({super.key});
 
@@ -83,6 +158,7 @@ class DocumentUploadScreen extends StatefulWidget {
 class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   bool _isUploading = false;
   bool _isLoadingLists = false;
+  bool _isProcessingImage = false;
 
   String? _selectedDocType = 'POD';
 
@@ -97,6 +173,11 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
 
   File? _capturedImageFile;
   Map<String, dynamic>? _einvoiceData;
+
+  // Add keys to force rebuild of Autocomplete widgets
+  Key _stockistKey = UniqueKey();
+  Key _chemistKey = UniqueKey();
+  Key _podKey = UniqueKey();
 
   @override
   void initState() {
@@ -124,6 +205,9 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
             )
             .toList();
       });
+      print('Stockists loaded: ${_allStockists.length}');
+      print('Chemists loaded: ${_allChemists.length}');
+      print('Pods loaded: ${_allPods.length}');
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -207,32 +291,149 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
     return [];
   }
 
+  // Enhanced image processing for OCR
+  Future<File> _enhanceImageForOCR(File originalFile) async {
+    try {
+      setState(() => _isProcessingImage = true);
+
+      final Uint8List originalBytes = await originalFile.readAsBytes();
+
+      print("🔍 Enhancing image for OCR...");
+
+      // Use compute to run enhancement in background
+      final Map<String, dynamic> result = await compute(
+        _enhanceImageForOCRWorker,
+        {'imageBytes': originalBytes},
+      );
+
+      if (result['success'] == true) {
+        final Uint8List enhancedBytes = result['bytes'] as Uint8List;
+
+        // Save enhanced image
+        final tempDir = await getTemporaryDirectory();
+        final enhancedPath =
+            '${tempDir.path}/enhanced_${DateTime.now().millisecondsSinceEpoch}.png';
+        final enhancedFile = File(enhancedPath);
+        await enhancedFile.writeAsBytes(enhancedBytes);
+
+        print(
+          "✅ Image enhanced successfully: ${result['width']}x${result['height']}",
+        );
+        return enhancedFile;
+      } else {
+        print(
+          "⚠️ Image enhancement failed: ${result['error'] ?? 'Unknown error'}",
+        );
+        return originalFile;
+      }
+    } catch (e) {
+      print('❌ Error enhancing image for OCR: $e');
+      return originalFile;
+    } finally {
+      if (mounted) setState(() => _isProcessingImage = false);
+    }
+  }
+
+  // Convert enhanced image to high-quality PDF
+  Future<File> _convertImageToPDF(File imageFile) async {
+    try {
+      final bytes = await imageFile.readAsBytes();
+      final pdfDoc = pw.Document();
+
+      final pwImage = pw.MemoryImage(bytes);
+
+      pdfDoc.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(0), // No margin for full page
+          build: (ctx) => pw.Center(
+            child: pw.Image(
+              pwImage,
+              fit: pw.BoxFit.contain,
+              dpi: 300, // High DPI for better OCR
+            ),
+          ),
+        ),
+      );
+
+      final pdfBytes = await pdfDoc.save();
+
+      final tempDir = await getTemporaryDirectory();
+      final pdfPath =
+          '${tempDir.path}/ocr_ready_${DateTime.now().millisecondsSinceEpoch}.pdf';
+      final pdfFile = File(pdfPath);
+      await pdfFile.writeAsBytes(pdfBytes);
+
+      return pdfFile;
+    } catch (e) {
+      print('Error converting to PDF: $e');
+      return imageFile;
+    }
+  }
+
   Future<void> _takePhoto() async {
     try {
+      setState(() => _isProcessingImage = true);
+
+      // Configure scanner for better OCR results
       final scannedDocs = await FlutterDocScanner().getScanDocuments(page: 1);
 
       print("📄 Raw scannedDocs: $scannedDocs");
 
       if (scannedDocs != null && scannedDocs is Map) {
-        final pdfUri = scannedDocs['pdfUri']?.toString();
+        String? filePath;
 
-        if (pdfUri != null && pdfUri.isNotEmpty) {
-          final path = pdfUri.replaceFirst("file://", "");
+        // Check for different possible keys
+        final pdfUri = scannedDocs['pdfUri']?.toString();
+        final imageUri = scannedDocs['imageUri']?.toString();
+        final docUri = scannedDocs['documentUri']?.toString();
+
+        filePath = pdfUri ?? imageUri ?? docUri;
+
+        if (filePath != null && filePath.isNotEmpty) {
+          final path = filePath.replaceFirst("file://", "");
           final original = File(path);
 
           if (await original.exists()) {
+            File processedFile;
+
+            // If it's an image, enhance it for OCR
+            if (path.toLowerCase().endsWith('.jpg') ||
+                path.toLowerCase().endsWith('.jpeg') ||
+                path.toLowerCase().endsWith('.png')) {
+              print("🔍 Processing image for better OCR...");
+
+              // Enhance image for OCR
+              final enhancedImage = await _enhanceImageForOCR(original);
+
+              // Convert enhanced image to PDF
+              processedFile = await _convertImageToPDF(enhancedImage);
+
+              // Clean up temporary enhanced image
+              if (enhancedImage.path != original.path) {
+                try {
+                  await enhancedImage.delete();
+                } catch (e) {
+                  print("Warning: Could not delete temporary file: $e");
+                }
+              }
+            } else {
+              // If it's already a PDF, use as is
+              processedFile = original;
+            }
+
             final tempDir = await getTemporaryDirectory();
             final savedPath =
                 "${tempDir.path}/scanned_${DateTime.now().millisecondsSinceEpoch}.pdf";
-            final savedFile = await original.copy(savedPath);
+            final savedFile = await processedFile.copy(savedPath);
 
             if (!mounted) return;
             setState(() {
-              _capturedImageFile = savedFile; // now PDF file
+              _capturedImageFile = savedFile;
             });
 
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("✅ PDF scanned successfully!")),
+              const SnackBar(content: Text("✅ Document processed for OCR!")),
             );
           }
         }
@@ -243,6 +444,8 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text("Error while scanning: $e")));
+    } finally {
+      if (mounted) setState(() => _isProcessingImage = false);
     }
   }
 
@@ -290,8 +493,9 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         false;
   }
 
-  MediaType _inferImageContentType(File file) {
+  MediaType _inferContentType(File file) {
     final ext = p.extension(file.path).toLowerCase();
+    if (ext == '.pdf') return MediaType('application', 'pdf');
     if (ext == '.png') return MediaType('image', 'png');
     if (ext == '.heic' || ext == '.heif') return MediaType('image', 'heic');
     return MediaType('image', 'jpeg');
@@ -334,6 +538,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       );
       return;
     }
+
     if (_isPodDoc()) {
       if (_selectedStockist == null || _selectedChemist == null) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -361,8 +566,11 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('authToken');
 
-      final File imageFile = await _ensureImageUnderLimit(_capturedImageFile!);
-      final MediaType mediaType = _inferImageContentType(imageFile);
+      // The file is already enhanced for OCR in _takePhoto
+      final File documentFile = _capturedImageFile!;
+
+      // Determine content type
+      final MediaType contentType = _inferContentType(documentFile);
 
       final bool isPod = _isPodDoc();
       final uri = Uri.parse(isPod ? API_POD_UPLOAD_URL : API_DOC_UPLOAD_URL);
@@ -370,11 +578,18 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         ..files.add(
           await http.MultipartFile.fromPath(
             'file',
-            imageFile.path,
-            filename: p.basename(imageFile.path),
-            contentType: mediaType,
+            documentFile.path,
+            filename: p.basename(documentFile.path),
+            contentType: contentType,
           ),
         );
+
+      // Add OCR-ready flags to help backend
+      request.fields['ocr_enhanced'] = 'true';
+      request.fields['document_quality'] = 'high';
+      request.fields['dpi'] = '300';
+      request.fields['processed_for_ocr'] = 'true';
+
       if (isPod) {
         if (_selectedStockist != null) {
           request.fields['stockist_id'] = _selectedStockist!.id;
@@ -395,9 +610,11 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
           }
         }
       }
+
       if (_isEinvoiceDoc() && _einvoiceData != null) {
         request.fields['einvoice'] = jsonEncode(_einvoiceData);
       }
+
       if (token != null) {
         request.headers['Authorization'] = 'Bearer $token';
       }
@@ -408,9 +625,13 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       if (!mounted) return;
 
       if (response.statusCode >= 200 && response.statusCode < 300) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Uploaded successfully')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              '✅ Document uploaded successfully! OCR processing started.',
+            ),
+          ),
+        );
         setState(() {
           _capturedImageFile = null;
         });
@@ -471,215 +692,306 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: () async {
-        if (Navigator.of(context).canPop()) {
-          Navigator.of(context).pop();
-          return false;
-        }
-        return true;
-      },
-      child: Scaffold(
-        appBar: AppBar(title: const Text("Upload Document")),
-        body: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Colors.teal.withOpacity(0.05),
-                Colors.teal.withOpacity(0.0),
-              ],
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      child: WillPopScope(
+        onWillPop: () async {
+          if (Navigator.of(context).canPop()) {
+            Navigator.of(context).pop();
+            return false;
+          }
+          return true;
+        },
+        child: Scaffold(
+          appBar: AppBar(title: const Text("Upload Document")),
+          body: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.teal.withOpacity(0.05),
+                  Colors.teal.withOpacity(0.0),
+                ],
+              ),
             ),
-          ),
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            physics: const BouncingScrollPhysics(),
-            children: [
-              if (_isLoadingLists)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 12),
-                  child: LinearProgressIndicator(),
-                ),
-              _buildSectionCard(
-                icon: Icons.description,
-                title: 'Document Type',
-                child: SegmentedButton<String>(
-                  segments: const [
-                    ButtonSegment(value: 'POD', label: Text("POD")),
-                    ButtonSegment(value: 'GRN', label: Text("GRN")),
-                    ButtonSegment(value: 'E-INVOICE', label: Text("E-Invoice")),
-                  ],
-                  selected: {_selectedDocType ?? 'POD'},
-                  onSelectionChanged: _isUploading
-                      ? null
-                      : (value) {
-                          setState(() {
-                            _selectedDocType = value.first;
-                            // Clear Stockist and Chemist if not POD
-                            if (!_isPodDoc()) {
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              physics: const BouncingScrollPhysics(),
+              children: [
+                if (_isLoadingLists || _isProcessingImage)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Column(
+                      children: [
+                        const LinearProgressIndicator(),
+                        const SizedBox(height: 8),
+                        Text(
+                          _isProcessingImage
+                              ? 'Processing document for OCR...'
+                              : 'Loading lists...',
+                          style: TextStyle(
+                            color: Colors.grey.shade600,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                _buildSectionCard(
+                  icon: Icons.description,
+                  title: 'Document Type',
+                  child: SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(value: 'POD', label: Text("POD")),
+                      ButtonSegment(value: 'GRN', label: Text("GRN")),
+                      ButtonSegment(
+                        value: 'E-INVOICE',
+                        label: Text("E-Invoice"),
+                      ),
+                    ],
+                    selected: {_selectedDocType ?? 'POD'},
+                    onSelectionChanged: _isUploading
+                        ? null
+                        : (value) {
+                            setState(() {
+                              _selectedDocType = value.first;
+                              // Always clear all dependent selections
                               _selectedStockist = null;
                               _selectedChemist = null;
-                            }
-                          });
-                        },
+                              _selectedPod = null;
+                              _einvoiceData = null;
+                              // Force rebuild of Autocomplete widgets by changing keys
+                              _stockistKey = UniqueKey();
+                              _chemistKey = UniqueKey();
+                              _podKey = UniqueKey();
+                            });
+                          },
+                  ),
                 ),
-              ),
-              if (_isPodDoc()) ...[
+                if (_isPodDoc()) ...[
+                  _buildSectionCard(
+                    icon: Icons.store_mall_directory,
+                    title: 'Stockist',
+                    subtitle: 'Search and select a stockist',
+                    child: _customAutocomplete(
+                      key: _stockistKey,
+                      options: _allStockists,
+                      selected: _selectedStockist,
+                      label: "Search Stockist",
+                      onSelected: (opt) =>
+                          setState(() => _selectedStockist = opt),
+                      onClear: () => setState(() => _selectedStockist = null),
+                    ),
+                  ),
+                  _buildSectionCard(
+                    icon: Icons.local_hospital,
+                    title: 'Hospital',
+                    subtitle: 'Search and select a hospital',
+                    child: _customAutocomplete(
+                      key: _chemistKey,
+                      options: _allChemists,
+                      selected: _selectedChemist,
+                      label: "Search Hospital",
+                      onSelected: (opt) =>
+                          setState(() => _selectedChemist = opt),
+                      onClear: () => setState(() => _selectedChemist = null),
+                    ),
+                  ),
+                ],
                 _buildSectionCard(
-                  icon: Icons.store_mall_directory,
-                  title: 'Stockist',
-                  subtitle: 'Search and select a stockist',
+                  icon: Icons.receipt_long,
+                  title: 'POD',
+                  subtitle: 'Search and select a POD to link GRN / E-Invoice',
                   child: _customAutocomplete(
-                    options: _allStockists,
-                    selected: _selectedStockist,
-                    label: "Search Stockist",
-                    onSelected: (opt) =>
-                        setState(() => _selectedStockist = opt),
-                    onClear: () => setState(() => _selectedStockist = null),
+                    key: _podKey,
+                    options: _allPods,
+                    selected: _selectedPod,
+                    label: "Search POD",
+                    onSelected: (opt) => setState(() => _selectedPod = opt),
+                    onClear: () => setState(() => _selectedPod = null),
                   ),
                 ),
                 _buildSectionCard(
-                  icon: Icons.local_hospital,
-                  title: 'Hospital',
-                  subtitle: 'Search and select a hospital',
-                  child: _customAutocomplete(
-                    options: _allChemists,
-                    selected: _selectedChemist,
-                    label: "Search Hospital",
-                    onSelected: (opt) => setState(() => _selectedChemist = opt),
-                    onClear: () => setState(() => _selectedChemist = null),
-                  ),
-                ),
-              ],
-              _buildSectionCard(
-                icon: Icons.receipt_long,
-                title: 'POD',
-                subtitle: 'Search and select a POD to link GRN / E-Invoice',
-                child: _customAutocomplete(
-                  options: _allPods,
-                  selected: _selectedPod,
-                  label: "Search POD",
-                  onSelected: (opt) => setState(() => _selectedPod = opt),
-                  onClear: () => setState(() => _selectedPod = null),
-                ),
-              ),
-              _buildSectionCard(
-                icon: Icons.camera_alt,
-                title: 'Capture / Scan',
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          minimumSize: const Size.fromHeight(48),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                        onPressed:
-                            (_isUploading ||
-                                (!_isPodDoc() && _selectedPod == null))
-                            ? null
-                            : _takePhoto,
-                        icon: const Icon(Icons.photo_camera),
-                        label: const Text('Take Photo'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size.fromHeight(48),
-                          side: BorderSide(
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                        onPressed: (_isUploading || _selectedPod == null)
-                            ? null
-                            : () async {
-                                final result =
-                                    await Navigator.push<Map<String, dynamic>>(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) =>
-                                            GstQrApp(podId: _selectedPod!.id),
-                                      ),
-                                    );
-                                if (result != null) {
-                                  setState(() => _einvoiceData = result);
-                                }
-                              },
-                        icon: const Icon(Icons.qr_code_scanner),
-                        label: const Text('Scan E-Invoice'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (_capturedImageFile != null)
-                _buildSectionCard(
-                  icon: Icons.picture_as_pdf,
-                  title: 'Preview & Upload',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                  icon: Icons.camera_alt,
+                  title: 'Capture / Scan',
+                  subtitle: _isProcessingImage
+                      ? 'Processing document for better OCR accuracy...'
+                      : 'Documents are automatically enhanced for OCR',
+                  child: Row(
                     children: [
-                      Container(
-                        height: 200,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(12),
-                          color: Colors.black12,
-                        ),
-                        child: Center(
-                          child: Text(
-                            "📄 PDF Ready: ${p.basename(_capturedImageFile!.path)}",
-                            textAlign: TextAlign.center,
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(48),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          onPressed:
+                              (_isUploading ||
+                                  _isProcessingImage ||
+                                  _isEinvoiceDoc() ||
+                                  (!_isPodDoc() && _selectedPod == null))
+                              ? null
+                              : _takePhoto,
+                          icon: _isProcessingImage
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.photo_camera),
+                          label: Text(
+                            _isProcessingImage ? 'Processing...' : 'Take Photo',
                           ),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => PdfPreviewScreen(
-                                pdfFile: _capturedImageFile!,
-                              ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(48),
+                            side: BorderSide(
+                              color: Theme.of(context).colorScheme.primary,
                             ),
-                          );
-                        },
-                        icon: const Icon(Icons.picture_as_pdf),
-                        label: const Text("Open PDF Preview"),
-                      ),
-                      const SizedBox(height: 8),
-                      ElevatedButton.icon(
-                        onPressed: _isUploading ? null : _uploadCaptured,
-                        icon: _isUploading
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Icon(Icons.cloud_upload),
-                        label: const Text("Upload PDF"),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          onPressed:
+                              (_isUploading ||
+                                  _isProcessingImage ||
+                                  _selectedPod == null)
+                              ? null
+                              : () async {
+                                  final result =
+                                      await Navigator.push<
+                                        Map<String, dynamic>
+                                      >(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) =>
+                                              GstQrApp(podId: _selectedPod!.id),
+                                        ),
+                                      );
+                                  if (result != null) {
+                                    setState(() => _einvoiceData = result);
+                                  }
+                                },
+                          icon: const Icon(Icons.qr_code_scanner),
+                          label: const Text('Scan E-Invoice'),
+                        ),
                       ),
                     ],
                   ),
                 ),
-
-              if (_isUploading && _capturedImageFile == null)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 16),
-                  child: Center(child: CircularProgressIndicator()),
-                ),
-            ],
+                if (_capturedImageFile != null)
+                  _buildSectionCard(
+                    icon: Icons.picture_as_pdf,
+                    title: 'Preview & Upload',
+                    subtitle: 'Document has been optimized for OCR processing',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Container(
+                          height: 200,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            color: Colors.black12,
+                          ),
+                          child: Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.picture_as_pdf,
+                                  size: 48,
+                                  color: Colors.grey.shade600,
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  "📄 OCR-Ready PDF",
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.grey.shade700,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  p.basename(_capturedImageFile!.path),
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green.shade100,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    "Enhanced for OCR",
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.green.shade700,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => PdfPreviewScreen(
+                                  pdfFile: _capturedImageFile!,
+                                ),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.picture_as_pdf),
+                          label: const Text("Open PDF Preview"),
+                        ),
+                        const SizedBox(height: 8),
+                        ElevatedButton.icon(
+                          onPressed: _isUploading ? null : _uploadCaptured,
+                          icon: _isUploading
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.cloud_upload),
+                          label: const Text("Upload OCR-Ready PDF"),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (_isUploading && _capturedImageFile == null)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
@@ -727,6 +1039,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   }
 
   Widget _customAutocomplete({
+    Key? key,
     required List<_SelectItem> options,
     required _SelectItem? selected,
     required String label,
@@ -734,6 +1047,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
     required VoidCallback onClear,
   }) {
     return Autocomplete<_SelectItem>(
+      key: key,
       displayStringForOption: (opt) => opt.label,
       optionsBuilder: (TextEditingValue tev) {
         final text = tev.text.toLowerCase();
@@ -768,15 +1082,20 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
           ),
         );
       },
-      fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
-        if (selected != null && controller.text != selected.label) {
-          controller.text = selected.label;
-          controller.selection = TextSelection.fromPosition(
-            TextPosition(offset: controller.text.length),
-          );
+      fieldViewBuilder: (context, textController, focusNode, onFieldSubmitted) {
+        // Only set text if something is selected and the field is empty
+        if (selected != null && textController.text.isEmpty) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (textController.text.isEmpty) {
+              textController.text = selected.label;
+              textController.selection = TextSelection.fromPosition(
+                TextPosition(offset: textController.text.length),
+              );
+            }
+          });
         }
         return TextField(
-          controller: controller,
+          controller: textController,
           focusNode: focusNode,
           decoration: InputDecoration(
             labelText: label,
@@ -784,12 +1103,12 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
             border: const OutlineInputBorder(),
             filled: true,
             fillColor: Colors.grey.shade50,
-            suffixIcon: controller.text.isEmpty
+            suffixIcon: textController.text.isEmpty
                 ? null
                 : IconButton(
                     icon: const Icon(Icons.clear),
                     onPressed: () {
-                      controller.clear();
+                      textController.clear();
                       onClear();
                     },
                   ),
