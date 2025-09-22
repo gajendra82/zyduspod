@@ -22,6 +22,7 @@ import 'package:flutter_doc_scanner/flutter_doc_scanner.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:zyduspod/widgets/PdfPreviewScreen.dart';
+import 'package:zyduspod/screens/profile_screen.dart';
 
 // Runs in a background isolate via `compute` to compress an image under maxBytes
 Uint8List _compressImageWorker(Map<String, dynamic> args) {
@@ -703,7 +704,20 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
           return true;
         },
         child: Scaffold(
-          appBar: AppBar(title: const Text("Upload Document")),
+          appBar: AppBar(
+            title: const Text("Upload Document"),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.person_rounded),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const ProfileScreen()),
+                  );
+                },
+              ),
+            ],
+          ),
           body: Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(

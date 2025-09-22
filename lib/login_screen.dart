@@ -49,6 +49,8 @@ class _LoginScreenState extends State<LoginScreen> {
         }
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('authToken', token);
+        await prefs.setString('userEmail', _emailController.text.trim());
+        await prefs.setString('userName', _emailController.text.split('@')[0].replaceAll('.', ' ').split(' ').map((word) => word.isNotEmpty ? word[0].toUpperCase() + word.substring(1) : '').join(' '));
 
         if (!mounted) return;
         Navigator.of(context).pushAndRemoveUntil(
