@@ -102,6 +102,7 @@ class _LoginScreenState extends State<LoginScreen> {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
+              color: Colors.white,
               elevation: 3,
               child: Padding(
                 padding: const EdgeInsets.all(20),
@@ -115,8 +116,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       Column(
                         children: [
                           Image.asset(
-                            'assets/branding/logo.png',
-                            height: 64,
+                            'assets/branding/logo_1.jpeg',
+                            height: 150,
                             fit: BoxFit.contain,
                           ),
                           const SizedBox(height: 12),

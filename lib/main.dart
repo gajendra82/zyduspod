@@ -29,7 +29,8 @@ class MyApp extends StatelessWidget {
     final Color brandAccent = const Color(0xFF6EC1C7);
 
     return MaterialApp(
-      title: 'Zydus POD',
+      title: 'Zydus Vistaar',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: brandTeal,
