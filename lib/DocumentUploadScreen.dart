@@ -23,6 +23,7 @@ import 'package:zyduspod/Models/pod.dart';
 import 'package:zyduspod/config.dart';
 import 'package:zyduspod/widgets/EInvoiceQRExtractor.dart';
 import 'package:zyduspod/widgets/PdfPreviewScreen.dart';
+import 'package:zyduspod/screens/profile_screen.dart';
 
 /// ===================== IMAGE COMPRESSION / ENHANCE (Isolate Workers) =====================
 
@@ -1327,6 +1328,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       appBar: AppBar(
         title: const Text('Upload Document'),
         actions: [
+          IconButton(onPressed: (){}, icon: Icon(Icons.person)),
           if (_capturedDocuments.isNotEmpty) ...[
             Center(
               child: Padding(

@@ -4,6 +4,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 // import 'package:zyduspod/GstInvoiceScanner.dart';
 import 'package:zyduspod/DocumentUploadScreen.dart';
 import 'package:zyduspod/login_screen.dart';
+import 'package:zyduspod/screens/profile_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -29,7 +30,8 @@ class MyApp extends StatelessWidget {
     final Color brandAccent = const Color(0xFF6EC1C7);
 
     return MaterialApp(
-      title: 'Zydus POD',
+      title: 'Zydus Vistaar',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: brandTeal,

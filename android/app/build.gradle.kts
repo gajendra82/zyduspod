@@ -1,3 +1,7 @@
+import java.io.File
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -5,9 +9,17 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val keystorePropertiesFile: File = rootProject.file("key.properties")
+val keystoreProperties: Properties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        FileInputStream(keystorePropertiesFile).use { fis -> load(fis) }
+    }
+}
+fun prop(key: String): String? = keystoreProperties.getProperty(key)
+
 android {
     namespace = "com.globalspace.zyduspod"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 36
     ndkVersion = "27.0.12077973"
 
     compileOptions {
@@ -20,23 +32,44 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.globalspace.zyduspod"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = 30
-        targetSdk = 34
+        targetSdk = 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
-    buildTypes {
-        release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+    // Create signing config only if key.properties exists
+    signingConfigs {
+        create("release") {
+            if (keystorePropertiesFile.exists()) {
+                // use non-null asserted prop(...) because we know keys exist in file
+                storeFile = file(prop("storeFile")!!)
+                storePassword = prop("storePassword")
+                keyAlias = prop("keyAlias")
+                keyPassword = prop("keyPassword")
+            }
         }
     }
+
+    buildTypes {
+        getByName("release") {
+            // enable code shrinking (R8) — required when shrinkResources = true
+            isMinifyEnabled = true
+
+            // enable resource shrinking
+            isShrinkResources = true
+
+            // Use optimized default proguard file + your rules
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+
+            signingConfig = signingConfigs.findByName("release")
+        }
+    }
+
 }
 
 flutter {

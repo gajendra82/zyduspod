@@ -1,0 +1,4 @@
+storePassword=welcome
+keyPassword=welcome
+keyAlias=zydus_alias
+storeFile=app/zydus_key.jks
