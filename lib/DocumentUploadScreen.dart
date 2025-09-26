@@ -163,7 +163,13 @@ class DocumentInfo {
 /// ===================== SCREEN =====================
 
 class DocumentUploadScreen extends StatefulWidget {
-  const DocumentUploadScreen({super.key});
+  final String? preselectHospitalId;
+  final String? preselectHospitalName;
+  const DocumentUploadScreen({
+    super.key,
+    this.preselectHospitalId,
+    this.preselectHospitalName,
+  });
   @override
   State<DocumentUploadScreen> createState() => _DocumentUploadScreenState();
 }
@@ -318,6 +324,33 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
             )
             .toList();
       });
+
+      // NEW: preselect hospital if provided
+      if (mounted &&
+          (widget.preselectHospitalId != null ||
+              widget.preselectHospitalName != null)) {
+        final id = widget.preselectHospitalId?.trim();
+        final name = widget.preselectHospitalName?.trim().toLowerCase();
+
+        _SelectItem? match;
+        for (final it in _allChemists) {
+          final idMatches = id != null && id.isNotEmpty && it.id == id;
+          final nameMatches =
+              name != null && name.isNotEmpty && it.label.toLowerCase() == name;
+          if (idMatches || nameMatches) {
+            match = it;
+            break;
+          }
+        }
+
+        if (match != null) {
+          setState(() {
+            _selectedChemist = match;
+            // Rebuild the Autocomplete field to reflect selected text
+            _chemistKey = UniqueKey();
+          });
+        }
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(

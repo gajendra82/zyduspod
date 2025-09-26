@@ -1,10 +1,14 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-// import 'package:zyduspod/GstInvoiceScanner.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+// Existing screens
 import 'package:zyduspod/DocumentUploadScreen.dart';
 import 'package:zyduspod/login_screen.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
+// New: Dashboard-first entry screen
+import 'package:zyduspod/screens/hospital_dashboard_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -17,7 +21,8 @@ class MyApp extends StatelessWidget {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('authToken');
     if (token != null && token.isNotEmpty) {
-      return const DocumentUploadScreen();
+      // DASHBOARD FIRST when logged in
+      return const HospitalDashboardScreen();
     }
     return const LoginScreen();
   }
@@ -67,6 +72,7 @@ class MyApp extends StatelessWidget {
   }
 }
 
+// Your existing QR scanner page remains unchanged
 class GstQrScannerPage extends StatefulWidget {
   const GstQrScannerPage({Key? key}) : super(key: key);
 
@@ -81,10 +87,7 @@ class _GstQrScannerPageState extends State<GstQrScannerPage> {
 
   void _processQrData(String rawData) {
     try {
-      // The GST QR code is usually Base64 or JWT
       String decoded = _tryDecodeJwtOrBase64(rawData);
-
-      // Now try to parse JSON
       Map<String, dynamic> jsonMap = jsonDecode(decoded);
       setState(() {
         scannedData = rawData;
@@ -101,23 +104,18 @@ class _GstQrScannerPageState extends State<GstQrScannerPage> {
   }
 
   String _tryDecodeJwtOrBase64(String data) {
-    // If JWT-like: header.payload.signature
     if (data.contains('.')) {
       final parts = data.split('.');
       if (parts.length >= 2) {
         return utf8.decode(base64Url.decode(_normalizeBase64(parts[1])));
       }
     }
-    // Else treat as base64
     return utf8.decode(base64.decode(_normalizeBase64(data)));
   }
 
   String _normalizeBase64(String input) {
-    // Fix missing padding
     int padding = input.length % 4;
-    if (padding > 0) {
-      input += '=' * (4 - padding);
-    }
+    if (padding > 0) input += '=' * (4 - padding);
     return input.replaceAll('-', '+').replaceAll('_', '/');
   }
 
