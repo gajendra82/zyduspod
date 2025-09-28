@@ -15,7 +15,6 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:zyduspod/GstInvoiceScanner.dart';
@@ -23,52 +22,9 @@ import 'package:zyduspod/Models/pod.dart';
 import 'package:zyduspod/config.dart';
 import 'package:zyduspod/widgets/EInvoiceQRExtractor.dart';
 import 'package:zyduspod/widgets/PdfPreviewScreen.dart';
-import 'package:zyduspod/screens/profile_screen.dart';
 
 /// ===================== IMAGE COMPRESSION / ENHANCE (Isolate Workers) =====================
 
-Uint8List _compressImageWorker(Map<String, dynamic> args) {
-  final Uint8List data = args['data'] as Uint8List;
-  final int maxBytes = args['maxBytes'] as int;
-  if (data.lengthInBytes <= maxBytes) return data;
-
-  final img.Image? decoded = img.decodeImage(data);
-  if (decoded == null) return data;
-
-  int quality = 85;
-  img.Image current = decoded;
-  const int minSideFloor = 700;
-  int iterations = 0;
-
-  while (iterations < 14) {
-    iterations++;
-    final enc = img.encodeJpg(current, quality: quality);
-    if (enc.length <= maxBytes) return Uint8List.fromList(enc);
-    if (quality > 50) {
-      quality -= 10;
-      continue;
-    }
-    final nextW = (current.width * 0.85).round();
-    final nextH = (current.height * 0.85).round();
-    if (nextW < minSideFloor && nextH < minSideFloor) {
-      quality = 40;
-      current = img.copyResize(
-        current,
-        width: current.width > current.height ? minSideFloor : null,
-        height: current.height >= current.width ? minSideFloor : null,
-        interpolation: img.Interpolation.cubic,
-      );
-    } else {
-      current = img.copyResize(
-        current,
-        width: nextW,
-        height: nextH,
-        interpolation: img.Interpolation.cubic,
-      );
-    }
-  }
-  return Uint8List.fromList(img.encodeJpg(current, quality: 40));
-}
 
 Map<String, dynamic> _enhanceImageForOCRWorker(Map<String, dynamic> args) {
   final Uint8List imgBytes = args['imageBytes'] as Uint8List;
@@ -164,7 +120,8 @@ class DocumentInfo {
 /// ===================== SCREEN =====================
 
 class DocumentUploadScreen extends StatefulWidget {
-  const DocumentUploadScreen({super.key});
+  final String? initialDocType;
+  const DocumentUploadScreen({super.key, this.initialDocType});
   @override
   State<DocumentUploadScreen> createState() => _DocumentUploadScreenState();
 }
@@ -246,6 +203,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   @override
   void initState() {
     super.initState();
+    _selectedDocType = widget.initialDocType ?? 'POD';
     _loadLists();
   }
 
@@ -878,16 +836,6 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
 
   /// ===================== PERMISSIONS =====================
 
-  Future<bool> _checkPermissions() async {
-    final statuses = await [Permission.camera, Permission.storage].request();
-    final cam = statuses[Permission.camera]?.isGranted ?? false;
-    final stor = statuses[Permission.storage]?.isGranted ?? false;
-    if (!cam || !stor) {
-      openAppSettings();
-      return false;
-    }
-    return true;
-  }
 
   /// ===================== JSON BUILDER (Laravel PHP-style) =====================
 
