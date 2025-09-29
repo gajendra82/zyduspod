@@ -2,9 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 // import 'package:zyduspod/GstInvoiceScanner.dart';
-import 'package:zyduspod/screens/main_navigation.dart';
-import 'package:zyduspod/login_screen.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:zyduspod/screens/splash_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -13,14 +11,7 @@ void main() {
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  Future<Widget> _determineStartScreen() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('authToken');
-    if (token != null && token.isNotEmpty) {
-      return const MainNavigation();
-    }
-    return const LoginScreen();
-  }
+  // Removed _determineStartScreen as splash screen now handles navigation
 
   @override
   Widget build(BuildContext context) {
@@ -88,17 +79,7 @@ class MyApp extends StatelessWidget {
         useMaterial3: true,
         fontFamily: 'SF Pro Display',
       ),
-      home: FutureBuilder<Widget>(
-        future: _determineStartScreen(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            );
-          }
-          return snapshot.data!;
-        },
-      ),
+      home: const SplashScreen(),
     );
   }
 }

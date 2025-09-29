@@ -77,7 +77,7 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
             tabs: const [
               Expanded(child: Tab(icon: Icon(Icons.dashboard), text: 'Overview')),
               Expanded(child: Tab(icon: Icon(Icons.local_hospital), text: 'Hospital Sales')),
-              Expanded(child: Tab(icon: Icon(Icons.description), text: 'Documents')),
+              Expanded(child: Tab(icon: Icon(Icons.description), text: 'All Documents')),
             ],
           ),
         ),
@@ -718,7 +718,7 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
         ],
       ),
       onTap: () {
-        // Navigate to document details
+        _showTransactionDetails(doc);
       },
     );
   }
@@ -1205,11 +1205,11 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
   Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
       case 'completed':
-      case 'approved':
+      case 'verified':
         return Colors.green;
       case 'pending':
         return Colors.orange;
-      case 'processing':
+      case 'processed':
         return Colors.blue;
       case 'rejected':
         return Colors.red;
@@ -1228,6 +1228,254 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
         return Icons.qr_code;
       default:
         return Icons.description;
+    }
+  }
+
+  void _showTransactionDetails(Map<String, dynamic> doc) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.5,
+        maxChildSize: 0.9,
+        builder: (context, scrollController) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(
+              top: Radius.circular(20),
+            ),
+          ),
+          child: Column(
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: _getStatusColor(
+                                doc['status'] ?? '',
+                              ).withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Icon(
+                              _getTypeIcon(doc['type'] ?? ''),
+                              color: _getStatusColor(
+                                doc['status'] ?? '',
+                              ),
+                              size: 24,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  doc['name'] ?? 'Unknown Document',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: _getStatusColor(
+                                      doc['status'] ?? '',
+                                    ).withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    doc['status'] ?? 'Unknown',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: _getStatusColor(
+                                        doc['status'] ?? '',
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+                      _buildTransactionDetailSection('Transaction Information', [
+                        _buildTransactionDetailRow(
+                          'Type',
+                          doc['type'] ?? 'Unknown',
+                        ),
+                        _buildTransactionDetailRow(
+                          'Status',
+                          doc['status'] ?? 'Unknown',
+                        ),
+                        _buildTransactionDetailRow(
+                          'Size',
+                          doc['size'] ?? '0 MB',
+                        ),
+                        _buildTransactionDetailRow(
+                          'Upload Date',
+                          _formatDetailedDate(doc['uploaded_at'] ?? ''),
+                        ),
+                      ]),
+                      const SizedBox(height: 20),
+                      _buildTransactionDetailSection('Business Information', [
+                        _buildTransactionDetailRow(
+                          'Stockist',
+                          doc['stockist_name'] ?? 'Unknown',
+                        ),
+                        _buildTransactionDetailRow(
+                          'Hospital',
+                          doc['hospital_name'] ?? 'Unknown',
+                        ),
+                        _buildTransactionDetailRow(
+                          'Invoice Number',
+                          doc['invoice_number'] ?? 'N/A',
+                        ),
+                        _buildTransactionDetailRow(
+                          'Amount',
+                          doc['total_amount'] ?? 'N/A',
+                        ),
+                      ]),
+                      // const SizedBox(height: 20),
+                      // _buildActionButtons(doc),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTransactionDetailSection(String title, List<Widget> children) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF2C3E50),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade50,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(children: children),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTransactionDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey.shade600,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionButtons(Map<String, dynamic> doc) {
+    return Row(
+      children: [
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              // Navigate to full document view
+              _tabController.animateTo(2);
+            },
+            icon: const Icon(Icons.visibility),
+            label: const Text('View Full Details'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF00A0A8),
+              side: const BorderSide(color: Color(0xFF00A0A8)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              // Add any additional action here
+            },
+            icon: const Icon(Icons.download),
+            label: const Text('Download'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF00A0A8),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatDetailedDate(String dateString) {
+    try {
+      final date = DateTime.parse(dateString);
+      return '${date.day}/${date.month}/${date.year} at ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+    } catch (e) {
+      return 'Unknown';
     }
   }
 }
