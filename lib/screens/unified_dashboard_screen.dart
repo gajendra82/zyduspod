@@ -56,29 +56,28 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
       child: Scaffold(
         backgroundColor: Colors.grey.shade50,
         appBar: AppBar(
-          title: const Text('Dashboard'),
+          title: const Text('Vistaar'),
           backgroundColor: Colors.white,
           foregroundColor: const Color(0xFF2C3E50),
           elevation: 0,
           centerTitle: true,
           actions: [
-            IconButton(
-              tooltip: 'Upload documents',
-              onPressed: () => _openUploader(context),
-              icon: const Icon(Icons.cloud_upload),
-            ),
+            // IconButton(
+            //   tooltip: 'Upload documents',
+            //   onPressed: () => _openUploader(context),
+            //   icon: const Icon(Icons.cloud_upload),
+            // ),
           ],
           bottom: TabBar(
             controller: _tabController,
-            isScrollable: true,
+            // isScrollable: true,
             labelColor: const Color(0xFF00A0A8),
             unselectedLabelColor: Colors.grey,
             indicatorColor: const Color(0xFF00A0A8),
             tabs: const [
-              Tab(icon: Icon(Icons.dashboard), text: 'Overview'),
-              // Tab(icon: Icon(Icons.analytics), text: 'Analytics'),
-              Tab(icon: Icon(Icons.local_hospital), text: 'Hospital Sales'),
-              Tab(icon: Icon(Icons.description), text: 'Documents'),
+              Expanded(child: Tab(icon: Icon(Icons.dashboard), text: 'Overview')),
+              Expanded(child: Tab(icon: Icon(Icons.local_hospital), text: 'Hospital Sales')),
+              Expanded(child: Tab(icon: Icon(Icons.description), text: 'Documents')),
             ],
           ),
         ),
@@ -470,7 +469,7 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
           const Color(0xFFFF9800),
         ),
         _buildStatCard(
-          'Approved',
+          'Verified',
           (dashboardData['approved_count'] ?? 0).toString(),
           Icons.check_circle,
           const Color(0xFF4CAF50),
@@ -578,7 +577,7 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
               ),
               const Spacer(),
               TextButton(
-                onPressed: () => _tabController.animateTo(3),
+                onPressed: () => _tabController.animateTo(2),
                 child: const Text(
                   'View All',
                   style: TextStyle(
@@ -764,13 +763,13 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
                     'View Documents',
                     Icons.description,
                     const Color(0xFF4CAF50),
-                    () => _tabController.animateTo(3),
+                    () => _tabController.animateTo(2),
                   ),
                   _buildActionButton(
                     'Hospital Sales',
                     Icons.local_hospital,
                     const Color(0xFF2196F3),
-                    () => _tabController.animateTo(2),
+                    () => _tabController.animateTo(1),
                   ),
                   _buildActionButton(
                     'Analytics',
@@ -1004,7 +1003,7 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
               ),
               const Spacer(),
               TextButton(
-                onPressed: () => _tabController.animateTo(2),
+                onPressed: () => _tabController.animateTo(1),
                 child: const Text(
                   'View All',
                   style: TextStyle(

@@ -152,7 +152,9 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
     }
     
     _stockistList = stockists.toList()..sort();
+    print('Stockists: ${_stockistList}');
     _hospitalList = hospitals.toList()..sort();
+    print('Hospitals: ${_hospitalList}');
     _filteredStockists = List.from(_stockistList);
     _filteredHospitals = List.from(_hospitalList);
   }
@@ -275,6 +277,7 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
   }
 
   void _filterHospitals(String query) {
+    print(query);
     setState(() {
       if (query.isEmpty) {
         _filteredHospitals = List.from(_hospitalList);
@@ -352,11 +355,11 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
 
   Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
-      case 'approved':
+      case 'verified':
         return Colors.green;
       case 'pending':
         return Colors.orange;
-      case 'processing':
+      case 'processed':
         return Colors.blue;
       case 'rejected':
         return Colors.red;

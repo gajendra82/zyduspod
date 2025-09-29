@@ -5,30 +5,30 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zyduspod/config.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
-class GstQrApp extends StatelessWidget {
+// class GstQrApp extends StatelessWidget {
+//   final String podId;
+//   const GstQrApp({super.key, required this.podId});
+
+//   @override
+//   Widget build(BuildContext context) {
+//     return MaterialApp(
+//       title: "GST QR Scanner",
+//       theme: ThemeData(primarySwatch: Colors.teal),
+//       home: GstInvoiceScanner(podId: podId),
+//       debugShowCheckedModeBanner: false,
+//     );
+//   }
+// }
+
+class GstQrApp extends StatefulWidget {
   final String podId;
   const GstQrApp({super.key, required this.podId});
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: "GST QR Scanner",
-      theme: ThemeData(primarySwatch: Colors.teal),
-      home: GstInvoiceScanner(podId: podId),
-      debugShowCheckedModeBanner: false,
-    );
-  }
+  State<GstQrApp> createState() => _GstQrAppState();
 }
 
-class GstInvoiceScanner extends StatefulWidget {
-  final String podId;
-  const GstInvoiceScanner({super.key, required this.podId});
-
-  @override
-  State<GstInvoiceScanner> createState() => _GstInvoiceScannerState();
-}
-
-class _GstInvoiceScannerState extends State<GstInvoiceScanner>
+class _GstQrAppState extends State<GstQrApp>
     with SingleTickerProviderStateMixin {
   bool isScanning = true;
   final MobileScannerController controller = MobileScannerController(
@@ -80,7 +80,7 @@ class _GstInvoiceScannerState extends State<GstInvoiceScanner>
     return {"raw": raw};
   }
 
-  void _onDetect(BarcodeCapture capture) {
+  void _onDetect(BarcodeCapture capture) async{
     if (!isScanning) return;
 
     String? content;
@@ -97,15 +97,21 @@ class _GstInvoiceScannerState extends State<GstInvoiceScanner>
 
       final decoded = decodeGstQr(content);
 
-      Navigator.push(
+      await Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (_) =>
-              InvoiceResultScreen(invoiceData: decoded, podId: widget.podId),
+          builder:
+              (_) => InvoiceResultScreen(
+                invoiceData: decoded,
+                podId: widget.podId,
+              ),
         ),
       ).then((_) {
         if (mounted) setState(() => isScanning = true);
       });
+      setState(() => isScanning = true);
+      print('Decoded: $decoded');
+
     }
   }
 
@@ -114,7 +120,15 @@ class _GstInvoiceScannerState extends State<GstInvoiceScanner>
     const double boxSize = 260;
 
     return Scaffold(
-      appBar: AppBar(title: const Text("GST E-Invoice QR Scanner")),
+      appBar: AppBar(
+        title: const Text("GST E-Invoice QR Scanner"),
+        leading: IconButton(
+          onPressed: () {
+            Navigator.pop(context);
+          },
+          icon: Icon(Icons.arrow_back),
+        ),
+      ),
       body: Stack(
         children: [
           MobileScanner(controller: controller, onDetect: _onDetect),
@@ -200,15 +214,72 @@ class _InvoiceResultScreenState extends State<InvoiceResultScreen> {
     return (v != null && v.toString().isNotEmpty) ? v.toString() : "-";
   }
 
-  Widget _infoTile(String title, String value, {Color? color}) {
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
-      child: ListTile(
-        title: Text(
-          title,
-          style: TextStyle(fontWeight: FontWeight.bold, color: color),
+  Widget _buildInfoCard(String title, String value, IconData icon, {Color? color}) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.white,
+            Colors.grey.shade50,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        subtitle: Text(value, style: const TextStyle(fontSize: 16)),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+        border: Border.all(color: Colors.grey.shade200, width: 1),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: (color ?? const Color(0xFF00A0A8)).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                icon,
+                color: color ?? const Color(0xFF00A0A8),
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    value,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -253,77 +324,298 @@ class _InvoiceResultScreenState extends State<InvoiceResultScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("GST Invoice Details")),
-      body: ListView(
-        padding: const EdgeInsets.all(12),
-        children: [
-          // Header card
-          Card(
-            color: Colors.teal.shade50,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "Invoice No: ${_val("DocNo")}",
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Text(
-                    "Invoice Date: ${_val("DocDt")}",
-                    style: const TextStyle(fontSize: 16),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    "IRN: ${_val("Irn")}",
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  Text(
-                    "IRN Date: ${_val("IrnDt")}",
-                    style: const TextStyle(fontSize: 14),
+      backgroundColor: Colors.grey.shade50,
+      appBar: AppBar(
+        title: const Text(
+          "GST Invoice Details",
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: Colors.white,
+          ),
+        ),
+        backgroundColor: const Color(0xFF00A0A8),
+        elevation: 0,
+        centerTitle: true,
+        leading: IconButton(
+          onPressed: () => Navigator.pop(context),
+          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+        ),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header card with gradient
+            Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF00A0A8), Color(0xFF00C4CC)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF00A0A8).withOpacity(0.3),
+                    spreadRadius: 2,
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
                   ),
                 ],
               ),
-            ),
-          ),
-
-          const SizedBox(height: 12),
-
-          _infoTile("Seller GSTIN", _val("SellerGstin"), color: Colors.teal),
-          _infoTile("Buyer GSTIN", _val("BuyerGstin"), color: Colors.teal),
-
-          _infoTile("Document Type", _val("DocTyp")),
-          _infoTile("Total Invoice Value", _val("TotInvVal")),
-          _infoTile("No. of Items", _val("ItemCnt")),
-          _infoTile("Main HSN Code", _val("MainHsnCode")),
-
-          if (apiStatus != null) ...[
-            const SizedBox(height: 12),
-            Text(
-              apiStatus!,
-              style: TextStyle(
-                color: apiStatus!.contains("✅") ? Colors.green : Colors.red,
-                fontWeight: FontWeight.bold,
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(
+                            Icons.receipt_long,
+                            color: Colors.white,
+                            size: 28,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                "Invoice Number",
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              Text(
+                                _val("DocNo"),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                "Invoice Date",
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              Text(
+                                _val("DocDt"),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                "IRN Date",
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              Text(
+                                _val("IrnDt"),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white.withOpacity(0.3)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            "IRN",
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _val("Irn"),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
+
+            const SizedBox(height: 24),
+
+            // Section title
+            const Text(
+              "Invoice Details",
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Info cards
+            _buildInfoCard("Seller GSTIN", _val("SellerGstin"), Icons.business, color: const Color(0xFF00A0A8)),
+            _buildInfoCard("Buyer GSTIN", _val("BuyerGstin"), Icons.account_balance, color: const Color(0xFF00A0A8)),
+            _buildInfoCard("Document Type", _val("DocTyp"), Icons.description, color: Colors.orange),
+            _buildInfoCard("Total Invoice Value", _val("TotInvVal"), Icons.currency_rupee, color: Colors.green),
+            _buildInfoCard("No. of Items", _val("ItemCnt"), Icons.inventory, color: Colors.blue),
+            _buildInfoCard("Main HSN Code", _val("MainHsnCode"), Icons.qr_code, color: Colors.purple),
+
+            const SizedBox(height: 24),
+
+            // Status message
+            if (apiStatus != null) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: apiStatus!.contains("✅") ? Colors.green.shade50 : Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: apiStatus!.contains("✅") ? Colors.green.shade200 : Colors.red.shade200,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      apiStatus!.contains("✅") ? Icons.check_circle : Icons.error,
+                      color: apiStatus!.contains("✅") ? Colors.green : Colors.red,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        apiStatus!,
+                        style: TextStyle(
+                          color: apiStatus!.contains("✅") ? Colors.green.shade700 : Colors.red.shade700,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
+
+            // Send button
+            Container(
+              width: double.infinity,
+              height: 56,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF00A0A8), Color(0xFF00C4CC)],
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                ),
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF00A0A8).withOpacity(0.3),
+                    spreadRadius: 1,
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: loading ? null : sendToServer,
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (loading)
+                          const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        else
+                          const Icon(
+                            Icons.cloud_upload_outlined,
+                            color: Colors.white,
+                            size: 24,
+                          ),
+                        const SizedBox(width: 12),
+                        Text(
+                          loading ? "Sending..." : "Send to Server",
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 32),
           ],
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: loading ? null : sendToServer,
-        icon: loading
-            ? const CircularProgressIndicator(color: Colors.white)
-            : const Icon(Icons.cloud_upload),
-        label: const Text("Send to Server"),
+        ),
       ),
     );
   }

@@ -479,6 +479,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   }
 
   Future<void> _ensureQrForDocument(DocumentInfo doc, int overallIndex) async {
+      print('Extracting QR from document: ${doc.file.path}');
     if (doc.type != DocumentType.pdf) return;
     if (doc.qrData != null) return;
     try {
@@ -972,7 +973,6 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
 
     try {
       if (_isPodDoc()) {
-        // SINGLE COMBINED UPLOAD FOR POD
         for (int i = 0; i < validDocs.length; i++) {
           await _ensureQrForDocument(validDocs[i], i);
         }
@@ -1064,11 +1064,12 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         // E-INVOICE or other types: per-file uploads
         final successes = <int>[];
         final failures = <int>[];
-
+        print('Uploading ${validDocs.length} documents');
         for (int i = 0; i < validDocs.length; i++) {
           final doc = validDocs[i];
-
+          print('Uploading document: ${doc.qrData}');
           if (_isEinvoiceDoc()) {
+            print('Ensuring QR for document: ${doc.qrData}');
             await _ensureQrForDocument(doc, i);
           }
 
@@ -1329,7 +1330,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       appBar: AppBar(
         title: const Text('Upload Document'),
         actions: [
-          IconButton(onPressed: (){}, icon: Icon(Icons.person)),
+          // IconButton(onPressed: (){}, icon: Icon(Icons.person)),
           if (_capturedDocuments.isNotEmpty) ...[
             Center(
               child: Padding(
@@ -1474,6 +1475,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                       ),
                     ),
                   ],
+                  if(!_isPodDoc())
                   _buildSectionCard(
                     icon: Icons.receipt_long,
                     title: 'POD Link',
