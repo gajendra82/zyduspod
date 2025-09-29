@@ -131,6 +131,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   bool _isUploading = false;
   bool _isLoadingLists = false;
   bool _isProcessingImage = false;
+  bool _isRefreshing = false;
   final bool _debugEinvoice = true;
 
   // Processing counter and unified busy flag
@@ -151,7 +152,8 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       _isUploading ||
       _isLoadingLists ||
       _isProcessingImage ||
-      _processingCount > 0;
+      _processingCount > 0 ||
+      _isRefreshing;
 
   // Simple sequential queue for QR extraction (prevents parallel heavy work)
   final List<_QrQueueItem> _qrQueue = [];
@@ -241,6 +243,54 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
     );
   }
 
+  /// ===================== REFRESH FUNCTIONALITY =====================
+
+  Future<void> _onRefresh() async {
+    if (_isRefreshing) return;
+    
+    setState(() => _isRefreshing = true);
+    
+    try {
+      // Clear current selections and data
+      setState(() {
+        _selectedStockist = null;
+        _selectedChemist = null;
+        _selectedPod = null;
+        _einvoiceData = null;
+        _stockistKey = UniqueKey();
+        _chemistKey = UniqueKey();
+        _podKey = UniqueKey();
+      });
+      
+      // Reload all lists
+      await _loadLists();
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Page refreshed successfully'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Refresh failed: $e'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isRefreshing = false);
+      }
+    }
+  }
+
   /// ===================== NORMALIZATION HELPERS =====================
 
   bool _isPodDoc() => (_selectedDocType ?? '').toUpperCase() == 'POD';
@@ -278,6 +328,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
             .toList();
       });
     } catch (e) {
+      print('Failed to load lists: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
@@ -294,8 +345,10 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       Uri.parse(url),
       headers: token != null ? {'Authorization': 'Bearer $token'} : null,
     );
+    print('select items Response: ${resp.body}');
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw Exception('HTTP ${resp.statusCode}');
+
+      throw Exception('HTTP ${resp.body}');
     }
     final decoded = _safeDecode(resp.bodyBytes);
     final rawList = _unwrapToList(decoded);
@@ -1318,237 +1371,133 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
           ],
         ],
       ),
-      body: GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onTap: () => FocusScope.of(context).unfocus(),
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Colors.teal.withOpacity(0.05), Colors.white],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
+      body: RefreshIndicator(
+        onRefresh: _onRefresh,
+        color: Colors.teal,
+        backgroundColor: Colors.white,
+        strokeWidth: 2.5,
+        displacement: 40.0,
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: () => FocusScope.of(context).unfocus(),
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.teal.withOpacity(0.05), Colors.white],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+              ),
             ),
-          ),
-          child: SingleChildScrollView(
-            controller: _scrollController,
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                if (showTopLoader)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Column(
-                      children: [
-                        const LinearProgressIndicator(),
-                        const SizedBox(height: 8),
-                        Text(
-                          (_processingCount > 0 || _isProcessingImage)
-                              ? 'Processing documents...'
-                              : 'Loading lists...',
-                          style: TextStyle(
-                            color: Colors.grey.shade600,
-                            fontSize: 12,
+            child: SingleChildScrollView(
+              controller: _scrollController,
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  if (showTopLoader || _isRefreshing)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Column(
+                        children: [
+                          const LinearProgressIndicator(),
+                          const SizedBox(height: 8),
+                          Text(
+                            _isRefreshing
+                                ? 'Refreshing page...'
+                                : (_processingCount > 0 || _isProcessingImage)
+                                    ? 'Processing documents...'
+                                    : 'Loading lists...',
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontSize: 12,
+                            ),
                           ),
+                        ],
+                      ),
+                    ),
+                  _buildSectionCard(
+                    icon: Icons.description,
+                    title: 'Document Type',
+                    child: SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(value: 'POD', label: Text('POD')),
+                        ButtonSegment(value: 'GRN', label: Text('GRN')),
+                        ButtonSegment(
+                          value: 'E-INVOICE',
+                          label: Text('E-Invoice'),
                         ),
                       ],
+                      selected: {_selectedDocType ?? 'POD'},
+                      onSelectionChanged: _isBusy
+                          ? null
+                          : (value) {
+                              setState(() {
+                                _selectedDocType = value.first;
+                                _selectedStockist = null;
+                                _selectedChemist = null;
+                                _selectedPod = null;
+                                _einvoiceData = null;
+                                _stockistKey = UniqueKey();
+                                _chemistKey = UniqueKey();
+                                _podKey = UniqueKey();
+                              });
+                            },
                     ),
                   ),
-                _buildSectionCard(
-                  icon: Icons.description,
-                  title: 'Document Type',
-                  child: SegmentedButton<String>(
-                    segments: const [
-                      ButtonSegment(value: 'POD', label: Text('POD')),
-                      ButtonSegment(value: 'GRN', label: Text('GRN')),
-                      ButtonSegment(
-                        value: 'E-INVOICE',
-                        label: Text('E-Invoice'),
+                  if (_isPodDoc()) ...[
+                    _buildSectionCard(
+                      icon: Icons.store_mall_directory,
+                      title: 'Stockist',
+                      subtitle: 'Select Stockist',
+                      child: _customAutocomplete(
+                        key: _stockistKey,
+                        options: _allStockists,
+                        selected: _selectedStockist,
+                        label: 'Search Stockist',
+                        onSelected: (opt) =>
+                            setState(() => _selectedStockist = opt),
+                        onClear: () => setState(() => _selectedStockist = null),
                       ),
-                    ],
-                    selected: {_selectedDocType ?? 'POD'},
-                    onSelectionChanged: _isBusy
-                        ? null
-                        : (value) {
-                            setState(() {
-                              _selectedDocType = value.first;
-                              _selectedStockist = null;
-                              _selectedChemist = null;
-                              _selectedPod = null;
-                              _einvoiceData = null;
-                              _stockistKey = UniqueKey();
-                              _chemistKey = UniqueKey();
-                              _podKey = UniqueKey();
-                            });
-                          },
-                  ),
-                ),
-                if (_isPodDoc()) ...[
-                  _buildSectionCard(
-                    icon: Icons.store_mall_directory,
-                    title: 'Stockist',
-                    subtitle: 'Select Stockist',
-                    child: _customAutocomplete(
-                      key: _stockistKey,
-                      options: _allStockists,
-                      selected: _selectedStockist,
-                      label: 'Search Stockist',
-                      onSelected: (opt) =>
-                          setState(() => _selectedStockist = opt),
-                      onClear: () => setState(() => _selectedStockist = null),
                     ),
-                  ),
-                  _buildSectionCard(
-                    icon: Icons.local_hospital,
-                    title: 'Hospital',
-                    subtitle: 'Select Hospital',
-                    child: _customAutocomplete(
-                      key: _chemistKey,
-                      options: _allChemists,
-                      selected: _selectedChemist,
-                      label: 'Search Hospital',
-                      onSelected: (opt) =>
-                          setState(() => _selectedChemist = opt),
-                      onClear: () => setState(() => _selectedChemist = null),
-                    ),
-                  ),
-                ],
-                _buildSectionCard(
-                  icon: Icons.receipt_long,
-                  title: 'POD Link',
-                  subtitle: 'Select POD (recommended for E-Invoice / GRN)',
-                  child: _customAutocomplete(
-                    key: _podKey,
-                    options: _allPods,
-                    selected: _selectedPod,
-                    label: 'Search POD',
-                    onSelected: (opt) => setState(() => _selectedPod = opt),
-                    onClear: () => setState(() => _selectedPod = null),
-                  ),
-                ),
-                _buildSectionCard(
-                  icon: Icons.add_a_photo,
-                  title: 'Add Documents',
-                  subtitle:
-                      'Images converted to PDF. POD & E-INVOICE types auto-extract QR.',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      ElevatedButton.icon(
-                        onPressed: _isBusy ? null : _showDocumentSourceDialog,
-                        icon: _isBusy
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Icon(Icons.add),
-                        label: Text(
-                          _isBusy ? 'Processing...' : 'Add Documents',
-                        ),
+                    _buildSectionCard(
+                      icon: Icons.local_hospital,
+                      title: 'Hospital',
+                      subtitle: 'Select Hospital',
+                      child: _customAutocomplete(
+                        key: _chemistKey,
+                        options: _allChemists,
+                        selected: _selectedChemist,
+                        label: 'Search Hospital',
+                        onSelected: (opt) =>
+                            setState(() => _selectedChemist = opt),
+                        onClear: () => setState(() => _selectedChemist = null),
                       ),
-                      const SizedBox(height: 8),
-                      if (!_isPodDoc())
-                        OutlinedButton.icon(
-                          onPressed: _isBusy
-                              ? null
-                              : () async {
-                                  final res =
-                                      await Navigator.push<
-                                        Map<String, dynamic>
-                                      >(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => GstQrApp(
-                                            podId: _selectedPod?.id ?? '0',
-                                          ),
-                                        ),
-                                      );
-                                  if (res != null) {
-                                    setState(() => _einvoiceData = res);
-                                    _autoMarkEinvoiceSelectedForEinvoiceFlow();
-                                    await _openInvoiceDetails(res);
-                                  }
-                                },
-                          icon: const Icon(Icons.qr_code_scanner),
-                          label: Text(
-                            _einvoiceData != null
-                                ? 'Manual Scan (Done)'
-                                : 'Manual Scan (Camera)',
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                if (_isEinvoiceDoc() && _einvoiceData != null)
+                    ),
+                  ],
                   _buildSectionCard(
-                    icon: Icons.qr_code,
-                    title: 'Primary E-Invoice',
-                    subtitle: 'Auto/manual. Each PDF may have its own.',
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _kv('Invoice No', _einvoiceData?['DocNo']),
-                        _kv('Invoice Date', _einvoiceData?['DocDt']),
-                        _kv('IRN', _einvoiceData?['Irn']),
-                        _kv('Total Value', _einvoiceData?['TotInvVal']),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                onPressed: () =>
-                                    _openInvoiceDetails(_einvoiceData!),
-                                icon: const Icon(Icons.info),
-                                label: const Text('Details'),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            ElevatedButton.icon(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.red.shade600,
-                                foregroundColor: Colors.white,
-                              ),
-                              onPressed: () =>
-                                  setState(() => _einvoiceData = null),
-                              icon: const Icon(Icons.clear),
-                              label: const Text('Clear'),
-                            ),
-                          ],
-                        ),
-                      ],
+                    icon: Icons.receipt_long,
+                    title: 'POD Link',
+                    subtitle: 'Select POD (recommended for E-Invoice / GRN)',
+                    child: _customAutocomplete(
+                      key: _podKey,
+                      options: _allPods,
+                      selected: _selectedPod,
+                      label: 'Search POD',
+                      onSelected: (opt) => setState(() => _selectedPod = opt),
+                      onClear: () => setState(() => _selectedPod = null),
                     ),
                   ),
-                if (_capturedDocuments.isNotEmpty)
                   _buildSectionCard(
-                    icon: Icons.collections,
-                    title:
-                        'Documents ($validDocCount valid / ${_capturedDocuments.length} total)',
+                    icon: Icons.add_a_photo,
+                    title: 'Add Documents',
                     subtitle:
-                        'Green border = QR extracted (POD & E-INVOICE). Tap to preview. Tap QR badge to view.',
+                        'Images converted to PDF. POD & E-INVOICE types auto-extract QR.',
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: _capturedDocuments.asMap().entries.map((e) {
-                            final i = e.key;
-                            final d = e.value;
-                            return _buildDocumentThumbnail(d, i);
-                          }).toList(),
-                        ),
-                        const SizedBox(height: 16),
                         ElevatedButton.icon(
-                          onPressed:
-                              (_isUploading ||
-                                  validDocCount == 0 ||
-                                  _processingCount > 0 ||
-                                  _isProcessingImage)
-                              ? null
-                              : _uploadCaptured,
-                          icon: _isUploading
+                          onPressed: _isBusy ? null : _showDocumentSourceDialog,
+                          icon: _isBusy
                               ? const SizedBox(
                                   width: 18,
                                   height: 18,
@@ -1557,24 +1506,138 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                                     color: Colors.white,
                                   ),
                                 )
-                              : const Icon(Icons.cloud_upload),
+                              : const Icon(Icons.add),
                           label: Text(
-                            _isUploading
-                                ? 'Uploading...'
-                                : validDocCount > 0
-                                ? 'Upload $validDocCount Document(s)'
-                                : 'No Valid Documents',
+                            _isBusy ? 'Processing...' : 'Add Documents',
                           ),
                         ),
+                        const SizedBox(height: 8),
+                        if (!_isPodDoc())
+                          OutlinedButton.icon(
+                            onPressed: _isBusy
+                                ? null
+                                : () async {
+                                    final res =
+                                        await Navigator.push<
+                                          Map<String, dynamic>
+                                        >(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => GstQrApp(
+                                              podId: _selectedPod?.id ?? '0',
+                                            ),
+                                          ),
+                                        );
+                                    if (res != null) {
+                                      setState(() => _einvoiceData = res);
+                                      _autoMarkEinvoiceSelectedForEinvoiceFlow();
+                                      await _openInvoiceDetails(res);
+                                    }
+                                  },
+                            icon: const Icon(Icons.qr_code_scanner),
+                            label: Text(
+                              _einvoiceData != null
+                                  ? 'Manual Scan (Done)'
+                                  : 'Manual Scan (Camera)',
+                            ),
+                          ),
                       ],
                     ),
                   ),
-                if (_isUploading && _capturedDocuments.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 16),
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
-              ],
+                  if (_isEinvoiceDoc() && _einvoiceData != null)
+                    _buildSectionCard(
+                      icon: Icons.qr_code,
+                      title: 'Primary E-Invoice',
+                      subtitle: 'Auto/manual. Each PDF may have its own.',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _kv('Invoice No', _einvoiceData?['DocNo']),
+                          _kv('Invoice Date', _einvoiceData?['DocDt']),
+                          _kv('IRN', _einvoiceData?['Irn']),
+                          _kv('Total Value', _einvoiceData?['TotInvVal']),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () =>
+                                      _openInvoiceDetails(_einvoiceData!),
+                                  icon: const Icon(Icons.info),
+                                  label: const Text('Details'),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red.shade600,
+                                  foregroundColor: Colors.white,
+                                ),
+                                onPressed: () =>
+                                    setState(() => _einvoiceData = null),
+                                icon: const Icon(Icons.clear),
+                                label: const Text('Clear'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (_capturedDocuments.isNotEmpty)
+                    _buildSectionCard(
+                      icon: Icons.collections,
+                      title:
+                          'Documents ($validDocCount valid / ${_capturedDocuments.length} total)',
+                      subtitle:
+                          'Green border = QR extracted (POD & E-INVOICE). Tap to preview. Tap QR badge to view.',
+                      child: Column(
+                        children: [
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: _capturedDocuments.asMap().entries.map((e) {
+                              final i = e.key;
+                              final d = e.value;
+                              return _buildDocumentThumbnail(d, i);
+                            }).toList(),
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton.icon(
+                            onPressed:
+                                (_isUploading ||
+                                    validDocCount == 0 ||
+                                    _processingCount > 0 ||
+                                    _isProcessingImage)
+                                ? null
+                                : _uploadCaptured,
+                            icon: _isUploading
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Icon(Icons.cloud_upload),
+                            label: Text(
+                              _isUploading
+                                  ? 'Uploading...'
+                                  : validDocCount > 0
+                                  ? 'Upload $validDocCount Document(s)'
+                                  : 'No Valid Documents',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (_isUploading && _capturedDocuments.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                      child: Center(child: CircularProgressIndicator()),
+                    ),
+                ],
+              ),
             ),
           ),
         ),

@@ -13,10 +13,24 @@ class DocumentsListScreen extends StatefulWidget {
 
 class _DocumentsListScreenState extends State<DocumentsListScreen> {
   List<Map<String, dynamic>> _allDocuments = [];
+  List<String> _stockistList = [];
+  List<String> _hospitalList = [];
+  List<String> _filteredStockists = [];
+  List<String> _filteredHospitals = [];
   bool _isLoading = true;
   String? _errorMessage;
   String _selectedFilter = 'All';
   String _searchQuery = '';
+  String _selectedStockist = '';
+  String _selectedHospital = '';
+  bool _showStockistDropdown = false;
+  bool _showHospitalDropdown = false;
+  bool _hasApiError = false;
+  
+  final TextEditingController _stockistController = TextEditingController();
+  final TextEditingController _hospitalController = TextEditingController();
+  final FocusNode _stockistFocusNode = FocusNode();
+  final FocusNode _hospitalFocusNode = FocusNode();
 
   final List<String> _filterOptions = [
     'All',
@@ -33,12 +47,36 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
   void initState() {
     super.initState();
     _loadAllDocuments();
+    _stockistFocusNode.addListener(() {
+      if (!_stockistFocusNode.hasFocus) {
+        setState(() {
+          _showStockistDropdown = false;
+        });
+      }
+    });
+    _hospitalFocusNode.addListener(() {
+      if (!_hospitalFocusNode.hasFocus) {
+        setState(() {
+          _showHospitalDropdown = false;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _stockistController.dispose();
+    _hospitalController.dispose();
+    _stockistFocusNode.dispose();
+    _hospitalFocusNode.dispose();
+    super.dispose();
   }
 
   Future<void> _loadAllDocuments() async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
+      _hasApiError = false;
     });
 
     try {
@@ -61,17 +99,36 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        setState(() {
-          _allDocuments = List<Map<String, dynamic>>.from(
-            data['data'] ?? [],
-          );
-        });
+        final documents = List<Map<String, dynamic>>.from(
+          data['data'] ?? [],
+        );
+        
+        if (documents.isEmpty) {
+          setState(() {
+            _hasApiError = true;
+            _allDocuments = [];
+            _extractStockistAndHospitalLists();
+          });
+        } else {
+          setState(() {
+            _allDocuments = documents;
+            _extractStockistAndHospitalLists();
+          });
+        }
       } else {
+        setState(() {
+          _hasApiError = true;
+          _errorMessage = 'Failed to load documents. Status: ${response.statusCode}';
+        });
         // Mock data for development
         _setMockDocuments();
       }
     } catch (e) {
       print('Error: $e');
+      setState(() {
+        _hasApiError = true;
+        _errorMessage = 'Network error: ${e.toString()}';
+      });
       // Mock data for development
       _setMockDocuments();
     } finally {
@@ -81,107 +138,153 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
     }
   }
 
+  void _extractStockistAndHospitalLists() {
+    Set<String> stockists = {};
+    Set<String> hospitals = {};
+    
+    for (var doc in _allDocuments) {
+      if (doc['stockist_name'] != null && doc['stockist_name'].toString().isNotEmpty) {
+        stockists.add(doc['stockist_name'].toString());
+      }
+      if (doc['hospital_name'] != null && doc['hospital_name'].toString().isNotEmpty) {
+        hospitals.add(doc['hospital_name'].toString());
+      }
+    }
+    
+    _stockistList = stockists.toList()..sort();
+    _hospitalList = hospitals.toList()..sort();
+    _filteredStockists = List.from(_stockistList);
+    _filteredHospitals = List.from(_hospitalList);
+  }
+
   void _setMockDocuments() {
-    // setState(() {
-    //   _allDocuments = [
-    //     {
-    //       'id': '1',
-    //       'name': 'POD_2024_001.pdf',
-    //       'type': 'POD',
-    //       'status': 'Approved',
-    //       'uploaded_at': '2024-01-15T10:30:00Z',
-    //       'size': '2.4 MB',
-    //       'stockist': 'ABC Medical Store',
-    //       'hospital': 'City Hospital',
-    //       'invoice_number': 'INV-2024-001',
-    //       'amount': '₹15,000',
-    //     },
-    //     {
-    //       'id': '2',
-    //       'name': 'E-Invoice_2024_002.pdf',
-    //       'type': 'E-INVOICE',
-    //       'status': 'Pending',
-    //       'uploaded_at': '2024-01-15T09:15:00Z',
-    //       'size': '1.8 MB',
-    //       'stockist': 'XYZ Pharmacy',
-    //       'hospital': 'General Hospital',
-    //       'invoice_number': 'INV-2024-002',
-    //       'amount': '₹8,500',
-    //     },
-    //     {
-    //       'id': '3',
-    //       'name': 'GRN_2024_003.pdf',
-    //       'type': 'GRN',
-    //       'status': 'Approved',
-    //       'uploaded_at': '2024-01-14T16:45:00Z',
-    //       'size': '3.2 MB',
-    //       'stockist': 'MediCare Store',
-    //       'hospital': 'Central Hospital',
-    //       'invoice_number': 'INV-2024-003',
-    //       'amount': '₹22,000',
-    //     },
-    //     {
-    //       'id': '4',
-    //       'name': 'POD_2024_004.pdf',
-    //       'type': 'POD',
-    //       'status': 'Processing',
-    //       'uploaded_at': '2024-01-14T14:20:00Z',
-    //       'size': '2.1 MB',
-    //       'stockist': 'Health Plus',
-    //       'hospital': 'Metro Hospital',
-    //       'invoice_number': 'INV-2024-004',
-    //       'amount': '₹12,500',
-    //     },
-    //     {
-    //       'id': '5',
-    //       'name': 'E-Invoice_2024_005.pdf',
-    //       'type': 'E-INVOICE',
-    //       'status': 'Approved',
-    //       'uploaded_at': '2024-01-14T11:30:00Z',
-    //       'size': '1.9 MB',
-    //       'stockist': 'Life Care',
-    //       'hospital': 'Regional Hospital',
-    //       'invoice_number': 'INV-2024-005',
-    //       'amount': '₹9,800',
-    //     },
-    //     {
-    //       'id': '6',
-    //       'name': 'POD_2024_006.pdf',
-    //       'type': 'POD',
-    //       'status': 'Rejected',
-    //       'uploaded_at': '2024-01-13T15:45:00Z',
-    //       'size': '2.8 MB',
-    //       'stockist': 'Prime Medical',
-    //       'hospital': 'District Hospital',
-    //       'invoice_number': 'INV-2024-006',
-    //       'amount': '₹18,200',
-    //     },
-    //     {
-    //       'id': '7',
-    //       'name': 'GRN_2024_007.pdf',
-    //       'type': 'GRN',
-    //       'status': 'Pending',
-    //       'uploaded_at': '2024-01-13T12:15:00Z',
-    //       'size': '2.5 MB',
-    //       'stockist': 'Wellness Store',
-    //       'hospital': 'Community Hospital',
-    //       'invoice_number': 'INV-2024-007',
-    //       'amount': '₹14,300',
-    //     },
-    //     {
-    //       'id': '8',
-    //       'name': 'E-Invoice_2024_008.pdf',
-    //       'type': 'E-INVOICE',
-    //       'status': 'Approved',
-    //       'uploaded_at': '2024-01-12T17:30:00Z',
-    //       'size': '1.6 MB',
-    //       'stockist': 'MediMart',
-    //       'hospital': 'Specialty Hospital',
-    //       'invoice_number': 'INV-2024-008',
-    //       'amount': '₹7,200',
-    //     },
-    //   ];
-    // });
+    setState(() {
+      _allDocuments = [
+        {
+          'id': '1',
+          'name': 'POD_2024_001.pdf',
+          'type': 'POD',
+          'status': 'Approved',
+          'uploaded_at': '2024-01-15T10:30:00Z',
+          'size': '2.4 MB',
+          'stockist_name': 'ABC Medical Store',
+          'hospital_name': 'City Hospital',
+          'invoice_number': 'INV-2024-001',
+          'total_amount': '₹15,000',
+        },
+        {
+          'id': '2',
+          'name': 'E-Invoice_2024_002.pdf',
+          'type': 'E-INVOICE',
+          'status': 'Pending',
+          'uploaded_at': '2024-01-15T09:15:00Z',
+          'size': '1.8 MB',
+          'stockist_name': 'XYZ Pharmacy',
+          'hospital_name': 'General Hospital',
+          'invoice_number': 'INV-2024-002',
+          'total_amount': '₹8,500',
+        },
+        {
+          'id': '3',
+          'name': 'GRN_2024_003.pdf',
+          'type': 'GRN',
+          'status': 'Approved',
+          'uploaded_at': '2024-01-14T16:45:00Z',
+          'size': '3.2 MB',
+          'stockist_name': 'MediCare Store',
+          'hospital_name': 'Central Hospital',
+          'invoice_number': 'INV-2024-003',
+          'total_amount': '₹22,000',
+        },
+        {
+          'id': '4',
+          'name': 'POD_2024_004.pdf',
+          'type': 'POD',
+          'status': 'Processing',
+          'uploaded_at': '2024-01-14T14:20:00Z',
+          'size': '2.1 MB',
+          'stockist_name': 'Health Plus',
+          'hospital_name': 'Metro Hospital',
+          'invoice_number': 'INV-2024-004',
+          'total_amount': '₹12,500',
+        },
+        {
+          'id': '5',
+          'name': 'E-Invoice_2024_005.pdf',
+          'type': 'E-INVOICE',
+          'status': 'Approved',
+          'uploaded_at': '2024-01-14T11:30:00Z',
+          'size': '1.9 MB',
+          'stockist_name': 'Life Care',
+          'hospital_name': 'Regional Hospital',
+          'invoice_number': 'INV-2024-005',
+          'total_amount': '₹9,800',
+        },
+        {
+          'id': '6',
+          'name': 'POD_2024_006.pdf',
+          'type': 'POD',
+          'status': 'Rejected',
+          'uploaded_at': '2024-01-13T15:45:00Z',
+          'size': '2.8 MB',
+          'stockist_name': 'Prime Medical',
+          'hospital_name': 'District Hospital',
+          'invoice_number': 'INV-2024-006',
+          'total_amount': '₹18,200',
+        },
+        {
+          'id': '7',
+          'name': 'GRN_2024_007.pdf',
+          'type': 'GRN',
+          'status': 'Pending',
+          'uploaded_at': '2024-01-13T12:15:00Z',
+          'size': '2.5 MB',
+          'stockist_name': 'Wellness Store',
+          'hospital_name': 'Community Hospital',
+          'invoice_number': 'INV-2024-007',
+          'total_amount': '₹14,300',
+        },
+        {
+          'id': '8',
+          'name': 'E-Invoice_2024_008.pdf',
+          'type': 'E-INVOICE',
+          'status': 'Approved',
+          'uploaded_at': '2024-01-12T17:30:00Z',
+          'size': '1.6 MB',
+          'stockist_name': 'MediMart',
+          'hospital_name': 'Specialty Hospital',
+          'invoice_number': 'INV-2024-008',
+          'total_amount': '₹7,200',
+        },
+      ];
+      _extractStockistAndHospitalLists();
+    });
+  }
+
+  void _filterStockists(String query) {
+    setState(() {
+      if (query.isEmpty) {
+        _filteredStockists = List.from(_stockistList);
+      } else {
+        _filteredStockists = _stockistList
+            .where((stockist) => stockist.toLowerCase().contains(query.toLowerCase()))
+            .toList();
+      }
+      _showStockistDropdown = _filteredStockists.isNotEmpty;
+    });
+  }
+
+  void _filterHospitals(String query) {
+    setState(() {
+      if (query.isEmpty) {
+        _filteredHospitals = List.from(_hospitalList);
+      } else {
+        _filteredHospitals = _hospitalList
+            .where((hospital) => hospital.toLowerCase().contains(query.toLowerCase()))
+            .toList();
+      }
+      _showHospitalDropdown = _filteredHospitals.isNotEmpty;
+    });
   }
 
   List<Map<String, dynamic>> get _filteredDocuments {
@@ -191,8 +294,8 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
     if (_searchQuery.isNotEmpty) {
       filtered = filtered.where((doc) {
         final name = (doc['name'] ?? '').toLowerCase();
-        final stockist = (doc['stockist'] ?? '').toLowerCase();
-        final hospital = (doc['hospital'] ?? '').toLowerCase();
+        final stockist = (doc['stockist_name'] ?? '').toLowerCase();
+        final hospital = (doc['hospital_name'] ?? '').toLowerCase();
         final invoiceNumber = (doc['invoice_number'] ?? '').toLowerCase();
         final query = _searchQuery.toLowerCase();
 
@@ -200,6 +303,22 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
             stockist.contains(query) ||
             hospital.contains(query) ||
             invoiceNumber.contains(query);
+      }).toList();
+    }
+
+    // Apply stockist filter
+    if (_selectedStockist.isNotEmpty) {
+      filtered = filtered.where((doc) {
+        final stockist = doc['stockist_name'] ?? '';
+        return stockist == _selectedStockist;
+      }).toList();
+    }
+
+    // Apply hospital filter
+    if (_selectedHospital.isNotEmpty) {
+      filtered = filtered.where((doc) {
+        final hospital = doc['hospital_name'] ?? '';
+        return hospital == _selectedHospital;
       }).toList();
     }
 
@@ -270,10 +389,12 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
         elevation: 0,
         centerTitle: true,
         actions: [
-          IconButton(
-            onPressed: _loadAllDocuments,
-            icon: const Icon(Icons.refresh),
-          ),
+          if (_hasApiError || _errorMessage != null || _allDocuments.isEmpty)
+            IconButton(
+              onPressed: _loadAllDocuments,
+              icon: const Icon(Icons.refresh),
+              tooltip: 'Refresh',
+            ),
         ],
       ),
       body: _isLoading
@@ -371,6 +492,179 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
             ),
           ),
           const SizedBox(height: 12),
+          // Stockist and Hospital dropdowns
+          Row(
+            children: [
+              Expanded(
+                child: Stack(
+                  children: [
+                    TextField(
+                      controller: _stockistController,
+                      focusNode: _stockistFocusNode,
+                      onChanged: _filterStockists,
+                      onTap: () {
+                        setState(() {
+                          _showStockistDropdown = true;
+                          _filteredStockists = List.from(_stockistList);
+                        });
+                      },
+                      decoration: InputDecoration(
+                        hintText: 'Select Stockist',
+                        prefixIcon: const Icon(Icons.store),
+                        suffixIcon: _selectedStockist.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear),
+                                onPressed: () {
+                                  setState(() {
+                                    _selectedStockist = '';
+                                    _stockistController.clear();
+                                    _showStockistDropdown = false;
+                                  });
+                                },
+                              )
+                            : const Icon(Icons.arrow_drop_down),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey.shade300),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey.shade300),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Color(0xFF00A0A8), width: 2),
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey.shade50,
+                      ),
+                    ),
+                    if (_showStockistDropdown && _filteredStockists.isNotEmpty)
+                      Positioned(
+                        top: 60,
+                        left: 0,
+                        right: 0,
+                        child: Material(
+                          elevation: 4,
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            constraints: const BoxConstraints(maxHeight: 200),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.grey.shade300),
+                            ),
+                            child: ListView.builder(
+                              shrinkWrap: true,
+                              itemCount: _filteredStockists.length,
+                              itemBuilder: (context, index) {
+                                final stockist = _filteredStockists[index];
+                                return ListTile(
+                                  title: Text(stockist),
+                                  onTap: () {
+                                    setState(() {
+                                      _selectedStockist = stockist;
+                                      _stockistController.text = stockist;
+                                      _showStockistDropdown = false;
+                                    });
+                                    _stockistFocusNode.unfocus();
+                                  },
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Stack(
+                  children: [
+                    TextField(
+                      controller: _hospitalController,
+                      focusNode: _hospitalFocusNode,
+                      onChanged: _filterHospitals,
+                      onTap: () {
+                        setState(() {
+                          _showHospitalDropdown = true;
+                          _filteredHospitals = List.from(_hospitalList);
+                        });
+                      },
+                      decoration: InputDecoration(
+                        hintText: 'Select Hospital',
+                        prefixIcon: const Icon(Icons.local_hospital),
+                        suffixIcon: _selectedHospital.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear),
+                                onPressed: () {
+                                  setState(() {
+                                    _selectedHospital = '';
+                                    _hospitalController.clear();
+                                    _showHospitalDropdown = false;
+                                  });
+                                },
+                              )
+                            : const Icon(Icons.arrow_drop_down),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey.shade300),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey.shade300),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Color(0xFF00A0A8), width: 2),
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey.shade50,
+                      ),
+                    ),
+                    if (_showHospitalDropdown && _filteredHospitals.isNotEmpty)
+                      Positioned(
+                        top: 60,
+                        left: 0,
+                        right: 0,
+                        child: Material(
+                          elevation: 4,
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            constraints: const BoxConstraints(maxHeight: 200),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.grey.shade300),
+                            ),
+                            child: ListView.builder(
+                              shrinkWrap: true,
+                              itemCount: _filteredHospitals.length,
+                              itemBuilder: (context, index) {
+                                final hospital = _filteredHospitals[index];
+                                return ListTile(
+                                  title: Text(hospital),
+                                  onTap: () {
+                                    setState(() {
+                                      _selectedHospital = hospital;
+                                      _hospitalController.text = hospital;
+                                      _showHospitalDropdown = false;
+                                    });
+                                    _hospitalFocusNode.unfocus();
+                                  },
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
           // Filter chips
           SizedBox(
             height: 40,
@@ -421,7 +715,7 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
             ),
             const SizedBox(height: 16),
             Text(
-              _searchQuery.isNotEmpty || _selectedFilter != 'All'
+              _searchQuery.isNotEmpty || _selectedFilter != 'All' || _selectedStockist.isNotEmpty || _selectedHospital.isNotEmpty
                   ? 'No documents found'
                   : 'No documents uploaded yet',
               style: TextStyle(
@@ -432,7 +726,7 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              _searchQuery.isNotEmpty || _selectedFilter != 'All'
+              _searchQuery.isNotEmpty || _selectedFilter != 'All' || _selectedStockist.isNotEmpty || _selectedHospital.isNotEmpty
                   ? 'Try adjusting your search or filter'
                   : 'Start by uploading your first document',
               style: TextStyle(
@@ -440,6 +734,19 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
                 color: Colors.grey.shade600,
               ),
             ),
+            if (_hasApiError || _errorMessage != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 16),
+                child: ElevatedButton.icon(
+                  onPressed: _loadAllDocuments,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Refresh'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF00A0A8),
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ),
           ],
         ),
       );
