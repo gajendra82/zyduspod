@@ -28,7 +28,6 @@ dependencies:
   path: ^1.9.0
   flutter_doc_scanner: ^0.0.8
 
-  # Use these for PDF -> image rasterization and QR decoding
   printing: ^5.13.0
   zxing2: ^0.2.4 # upgrade from 0.2.4 so QRCodeReader is available
   file_picker: ^10.3.3

@@ -54,7 +54,7 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
         ),
       ],
       child: Scaffold(
-        backgroundColor: Colors.grey.shade50,
+        backgroundColor: Colors.white,
         appBar: AppBar(
           title: const Text('Vistaar'),
           backgroundColor: Colors.white,
@@ -430,14 +430,16 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
 
   Widget _buildStatsGrid(BuildContext context, Map<String, dynamic> dashboardData) {
     // print('dashboardData: $dashboardData');
-    return GridView.count(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisCount: 2,
-      crossAxisSpacing: 16,
-      mainAxisSpacing: 16,
-      childAspectRatio: 1.5,
-      children: [
+    return Container(
+      color: Colors.white,
+      child: GridView.count(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        crossAxisCount: 2,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 10,
+        childAspectRatio: 1.5,
+        children: [
         _buildStatCard(
           'Total Documents',
           (dashboardData['total_documents'] ?? 0).toString(),
@@ -474,7 +476,8 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
           Icons.check_circle,
           const Color(0xFF4CAF50),
         ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -486,9 +489,9 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -617,7 +620,7 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: recentDocuments.length,
-              separatorBuilder: (context, index) => const Divider(height: 1),
+              separatorBuilder: (context, index) => const SizedBox(height: 8),
               itemBuilder: (context, index) {
                 final doc = recentDocuments[index];
                 print('doc: $doc');
@@ -801,7 +804,6 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
         decoration: BoxDecoration(
           color: color.withOpacity(0.1),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.3)),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
