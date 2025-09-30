@@ -75,9 +75,9 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
             unselectedLabelColor: Colors.grey,
             indicatorColor: const Color(0xFF00A0A8),
             tabs: const [
-              Expanded(child: Tab(icon: Icon(Icons.dashboard), text: 'Overview')),
-              Expanded(child: Tab(icon: Icon(Icons.local_hospital), text: 'Hospital Sales')),
-              Expanded(child: Tab(icon: Icon(Icons.description), text: 'All Documents')),
+              Tab(icon: Icon(Icons.dashboard), text: 'Overview'),
+              Tab(icon: Icon(Icons.local_hospital), text: 'Hospital Sales'),
+              Tab(icon: Icon(Icons.description), text: 'All Documents'),
             ],
           ),
         ),

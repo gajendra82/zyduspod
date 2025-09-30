@@ -1,7 +1,7 @@
 name: zyduspod
 description: "A new Flutter project."
 publish_to: "none"
-version: 1.0.0+5
+version: 1.0.0+6
 
 environment:
   sdk: ^3.7.0
@@ -19,7 +19,6 @@ dependencies:
   shared_preferences: ^2.5.3
   mlkit_document_scanner: ^0.0.10
   flutter_pdfview: ^1.4.1+1
-  # pdf_render: ^1.4.12   # REMOVE this line (legacy V1 embedding causes build failure)
   open_filex: ^4.5.0
   pdf: ^3.10.8
   http: ^1.2.2
