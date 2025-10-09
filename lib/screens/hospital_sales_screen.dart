@@ -108,9 +108,14 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
 
   Widget _buildLoadedWidget(BuildContext context, SalesLoaded state) {
     final filteredSummaries = _filterHospitalSummaries(state.hospitalSummaries);
+    if(filteredSummaries.isEmpty){
+      return const Center(
+        child: Text('No data found'),
 
+      );
+    }
     return Column(
-      children: [
+      children: [ 
         _buildFilterChips(),
         Expanded(
           child: RefreshIndicator(

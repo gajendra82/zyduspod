@@ -94,7 +94,7 @@ class HospitalDashboardService {
         queryParams['search'] = searchQuery;
       }
 
-      final uri = Uri.parse('${API_BASE_URL}/dashboard/documents/all').replace(
+      final uri = Uri.parse('${API_BASE_URL}dashboard/documents/all').replace(
         queryParameters: queryParams,
       );
 
