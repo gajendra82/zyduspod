@@ -16,22 +16,15 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
   List<Map<String, dynamic>> _allDocuments = [];
   List<String> _stockistList = [];
   List<String> _hospitalList = [];
-  List<String> _filteredStockists = [];
-  List<String> _filteredHospitals = [];
   bool _isLoading = true;
   String? _errorMessage;
   String _selectedFilter = 'All';
   String _searchQuery = '';
   String _selectedStockist = '';
   String _selectedHospital = '';
-  bool _showStockistDropdown = false;
-  bool _showHospitalDropdown = false;
   bool _hasApiError = false;
-
-  final TextEditingController _stockistController = TextEditingController();
-  final TextEditingController _hospitalController = TextEditingController();
-  final FocusNode _stockistFocusNode = FocusNode();
-  final FocusNode _hospitalFocusNode = FocusNode();
+  DateTime? _fromDate;
+  DateTime? _toDate;
 
   final List<String> _filterOptions = [
     'All',
@@ -48,29 +41,6 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
   void initState() {
     super.initState();
     _loadAllDocuments();
-    _stockistFocusNode.addListener(() {
-      if (!_stockistFocusNode.hasFocus) {
-        setState(() {
-          _showStockistDropdown = false;
-        });
-      }
-    });
-    _hospitalFocusNode.addListener(() {
-      if (!_hospitalFocusNode.hasFocus) {
-        setState(() {
-          _showHospitalDropdown = false;
-        });
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _stockistController.dispose();
-    _hospitalController.dispose();
-    _stockistFocusNode.dispose();
-    _hospitalFocusNode.dispose();
-    super.dispose();
   }
 
   Future<void> _loadAllDocuments() async {
@@ -87,9 +57,24 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
       if (token == null) {
         throw Exception('No authentication token found');
       }
-      print('${API_BASE_URL}dashboard/documents/all');
+      // Example for query params: ?type=POD&limit=20&hospital_id=&stockist_id=&start_date=2025-10-08&end_date=2025-10-08
+      // final String type = _selectedFilter;
+      final String type = 'POD';
+      final int limit = 20;
+      final String hospitalId = _selectedHospital.isEmpty ? '' : _selectedHospital;
+      final String stockistId = _selectedStockist.isEmpty ? '' : _selectedStockist;
+      final String startDate = _fromDate != null ? _fromDate!.toString() : '';
+      final String endDate = _toDate != null ? _toDate!.toString() : '';
+      final String url = '${API_BASE_URL}dashboard/documents/all'
+          '?type=$type'
+          '&limit=$limit'
+          '&hospital_id=$hospitalId'
+          '&stockist_id=$stockistId'
+          '&start_date=$startDate'
+          '&end_date=$endDate';
+      print(url);
       final response = await http.get(
-        Uri.parse('${API_BASE_URL}dashboard/documents/all'),
+        Uri.parse(url),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
@@ -157,47 +142,34 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
     print('Stockists: ${_stockistList}');
     _hospitalList = hospitals.toList()..sort();
     print('Hospitals: ${_hospitalList}');
-    _filteredStockists = List.from(_stockistList);
-    _filteredHospitals = List.from(_hospitalList);
-  }
-
-  void _filterStockists(String query) {
-    setState(() {
-      if (query.isEmpty) {
-        _filteredStockists = List.from(_stockistList);
-      } else {
-        _filteredStockists =
-            _stockistList
-                .where(
-                  (stockist) =>
-                      stockist.toLowerCase().contains(query.toLowerCase()),
-                )
-                .toList();
-      }
-      _showStockistDropdown = _filteredStockists.isNotEmpty;
-    });
-  }
-
-  void _filterHospitals(String query) {
-    print(query);
-    setState(() {
-      if (query.isEmpty) {
-        _filteredHospitals = List.from(_hospitalList);
-      } else {
-        _filteredHospitals =
-            _hospitalList
-                .where(
-                  (hospital) =>
-                      hospital.toLowerCase().contains(query.toLowerCase()),
-                )
-                .toList();
-      }
-      _showHospitalDropdown = _filteredHospitals.isNotEmpty;
-    });
   }
 
   List<Map<String, dynamic>> get _filteredDocuments {
     List<Map<String, dynamic>> filtered = _allDocuments;
+
+    // Apply date range filter
+    if (_fromDate != null || _toDate != null) {
+      filtered = filtered.where((doc) {
+        final uploadedAtStr = doc['uploaded_at'];
+        if (uploadedAtStr == null) return false;
+        
+        final uploadedAt = DateTime.tryParse(uploadedAtStr);
+        if (uploadedAt == null) return false;
+
+        // Normalize dates to start and end of day
+        if (_fromDate != null) {
+          final fromDateNormalized = DateTime(_fromDate!.year, _fromDate!.month, _fromDate!.day);
+          if (uploadedAt.isBefore(fromDateNormalized)) return false;
+        }
+
+        if (_toDate != null) {
+          final toDateNormalized = DateTime(_toDate!.year, _toDate!.month, _toDate!.day, 23, 59, 59);
+          if (uploadedAt.isAfter(toDateNormalized)) return false;
+        }
+
+        return true;
+      }).toList();
+    }
 
     // Apply search filter
     if (_searchQuery.isNotEmpty) {
@@ -365,105 +337,382 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
   }
 
   Widget _buildSearchAndFilter() {
+    final hasActiveFilters = _selectedStockist.isNotEmpty ||
+        _selectedHospital.isNotEmpty ||
+        _selectedFilter != 'All' ||
+        _fromDate != null ||
+        _toDate != null;
+
     return Container(
       padding: const EdgeInsets.all(16),
       color: Colors.white,
       child: Column(
         children: [
-          // Search bar
-
-          // Clear filters button
           Row(
             children: [
               Expanded(
-                flex: 2,
-                child: TextField(
-                  onChanged: (value) {
-                    setState(() {
-                      _searchQuery = value;
-                    });
-                  },
-                  decoration: InputDecoration(
-                    hintText: 'Search documents...',
-                    prefixIcon: const Icon(Icons.search),
-                    border: OutlineInputBorder(
+                child: ElevatedButton.icon(
+                  onPressed: _showFilterBottomSheet,
+                  icon: const Icon(Icons.filter_list),
+                  label: const Text('Show All Filters'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF00A0A8),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: Colors.grey.shade300),
                     ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: Colors.grey.shade300),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(
-                        color: Color(0xFF00A0A8),
-                        width: 2,
-                      ),
-                    ),
-                    filled: true,
-                    fillColor: Colors.grey.shade50,
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              if (_selectedStockist.isNotEmpty ||
-                  _selectedHospital.isNotEmpty ||
-                  _selectedFilter != 'All')
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _selectedStockist = '';
-                        _selectedHospital = '';
-                        _selectedFilter = 'All';
-                        _searchQuery = '';
-                      });
-                    },
-                    icon: const Icon(Icons.clear_all),
-                    label: const Text('Clear All Filters'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF00A0A8),
-                      side: const BorderSide(color: Color(0xFF00A0A8)),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
+              if (hasActiveFilters) ...[
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: () {
+                    setState(() {
+                      _selectedStockist = '';
+                      _selectedHospital = '';
+                      _selectedFilter = 'All';
+                      _searchQuery = '';
+                      _fromDate = null;
+                      _toDate = null;
+                    });
+                  },
+                  icon: const Icon(Icons.clear_all),
+                  tooltip: 'Clear All Filters',
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.red.shade50,
+                    foregroundColor: Colors.red,
                   ),
                 ),
+              ],
             ],
           ),
-          const SizedBox(height: 12),
-          // Stockist and Hospital dropdowns
-          Row(
-            children: [
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  value: _selectedStockist.isEmpty ? null : _selectedStockist,
-                  decoration: InputDecoration(
-                    hintText: 'Select Stockist',
-                    prefixIcon: const Icon(Icons.store),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: Colors.grey.shade300),
+          if (hasActiveFilters) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (_selectedStockist.isNotEmpty)
+                  Chip(
+                    label: Text('Stockist: $_selectedStockist'),
+                    deleteIcon: const Icon(Icons.close, size: 18),
+                    onDeleted: () {
+                      setState(() {
+                        _selectedStockist = '';
+                      });
+                    },
+                    backgroundColor: const Color(0xFF00A0A8).withOpacity(0.1),
+                    labelStyle: const TextStyle(
+                      color: Color(0xFF00A0A8),
+                      fontWeight: FontWeight.w500,
                     ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: Colors.grey.shade300),
+                  ),
+                if (_selectedHospital.isNotEmpty)
+                  Chip(
+                    label: Text('Hospital: $_selectedHospital'),
+                    deleteIcon: const Icon(Icons.close, size: 18),
+                    onDeleted: () {
+                      setState(() {
+                        _selectedHospital = '';
+                      });
+                    },
+                    backgroundColor: const Color(0xFF00A0A8).withOpacity(0.1),
+                    labelStyle: const TextStyle(
+                      color: Color(0xFF00A0A8),
+                      fontWeight: FontWeight.w500,
                     ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(
-                        color: Color(0xFF00A0A8),
-                        width: 2,
+                  ),
+                if (_selectedFilter != 'All')
+                  Chip(
+                    label: Text('Type: $_selectedFilter'),
+                    deleteIcon: const Icon(Icons.close, size: 18),
+                    onDeleted: () {
+                      setState(() {
+                        _selectedFilter = 'All';
+                      });
+                    },
+                    backgroundColor: const Color(0xFF00A0A8).withOpacity(0.1),
+                    labelStyle: const TextStyle(
+                      color: Color(0xFF00A0A8),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                if (_fromDate != null)
+                  Chip(
+                    label: Text('From: ${_fromDate!.day}/${_fromDate!.month}/${_fromDate!.year}'),
+                    deleteIcon: const Icon(Icons.close, size: 18),
+                    onDeleted: () {
+                      setState(() {
+                        _fromDate = null;
+                      });
+                    },
+                    backgroundColor: const Color(0xFF00A0A8).withOpacity(0.1),
+                    labelStyle: const TextStyle(
+                      color: Color(0xFF00A0A8),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                if (_toDate != null)
+                  Chip(
+                    label: Text('To: ${_toDate!.day}/${_toDate!.month}/${_toDate!.year}'),
+                    deleteIcon: const Icon(Icons.close, size: 18),
+                    onDeleted: () {
+                      setState(() {
+                        _toDate = null;
+                      });
+                    },
+                    backgroundColor: const Color(0xFF00A0A8).withOpacity(0.1),
+                    labelStyle: const TextStyle(
+                      color: Color(0xFF00A0A8),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  void _showFilterBottomSheet() {
+    // Temporary state variables for the bottom sheet
+    String tempStockist = _selectedStockist;
+    String tempHospital = _selectedHospital;
+    String tempFilter = _selectedFilter;
+    DateTime? tempFromDate = _fromDate;
+    DateTime? tempToDate = _toDate;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+              ),
+              child: Container(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Filter Documents',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF00A0A8),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    
+                    // Date selectors
+                    const Text(
+                      'Date Range',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey,
                       ),
                     ),
-                    // filled: true,
-                    fillColor: Colors.grey.shade50,
-                  ),
-                  isExpanded: true,
-                  items:
-                      _stockistList.map((String stockist) {
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: InkWell(
+                            onTap: () async {
+                              final pickedDate = await showDatePicker(
+                                context: context,
+                                initialDate: tempFromDate ?? DateTime.now(),
+                                firstDate: DateTime(2020),
+                                lastDate: DateTime.now(),
+                                builder: (context, child) {
+                                  return Theme(
+                                    data: Theme.of(context).copyWith(
+                                      colorScheme: const ColorScheme.light(
+                                        primary: Color(0xFF00A0A8),
+                                        onPrimary: Colors.white,
+                                        onSurface: Colors.black,
+                                      ),
+                                    ),
+                                    child: child!,
+                                  );
+                                },
+                              );
+                              if (pickedDate != null) {
+                                setModalState(() {
+                                  tempFromDate = pickedDate;
+                                  if (tempToDate != null && tempFromDate!.isAfter(tempToDate!)) {
+                                    tempToDate = tempFromDate;
+                                  }
+                                });
+                              }
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                              decoration: BoxDecoration(
+                                border: Border.all(color: Colors.grey.shade300),
+                                borderRadius: BorderRadius.circular(12),
+                                color: Colors.grey.shade50,
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.calendar_today, size: 20, color: Color(0xFF00A0A8)),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'From Date',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            color: Colors.grey.shade600,
+                                          ),
+                                        ),
+                                        Text(
+                                          tempFromDate != null
+                                              ? '${tempFromDate!.day}/${tempFromDate!.month}/${tempFromDate!.year}'
+                                              : 'Select date',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            color: tempFromDate != null ? Colors.black : Colors.grey.shade500,
+                                            fontWeight: tempFromDate != null ? FontWeight.w500 : FontWeight.normal,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: InkWell(
+                            onTap: () async {
+                              final pickedDate = await showDatePicker(
+                                context: context,
+                                initialDate: tempToDate ?? DateTime.now(),
+                                firstDate: tempFromDate ?? DateTime(2020),
+                                lastDate: DateTime.now(),
+                                builder: (context, child) {
+                                  return Theme(
+                                    data: Theme.of(context).copyWith(
+                                      colorScheme: const ColorScheme.light(
+                                        primary: Color(0xFF00A0A8),
+                                        onPrimary: Colors.white,
+                                        onSurface: Colors.black,
+                                      ),
+                                    ),
+                                    child: child!,
+                                  );
+                                },
+                              );
+                              if (pickedDate != null) {
+                                setModalState(() {
+                                  tempToDate = pickedDate;
+                                });
+                              }
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                              decoration: BoxDecoration(
+                                border: Border.all(color: Colors.grey.shade300),
+                                borderRadius: BorderRadius.circular(12),
+                                color: Colors.grey.shade50,
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.calendar_today, size: 20, color: Color(0xFF00A0A8)),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'To Date',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            color: Colors.grey.shade600,
+                                          ),
+                                        ),
+                                        Text(
+                                          tempToDate != null
+                                              ? '${tempToDate!.day}/${tempToDate!.month}/${tempToDate!.year}'
+                                              : 'Select date',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            color: tempToDate != null ? Colors.black : Colors.grey.shade500,
+                                            fontWeight: tempToDate != null ? FontWeight.w500 : FontWeight.normal,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    
+                    const SizedBox(height: 20),
+                    
+                    // Stockist dropdown
+                    const Text(
+                      'Stockist',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      value: tempStockist.isEmpty ? null : tempStockist,
+                      decoration: InputDecoration(
+                        hintText: 'Select Stockist',
+                        prefixIcon: const Icon(Icons.store),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey.shade300),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey.shade300),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                            color: Color(0xFF00A0A8),
+                            width: 2,
+                          ),
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey.shade50,
+                      ),
+                      isExpanded: true,
+                      items: _stockistList.map((String stockist) {
                         return DropdownMenuItem<String>(
                           value: stockist,
                           child: Text(
@@ -472,41 +721,50 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
                           ),
                         );
                       }).toList(),
-                  onChanged: (String? value) {
-                    setState(() {
-                      _selectedStockist = value ?? '';
-                    });
-                  },
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  value: _selectedHospital.isEmpty ? null : _selectedHospital,
-                  decoration: InputDecoration(
-                    hintText: 'Select Hospital',
-                    prefixIcon: const Icon(Icons.local_hospital),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: Colors.grey.shade300),
+                      onChanged: (String? value) {
+                        setModalState(() {
+                          tempStockist = value ?? '';
+                        });
+                      },
                     ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: Colors.grey.shade300),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(
-                        color: Color(0xFF00A0A8),
-                        width: 2,
+                    
+                    const SizedBox(height: 16),
+                    
+                    // Hospital dropdown
+                    const Text(
+                      'Hospital',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey,
                       ),
                     ),
-                    filled: true,
-                    fillColor: Colors.grey.shade50,
-                  ),
-                  isExpanded: true,
-                  items:
-                      _hospitalList.map((String hospital) {
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      value: tempHospital.isEmpty ? null : tempHospital,
+                      decoration: InputDecoration(
+                        hintText: 'Select Hospital',
+                        prefixIcon: const Icon(Icons.local_hospital),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey.shade300),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey.shade300),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                            color: Color(0xFF00A0A8),
+                            width: 2,
+                          ),
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey.shade50,
+                      ),
+                      isExpanded: true,
+                      items: _hospitalList.map((String hospital) {
                         return DropdownMenuItem<String>(
                           value: hospital,
                           child: Text(
@@ -515,55 +773,93 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
                           ),
                         );
                       }).toList(),
-                  onChanged: (String? value) {
-                    setState(() {
-                      _selectedHospital = value ?? '';
-                    });
-                  },
+                      onChanged: (String? value) {
+                        setModalState(() {
+                          tempHospital = value ?? '';
+                        });
+                      },
+                    ),
+                    
+                    const SizedBox(height: 20),
+                    
+                    // Filter chips
+                    const Text(
+                      'Document Type / Status',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _filterOptions.map((filter) {
+                        final isSelected = tempFilter == filter;
+                        return FilterChip(
+                          label: Text(filter),
+                          selected: isSelected,
+                          onSelected: (selected) {
+                            setModalState(() {
+                              tempFilter = filter;
+                            });
+                          },
+                          selectedColor: const Color(0xFF00A0A8).withOpacity(0.2),
+                          checkmarkColor: const Color(0xFF00A0A8),
+                          labelStyle: TextStyle(
+                            color: isSelected ? const Color(0xFF00A0A8) : Colors.grey.shade700,
+                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    
+                    const SizedBox(height: 24),
+                    
+                    // Apply Filter Button
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          setState(() {
+                            _selectedStockist = tempStockist;
+                            _selectedHospital = tempHospital;
+                            _selectedFilter = tempFilter;
+                            _fromDate = tempFromDate;
+                            _toDate = tempToDate;
+                          });
+                          _loadAllDocuments();
+                          Navigator.pop(context);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF00A0A8),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text(
+                          'Apply Filters',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          // Filter chips
-          SizedBox(
-            height: 40,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              itemCount: _filterOptions.length,
-              itemBuilder: (context, index) {
-                final filter = _filterOptions[index];
-                final isSelected = _selectedFilter == filter;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: FilterChip(
-                    label: Text(filter),
-                    selected: isSelected,
-                    onSelected: (selected) {
-                      setState(() {
-                        _selectedFilter = filter;
-                      });
-                      
-                    },
-                    selectedColor: const Color(0xFF00A0A8).withOpacity(0.2),
-                    checkmarkColor: const Color(0xFF00A0A8),
-                    labelStyle: TextStyle(
-                      color:
-                          isSelected
-                              ? const Color(0xFF00A0A8)
-                              : Colors.grey.shade700,
-                      fontWeight:
-                          isSelected ? FontWeight.w600 : FontWeight.normal,
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
+            );
+          },
+        );
+      },
     );
   }
+
+
 
   Widget _buildDocumentsList() {
     final filteredDocs = _filteredDocuments;
@@ -583,7 +879,9 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
               _searchQuery.isNotEmpty ||
                       _selectedFilter != 'All' ||
                       _selectedStockist.isNotEmpty ||
-                      _selectedHospital.isNotEmpty
+                      _selectedHospital.isNotEmpty ||
+                      _fromDate != null ||
+                      _toDate != null
                   ? 'No documents found'
                   : 'No documents uploaded yet',
               style: TextStyle(
@@ -597,7 +895,9 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
               _searchQuery.isNotEmpty ||
                       _selectedFilter != 'All' ||
                       _selectedStockist.isNotEmpty ||
-                      _selectedHospital.isNotEmpty
+                      _selectedHospital.isNotEmpty ||
+                      _fromDate != null ||
+                      _toDate != null
                   ? 'Try adjusting your search or filter'
                   : 'Start by uploading your first document',
               style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
@@ -620,13 +920,19 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: filteredDocs.length,
-      itemBuilder: (context, index) {
-        final doc = filteredDocs[index];
-        return _buildDocumentCard(doc);
+    return RefreshIndicator(
+      onRefresh: () async {
+        await _loadAllDocuments();
       },
+      color: const Color(0xFF00A0A8),
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: filteredDocs.length,
+        itemBuilder: (context, index) {
+          final doc = filteredDocs[index];
+          return _buildDocumentCard(doc);
+        },
+      ),
     );
   }
 

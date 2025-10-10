@@ -187,6 +187,21 @@ class _SplashScreenState extends State<SplashScreen>
                   );
                 },
               ),
+
+              const SizedBox(height: 40),
+            Padding(
+              padding: const EdgeInsets.only(top: 12.0),
+              child: Text(
+                'Powered by Globalspace Technology Ltd',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 12,
+                  fontStyle: FontStyle.italic,
+                  letterSpacing: 1.1,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
             ],
           ),
         ),
