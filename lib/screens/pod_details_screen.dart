@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:zyduspod/services/pod_details_service.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class PodDetailsScreen extends StatefulWidget {
   final int podId;
@@ -72,13 +73,14 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _errorMessage != null
+      body:
+          _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _errorMessage != null
               ? _buildErrorWidget()
               : _podData != null
-                  ? _buildPodDetails()
-                  : const Center(child: Text('No data available')),
+              ? _buildPodDetails()
+              : const Center(child: Text('No data available')),
     );
   }
 
@@ -87,11 +89,7 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.error_outline,
-            size: 64,
-            color: Colors.red.shade300,
-          ),
+          Icon(Icons.error_outline, size: 64, color: Colors.red.shade300),
           const SizedBox(height: 16),
           Text(
             'Error Loading POD Details',
@@ -105,9 +103,7 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
           Text(
             _errorMessage ?? 'Unknown error occurred',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.grey.shade600,
-            ),
+            style: TextStyle(color: Colors.grey.shade600),
           ),
           const SizedBox(height: 24),
           ElevatedButton.icon(
@@ -133,7 +129,286 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
         children: [
           // Header Card
           _buildHeaderCard(pod),
-          const SizedBox(height: 16),
+
+          // const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  onTap: () async {
+                    // Open the file_path link in the browser
+                    final url = pod['file_path'];
+                    if (url != null && url is String && url.isNotEmpty) {
+                      Uri uri = Uri.parse(url);
+                      if (!await launchUrl(
+                         uri,
+                        mode: LaunchMode.externalApplication,
+                      )) {
+                        throw Exception('Could not launch $url');
+                      }
+                    }
+                  },
+                  child: Container(
+                    alignment: Alignment.center,
+                    margin: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.green.withOpacity(0.5)),
+                    ),
+                    child: Text(
+                      'View File',
+                      style: TextStyle(
+                        color: Colors.green,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: InkWell(
+                  onTap: () {
+                  showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true,
+                    shape: const RoundedRectangleBorder(
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                    ),
+                    builder: (context) {
+                      final eInvoice = pod['e_invoice'];
+                      if (eInvoice == null) {
+                        return Padding(
+                          padding: const EdgeInsets.all(32),
+                          child: Center(
+                            child: Text(
+                              'No E-Invoice data available.',
+                              style: TextStyle(
+                                fontSize: 18,
+                                color: Colors.grey.shade700,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+
+                      return Padding(
+                        padding: EdgeInsets.only(
+                          left: 20,
+                          right: 20,
+                          top: 24,
+                          bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+                        ),
+                        child: SingleChildScrollView(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text(
+                                    'E-Invoice Details',
+                                    style: TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF00A0A8),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.close),
+                                    onPressed: () => Navigator.pop(context),
+                                  ),
+                                ],
+                              ),
+                              const Divider(),
+                              
+                              // Invoice Number
+                              _buildEInvoiceListTile(
+                                icon: Icons.receipt_long,
+                                title: 'Invoice Number',
+                                subtitle: eInvoice['invoice_number']?.toString() ?? 'N/A',
+                              ),
+                              
+                              // IRN
+                              _buildEInvoiceListTile(
+                                icon: Icons.qr_code_2,
+                                title: 'IRN',
+                                subtitle: eInvoice['irn']?.toString() ?? 'N/A',
+                              ),
+                              
+                              // Acknowledgement Number
+                              if (eInvoice['ack_no'] != null)
+                                _buildEInvoiceListTile(
+                                  icon: Icons.check_circle_outline,
+                                  title: 'Acknowledgement No',
+                                  subtitle: eInvoice['ack_no']?.toString() ?? 'N/A',
+                                ),
+                              
+                              // Invoice Date
+                              _buildEInvoiceListTile(
+                                icon: Icons.calendar_today,
+                                title: 'Invoice Date',
+                                subtitle: _formatDate(eInvoice['invoice_date']?.toString()),
+                              ),
+                              
+                              // Total Amount
+                              _buildEInvoiceListTile(
+                                icon: Icons.currency_rupee,
+                                title: 'Total Amount',
+                                subtitle: '₹${eInvoice['total_amount']?.toString() ?? '0.00'}',
+                              ),
+                              
+                              // Tax Amount
+                              _buildEInvoiceListTile(
+                                icon: Icons.receipt,
+                                title: 'Tax Amount',
+                                subtitle: '₹${eInvoice['tax_amount']?.toString() ?? '0.00'}',
+                              ),
+                              
+                              // Discount Amount
+                              if (eInvoice['discount_amount'] != null && eInvoice['discount_amount'].toString() != '0.00')
+                                _buildEInvoiceListTile(
+                                  icon: Icons.discount,
+                                  title: 'Discount Amount',
+                                  subtitle: '₹${eInvoice['discount_amount']?.toString() ?? '0.00'}',
+                                ),
+                              
+                              // Status
+                              _buildEInvoiceListTile(
+                                icon: Icons.info_outline,
+                                title: 'Status',
+                                subtitle: eInvoice['status']?.toString().toUpperCase() ?? 'N/A',
+                              ),
+                              
+                              // GST Status
+                              _buildEInvoiceListTile(
+                                icon: Icons.verified,
+                                title: 'GST Status',
+                                subtitle: eInvoice['gst_status']?.toString().replaceAll('_', ' ').toUpperCase() ?? 'N/A',
+                              ),
+                              
+                              // Metadata Section
+                              if (eInvoice['metadata'] != null) ...[
+                                const SizedBox(height: 16),
+                                const Text(
+                                  'Additional Information',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF00A0A8),
+                                  ),
+                                ),
+                                const Divider(),
+                                _buildEInvoiceListTile(
+                                  icon: Icons.document_scanner,
+                                  title: 'Document Type',
+                                  subtitle: eInvoice['metadata']['doc_type']?.toString() ?? 'N/A',
+                                ),
+                                _buildEInvoiceListTile(
+                                  icon: Icons.event,
+                                  title: 'IRN Date',
+                                  subtitle: eInvoice['metadata']['irn_date']?.toString() ?? 'N/A',
+                                ),
+                                _buildEInvoiceListTile(
+                                  icon: Icons.inventory_2,
+                                  title: 'Item Count',
+                                  subtitle: eInvoice['metadata']['item_count']?.toString() ?? 'N/A',
+                                ),
+                                _buildEInvoiceListTile(
+                                  icon: Icons.business,
+                                  title: 'Buyer GSTIN',
+                                  subtitle: eInvoice['metadata']['buyer_gstin']?.toString() ?? 'N/A',
+                                ),
+                                _buildEInvoiceListTile(
+                                  icon: Icons.store,
+                                  title: 'Seller GSTIN',
+                                  subtitle: eInvoice['metadata']['seller_gstin']?.toString() ?? 'N/A',
+                                ),
+                                _buildEInvoiceListTile(
+                                  icon: Icons.code,
+                                  title: 'Main HSN Code',
+                                  subtitle: eInvoice['metadata']['main_hsn_code']?.toString() ?? 'N/A',
+                                ),
+                              ],
+                              
+                              // View PDF Button
+                              if (eInvoice['file_path'] != null && eInvoice['file_path'].toString().isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 16.0),
+                                  child: SizedBox(
+                                    width: double.infinity,
+                                    child: ElevatedButton.icon(
+                                      icon: const Icon(Icons.open_in_new),
+                                      label: const Text('View E-Invoice PDF'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF00A0A8),
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(vertical: 14),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                      ),
+                                      onPressed: () async {
+                                        final url = eInvoice['file_path'];
+                                        if (url != null && url is String && url.isNotEmpty) {
+                                          final uri = Uri.parse(url);
+                                          if (!await launchUrl(
+                                            uri,
+                                            mode: LaunchMode.externalApplication,
+                                          )) {
+                                            if (context.mounted) {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                const SnackBar(content: Text('Could not open E-Invoice file')),
+                                              );
+                                            }
+                                          }
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                ),
+                              const SizedBox(height: 12),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                    
+                  },
+                  child: Container(
+                    alignment: Alignment.center,
+                    margin: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.blue.withOpacity(0.5)),
+                    ),
+                    child: Text(
+                      'View E-Invoice',
+                      style: TextStyle(
+                        color: Colors.blue,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          // const SizedBox(height: 16),
 
           // Stockist & Hospital Info
           Row(
@@ -164,10 +439,7 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
           gradient: LinearGradient(
-            colors: [
-              const Color(0xFF00A0A8),
-              const Color(0xFF6EC1C7),
-            ],
+            colors: [const Color(0xFF00A0A8), const Color(0xFF6EC1C7)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -280,11 +552,7 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
     return Expanded(
       child: Row(
         children: [
-          Icon(
-            icon,
-            color: Colors.white.withOpacity(0.8),
-            size: 16,
-          ),
+          Icon(icon, color: Colors.white.withOpacity(0.8), size: 16),
           const SizedBox(width: 8),
           Expanded(
             child: Column(
@@ -339,10 +607,7 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
                 const SizedBox(width: 12),
                 const Text(
                   'Stockist',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                 ),
               ],
             ),
@@ -385,10 +650,7 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
                 const SizedBox(width: 12),
                 const Text(
                   'Hospital',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                 ),
               ],
             ),
@@ -425,10 +687,7 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-              ),
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
             ),
           ),
         ],
@@ -462,18 +721,12 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
                 const SizedBox(width: 12),
                 const Text(
                   'Items',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                 ),
                 const Spacer(),
                 Text(
                   '${items.length} items',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade600,
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
               ],
             ),
@@ -559,17 +812,11 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
         children: [
           Text(
             label,
-            style: TextStyle(
-              fontSize: 10,
-              color: Colors.grey.shade600,
-            ),
+            style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
           ),
           Text(
             value,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
           ),
         ],
       ),
@@ -602,15 +849,15 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
                 const SizedBox(width: 12),
                 const Text(
                   'Summary',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                 ),
               ],
             ),
             const SizedBox(height: 16),
-            _buildSummaryRow('Total Amount', '₹${pod['total_amount'] ?? '0.00'}'),
+            _buildSummaryRow(
+              'Total Amount',
+              '₹${pod['total_amount'] ?? '0.00'}',
+            ),
             if (pod['tax_amount'] != null)
               _buildSummaryRow('Tax Amount', '₹${pod['tax_amount']}'),
             if (pod['discount_amount'] != null)
@@ -662,5 +909,32 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
     } catch (e) {
       return 'Invalid Date';
     }
+  }
+
+  Widget _buildEInvoiceListTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    return ListTile(
+      leading: Icon(icon, color: const Color(0xFF00A0A8)),
+      title: Text(
+        title,
+        style: TextStyle(
+          color: Colors.grey.shade700,
+          fontWeight: FontWeight.bold,
+          fontSize: 13,
+        ),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: const TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+    );
   }
 }
