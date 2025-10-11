@@ -17,6 +17,13 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
   List<String> _stockistList = [];
   List<String> _hospitalList = [];
   bool _isLoading = true;
+  bool _isLoadingMore = false;
+  bool _hasMoreData = true;
+  int _currentPage = 1;
+  int _totalPages = 1;
+  int _totalRecords = 0;
+  int _perPage = 20;
+  int? _nextPage;
   String? _errorMessage;
   String _selectedFilter = 'All';
   String _searchQuery = '';
@@ -25,6 +32,7 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
   bool _hasApiError = false;
   DateTime? _fromDate;
   DateTime? _toDate;
+  final ScrollController _scrollController = ScrollController();
 
   final List<String> _filterOptions = [
     'All',
@@ -41,13 +49,35 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
   void initState() {
     super.initState();
     _loadAllDocuments();
+    _scrollController.addListener(_onScroll);
   }
 
-  Future<void> _loadAllDocuments() async {
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 200) {
+      if (!_isLoadingMore && _hasMoreData && !_isLoading) {
+        _loadMoreDocuments();
+      }
+    }
+  }
+
+  Future<void> _loadAllDocuments({bool isRefresh = false}) async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
       _hasApiError = false;
+      _currentPage = 1;
+      _hasMoreData = true;
+      if (isRefresh) {
+        _allDocuments.clear();
+      }
     });
 
     try {
@@ -57,22 +87,23 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
       if (token == null) {
         throw Exception('No authentication token found');
       }
-      // Example for query params: ?type=POD&limit=20&hospital_id=&stockist_id=&start_date=2025-10-08&end_date=2025-10-08
-      // final String type = _selectedFilter;
-      final String type = 'POD';
-      final int limit = 20;
+      
+      final String type = _selectedFilter == 'All' ? '' : _selectedFilter;
       final String hospitalId = _selectedHospital.isEmpty ? '' : _selectedHospital;
       final String stockistId = _selectedStockist.isEmpty ? '' : _selectedStockist;
-      final String startDate = _fromDate != null ? _fromDate!.toString() : '';
-      final String endDate = _toDate != null ? _toDate!.toString() : '';
+      final String startDate = _fromDate != null ? _formatDateForApi(_fromDate!) : '';
+      final String endDate = _toDate != null ? _formatDateForApi(_toDate!) : '';
+      
       final String url = '${API_BASE_URL}dashboard/documents/all'
           '?type=$type'
-          '&limit=$limit'
+          '&limit=$_perPage'
+          '&page=1'
           '&hospital_id=$hospitalId'
           '&stockist_id=$stockistId'
           '&start_date=$startDate'
           '&end_date=$endDate';
-      print(url);
+      print('Loading documents: $url');
+      
       final response = await http.get(
         Uri.parse(url),
         headers: {
@@ -81,32 +112,41 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
         },
       );
       print('Response: ${response.body}');
-      print('Response: ${response.statusCode}');
+      print('Response status: ${response.statusCode}');
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final documents = List<Map<String, dynamic>>.from(data['data'] ?? []);
-
-        if (documents.isEmpty) {
-          setState(() {
-            _hasApiError = true;
-            _allDocuments = [];
-            _extractStockistAndHospitalLists();
-          });
+        
+        // Parse pagination metadata
+        final pagination = data['pagination'] as Map<String, dynamic>?;
+        if (pagination != null) {
+          _currentPage = pagination['current_page'] ?? 1;
+          _perPage = pagination['per_page'] ?? 20;
+          _totalPages = pagination['total_pages'] ?? 1;
+          _totalRecords = pagination['total_records'] ?? 0;
+          _nextPage = pagination['next_page'];
+          _hasMoreData = _nextPage != null;
+          
+          print('Pagination: Page $_currentPage of $_totalPages, Total: $_totalRecords records');
         } else {
-          setState(() {
-            _allDocuments = documents;
-            _extractStockistAndHospitalLists();
-          });
+          // Fallback if no pagination data
+          _hasMoreData = documents.length >= _perPage;
         }
+
+        setState(() {
+          _allDocuments = documents;
+          _extractStockistAndHospitalLists();
+          if (documents.isEmpty) {
+            _hasApiError = true;
+          }
+        });
       } else {
         setState(() {
           _hasApiError = true;
           _errorMessage =
               'Failed to load documents. Status: ${response.statusCode}';
         });
-        // Mock data for development
-        // _setMockDocuments();
       }
     } catch (e) {
       print('Error: $e');
@@ -114,13 +154,128 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
         _hasApiError = true;
         _errorMessage = 'Network error: ${e.toString()}';
       });
-      // Mock data for development
-      // _setMockDocuments();
     } finally {
       setState(() {
         _isLoading = false;
       });
     }
+  }
+
+  Future<void> _loadMoreDocuments() async {
+    if (_isLoadingMore || !_hasMoreData || _nextPage == null) return;
+
+    // Store the page number we're about to request
+    final pageToLoad = _nextPage!;
+    
+    setState(() {
+      _isLoadingMore = true;
+    });
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('authToken');
+
+      if (token == null) {
+        throw Exception('No authentication token found');
+      }
+
+      final String type = _selectedFilter == 'All' ? '' : _selectedFilter;
+      final String hospitalId = _selectedHospital.isEmpty ? '' : _selectedHospital;
+      final String stockistId = _selectedStockist.isEmpty ? '' : _selectedStockist;
+      final String startDate = _fromDate != null ? _formatDateForApi(_fromDate!) : '';
+      final String endDate = _toDate != null ? _formatDateForApi(_toDate!) : '';
+
+      final String url = '${API_BASE_URL}dashboard/documents/all'
+          '?type=$type'
+          '&limit=$_perPage'
+          '&page=$pageToLoad'
+          '&hospital_id=$hospitalId'
+          '&stockist_id=$stockistId'
+          '&start_date=$startDate'
+          '&end_date=$endDate';
+      print('Loading more documents (Requesting Page $pageToLoad): $url');
+
+      final response = await http.get(
+        Uri.parse(url),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final documents = List<Map<String, dynamic>>.from(data['data'] ?? []);
+        
+        // Only update state if we successfully got data
+        if (mounted) {
+          setState(() {
+            // Add documents first
+            _allDocuments.addAll(documents);
+            _extractStockistAndHospitalLists();
+            
+            // Then update pagination from API response
+            final pagination = data['pagination'] as Map<String, dynamic>?;
+            if (pagination != null) {
+              _currentPage = pagination['current_page'] ?? _currentPage;
+              _perPage = pagination['per_page'] ?? _perPage;
+              _totalPages = pagination['total_pages'] ?? _totalPages;
+              _totalRecords = pagination['total_records'] ?? _totalRecords;
+              _nextPage = pagination['next_page'];
+              _hasMoreData = _nextPage != null;
+              
+              print('Successfully loaded page $_currentPage of $_totalPages (${documents.length} documents)');
+              print('Next page: ${_nextPage ?? "None (last page)"}');
+            } else {
+              // Fallback if no pagination data
+              _hasMoreData = documents.length >= _perPage;
+            }
+          });
+
+          if (documents.isNotEmpty) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Loaded ${documents.length} more documents (Page $_currentPage of $_totalPages)'),
+                duration: const Duration(seconds: 1),
+                backgroundColor: const Color(0xFF00A0A8),
+              ),
+            );
+          }
+        }
+      } else {
+        print('Failed to load more: ${response.statusCode}');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to load more documents'),
+              duration: const Duration(seconds: 2),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error loading more: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            duration: const Duration(seconds: 2),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingMore = false;
+        });
+      }
+    }
+  }
+
+  String _formatDateForApi(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
   }
 
   void _extractStockistAndHospitalLists() {
@@ -145,33 +300,11 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
   }
 
   List<Map<String, dynamic>> get _filteredDocuments {
+    // Most filtering is now done server-side via API parameters
+    // Only apply client-side search filter if needed
     List<Map<String, dynamic>> filtered = _allDocuments;
 
-    // Apply date range filter
-    if (_fromDate != null || _toDate != null) {
-      filtered = filtered.where((doc) {
-        final uploadedAtStr = doc['uploaded_at'];
-        if (uploadedAtStr == null) return false;
-        
-        final uploadedAt = DateTime.tryParse(uploadedAtStr);
-        if (uploadedAt == null) return false;
-
-        // Normalize dates to start and end of day
-        if (_fromDate != null) {
-          final fromDateNormalized = DateTime(_fromDate!.year, _fromDate!.month, _fromDate!.day);
-          if (uploadedAt.isBefore(fromDateNormalized)) return false;
-        }
-
-        if (_toDate != null) {
-          final toDateNormalized = DateTime(_toDate!.year, _toDate!.month, _toDate!.day, 23, 59, 59);
-          if (uploadedAt.isAfter(toDateNormalized)) return false;
-        }
-
-        return true;
-      }).toList();
-    }
-
-    // Apply search filter
+    // Apply search filter (client-side only for real-time search)
     if (_searchQuery.isNotEmpty) {
       filtered =
           filtered.where((doc) {
@@ -185,34 +318,6 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
                 stockist.contains(query) ||
                 hospital.contains(query) ||
                 invoiceNumber.contains(query);
-          }).toList();
-    }
-
-    // Apply stockist filter
-    if (_selectedStockist.isNotEmpty) {
-      filtered =
-          filtered.where((doc) {
-            final stockist = doc['stockist_name'] ?? '';
-            return stockist == _selectedStockist;
-          }).toList();
-    }
-
-    // Apply hospital filter
-    if (_selectedHospital.isNotEmpty) {
-      filtered =
-          filtered.where((doc) {
-            final hospital = doc['hospital_name'] ?? '';
-            return hospital == _selectedHospital;
-          }).toList();
-    }
-
-    // Apply type/status filter
-    if (_selectedFilter != 'All') {
-      filtered =
-          filtered.where((doc) {
-            final type = doc['type'] ?? '';
-            final status = doc['status'] ?? '';
-            return type == _selectedFilter || status.toLowerCase() == _selectedFilter.toLowerCase();
           }).toList();
     }
 
@@ -348,6 +453,72 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
       color: Colors.white,
       child: Column(
         children: [
+          if (_allDocuments.isNotEmpty) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF00A0A8).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: const Color(0xFF00A0A8).withOpacity(0.3),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.description, size: 16, color: Colors.grey.shade700),
+                      const SizedBox(width: 6),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${_allDocuments.length} of $_totalRecords documents',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey.shade800,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          Text(
+                            'Page $_currentPage of $_totalPages',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  if (_hasMoreData)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF00A0A8).withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.arrow_downward, size: 12, color: const Color(0xFF00A0A8)),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Scroll for more',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: const Color(0xFF00A0A8),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           Row(
             children: [
               Expanded(
@@ -377,6 +548,7 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
                       _fromDate = null;
                       _toDate = null;
                     });
+                    _loadAllDocuments(isRefresh: true);
                   },
                   icon: const Icon(Icons.clear_all),
                   tooltip: 'Clear All Filters',
@@ -829,7 +1001,7 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
                             _fromDate = tempFromDate;
                             _toDate = tempToDate;
                           });
-                          _loadAllDocuments();
+                          _loadAllDocuments(isRefresh: true);
                           Navigator.pop(context);
                         },
                         style: ElevatedButton.styleFrom(
@@ -922,13 +1094,17 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
 
     return RefreshIndicator(
       onRefresh: () async {
-        await _loadAllDocuments();
+        await _loadAllDocuments(isRefresh: true);
       },
       color: const Color(0xFF00A0A8),
       child: ListView.builder(
+        controller: _scrollController,
         padding: const EdgeInsets.all(16),
-        itemCount: filteredDocs.length,
+        itemCount: filteredDocs.length + (_hasMoreData ? 1 : 0),
         itemBuilder: (context, index) {
+          if (index == filteredDocs.length) {
+            return _buildLoadingIndicator();
+          }
           final doc = filteredDocs[index];
           return _buildDocumentCard(doc);
         },
@@ -1119,6 +1295,29 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildLoadingIndicator() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: Center(
+        child: Column(
+          children: [
+            const CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00A0A8)),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Loading more documents...',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

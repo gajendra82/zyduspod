@@ -102,7 +102,10 @@ class SalesBloc extends Bloc<SalesEvent, SalesState> {
       final currentState = state as SalesLoaded;
 
       try {
-        final hospitalSummaries = await _service.getHospitalSalesSummaries();
+        final hospitalSummaries = await _service.getHospitalSalesSummaries(
+          dateFrom: event.dateFrom,
+          dateTo: event.dateTo,
+        );
 
         emit(currentState.copyWith(
           hospitalSummaries: hospitalSummaries,

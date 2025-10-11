@@ -35,7 +35,13 @@ class SalesSearchChanged extends SalesEvent {
 }
 
 class HospitalSalesLoadRequested extends SalesEvent {
-  const HospitalSalesLoadRequested();
+  final String? dateFrom;
+  final String? dateTo;
+  
+  const HospitalSalesLoadRequested({this.dateFrom, this.dateTo});
+  
+  @override
+  List<Object?> get props => [dateFrom, dateTo];
 }
 
 class StockistSalesLoadRequested extends SalesEvent {

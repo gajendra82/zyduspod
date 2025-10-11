@@ -15,6 +15,8 @@ class HospitalSalesScreen extends StatefulWidget {
 class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
   String _selectedFilter = 'All';
   final List<String> _filterOptions = ['All', 'High Volume', 'Low Volume', 'Recent'];
+  DateTime? _dateFrom;
+  DateTime? _dateTo;
 
   @override
   Widget build(BuildContext context) {
@@ -27,6 +29,30 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
         elevation: 0,
         centerTitle: true,
         actions: [
+          Stack(
+            children: [
+              IconButton(
+                onPressed: () {
+                  _showFilterBottomSheet(context);
+                },
+                icon: const Icon(Icons.filter_list),
+                tooltip: 'Filter by Date',
+              ),
+              if (_dateFrom != null || _dateTo != null)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF00A0A8),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+            ],
+          ),
           IconButton(
             onPressed: () {
               context.read<SalesBloc>().add(const SalesRefreshRequested());
@@ -169,6 +195,318 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
         ),
       ),
     );
+  }
+
+  void _showFilterBottomSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setModalState) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+              ),
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Handle bar
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade300,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      // Title
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF00A0A8).withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(
+                              Icons.filter_list,
+                              color: Color(0xFF00A0A8),
+                              size: 24,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          const Text(
+                            'Filter by Date Range',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF2C3E50),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+                      // Date filters
+                      const Text(
+                        'Select Date Range',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF2C3E50),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildDateButton(
+                              label: 'From Date',
+                              date: _dateFrom,
+                              onTap: () async {
+                                await _selectDate(context, true);
+                                setModalState(() {});
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildDateButton(
+                              label: 'To Date',
+                              date: _dateTo,
+                              onTap: () async {
+                                await _selectDate(context, false);
+                                setModalState(() {});
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_dateFrom != null || _dateTo != null) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF00A0A8).withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: const Color(0xFF00A0A8).withOpacity(0.3),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.info_outline,
+                                size: 16,
+                                color: Color(0xFF00A0A8),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Filter applied: ${_dateFrom != null ? _formatDateForDisplay(_dateFrom!) : 'Any'} to ${_dateTo != null ? _formatDateForDisplay(_dateTo!) : 'Any'}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFF00A0A8),
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 24),
+                      // Action buttons
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () {
+                                _clearDateFilter();
+                                Navigator.pop(context);
+                              },
+                              icon: const Icon(Icons.clear, size: 18),
+                              label: const Text('Clear'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.grey.shade700,
+                                side: BorderSide(color: Colors.grey.shade300),
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            flex: 2,
+                            child: ElevatedButton.icon(
+                              onPressed: () {
+                                _applyDateFilter();
+                                Navigator.pop(context);
+                              },
+                              icon: const Icon(Icons.check, size: 18),
+                              label: const Text('Apply Filter'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF00A0A8),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                elevation: 2,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildDateButton({
+    required String label,
+    required DateTime? date,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey.shade300),
+          borderRadius: BorderRadius.circular(8),
+          color: Colors.grey.shade50,
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.calendar_today,
+              size: 16,
+              color: date != null ? const Color(0xFF00A0A8) : Colors.grey.shade600,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                  Text(
+                    date != null ? _formatDateForDisplay(date) : 'Select',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: date != null ? const Color(0xFF2C3E50) : Colors.grey.shade500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _selectDate(BuildContext context, bool isFromDate) async {
+    final initialDate = isFromDate 
+        ? (_dateFrom ?? DateTime.now()) 
+        : (_dateTo ?? DateTime.now());
+    
+    final firstDate = DateTime(2020);
+    final lastDate = DateTime.now();
+
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: firstDate,
+      lastDate: lastDate,
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF00A0A8),
+              onPrimary: Colors.white,
+              surface: Colors.white,
+              onSurface: Color(0xFF2C3E50),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (pickedDate != null) {
+      setState(() {
+        if (isFromDate) {
+          _dateFrom = pickedDate;
+        } else {
+          _dateTo = pickedDate;
+        }
+      });
+    }
+  }
+
+  void _applyDateFilter() {
+    String? dateFromStr;
+    String? dateToStr;
+
+    if (_dateFrom != null) {
+      dateFromStr = _formatDateForApi(_dateFrom!);
+    }
+    if (_dateTo != null) {
+      dateToStr = _formatDateForApi(_dateTo!);
+    }
+
+    context.read<SalesBloc>().add(
+      HospitalSalesLoadRequested(
+        dateFrom: dateFromStr,
+        dateTo: dateToStr,
+      ),
+    );
+  }
+
+  void _clearDateFilter() {
+    setState(() {
+      _dateFrom = null;
+      _dateTo = null;
+    });
+    context.read<SalesBloc>().add(const HospitalSalesLoadRequested());
+  }
+
+  String _formatDateForDisplay(DateTime date) {
+    return '${date.day}/${date.month}/${date.year}';
+  }
+
+  String _formatDateForApi(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
   }
 
   Widget _buildHospitalCard(BuildContext context, HospitalSalesSummary summary) {

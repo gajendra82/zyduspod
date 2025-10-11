@@ -36,10 +36,22 @@ class SalesService {
     }
   }
 
-  Future<List<HospitalSalesSummary>> getHospitalSalesSummaries() async {
+  Future<List<HospitalSalesSummary>> getHospitalSalesSummaries({String? dateFrom, String? dateTo}) async {
     try {
+      final queryParams = <String, String>{};
+      if (dateFrom != null && dateFrom.isNotEmpty) {
+        queryParams['date_from'] = dateFrom;
+      }
+      if (dateTo != null && dateTo.isNotEmpty) {
+        queryParams['date_to'] = dateTo;
+      }
+      
+      final uri = Uri.parse('${API_BASE_URL}dashboard/hospital-sales').replace(
+        queryParameters: queryParams.isNotEmpty ? queryParams : null,
+      );
+      
       final response = await _apiClient.get(
-        Uri.parse('${API_BASE_URL}dashboard/hospital-sales'),
+        uri,
         headers: {
           'Accept': 'application/json',
         },
