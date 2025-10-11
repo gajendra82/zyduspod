@@ -20,11 +20,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zyduspod/GstInvoiceScanner.dart';
 import 'package:zyduspod/Models/pod.dart';
 import 'package:zyduspod/config.dart';
+import 'package:zyduspod/services/PythonQRService.dart';
 import 'package:zyduspod/widgets/EInvoiceQRExtractor.dart';
 import 'package:zyduspod/widgets/PdfPreviewScreen.dart';
 
 /// ===================== IMAGE COMPRESSION / ENHANCE (Isolate Workers) =====================
-
 
 Map<String, dynamic> _enhanceImageForOCRWorker(Map<String, dynamic> args) {
   final Uint8List imgBytes = args['imageBytes'] as Uint8List;
@@ -133,6 +133,8 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   bool _isProcessingImage = false;
   bool _isRefreshing = false;
   final bool _debugEinvoice = true;
+  bool _isCancelled = false;
+  int? _currentProcessingIndex;
 
   // Processing counter and unified busy flag
   int _processingCount = 0;
@@ -170,9 +172,25 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
     _qrQueueRunning = true;
     while (_qrQueue.isNotEmpty && mounted) {
       final item = _qrQueue.removeAt(0);
+
+      // Reset cancellation for new item
+      _isCancelled = false;
+
       await _autoExtractQRFromDocument(item.doc, item.index);
+
       // Small yield to UI
       await Future.delayed(const Duration(milliseconds: 30));
+
+      // If cancelled, clear remaining queue
+      if (_isCancelled && _qrQueue.isNotEmpty) {
+        if (_debugEinvoice) {
+          debugPrint(
+            '[QR] Clearing ${_qrQueue.length} items from queue due to cancellation',
+          );
+        }
+        // Don't clear - let user decide per document
+        // _qrQueue.clear();
+      }
     }
     _qrQueueRunning = false;
   }
@@ -247,9 +265,9 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
 
   Future<void> _onRefresh() async {
     if (_isRefreshing) return;
-    
+
     setState(() => _isRefreshing = true);
-    
+
     try {
       // Clear current selections and data
       setState(() {
@@ -261,10 +279,10 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         _chemistKey = UniqueKey();
         _podKey = UniqueKey();
       });
-      
+
       // Reload all lists
       await _loadLists();
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -320,12 +338,15 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         _allStockists = results[0] as List<_SelectItem>;
         _allChemists = results[1] as List<_SelectItem>;
         _pods = results[2] as List<Pod>;
-        _allPods = _pods
-            .map(
-              (p) =>
-                  _SelectItem(id: p.id.toString(), label: _formatPodLabel(p)),
-            )
-            .toList();
+        _allPods =
+            _pods
+                .map(
+                  (p) => _SelectItem(
+                    id: p.id.toString(),
+                    label: _formatPodLabel(p),
+                  ),
+                )
+                .toList();
       });
     } catch (e) {
       print('Failed to load lists: $e');
@@ -347,7 +368,6 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
     );
     print('select items Response: ${resp.body}');
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
-
       throw Exception('HTTP ${resp.body}');
     }
     final decoded = _safeDecode(resp.bodyBytes);
@@ -378,9 +398,10 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       throw Exception('HTTP ${resp.statusCode}');
     }
     final decoded = _safeDecode(resp.bodyBytes);
-    final list = decoded is Map && decoded['data'] is List
-        ? (decoded['data'] as List)
-        : (decoded is List ? decoded : <dynamic>[]);
+    final list =
+        decoded is Map && decoded['data'] is List
+            ? (decoded['data'] as List)
+            : (decoded is List ? decoded : <dynamic>[]);
     return list
         .whereType<Map<String, dynamic>>()
         .map((m) => Pod.fromJson(m))
@@ -479,16 +500,31 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   }
 
   Future<void> _ensureQrForDocument(DocumentInfo doc, int overallIndex) async {
-      print('Extracting QR from document: ${doc.file.path}');
     if (doc.type != DocumentType.pdf) return;
     if (doc.qrData != null) return;
+
+    if (_debugEinvoice) {
+      debugPrint('[QR] Pre-upload check: ${doc.file.path}');
+    }
+
     try {
-      // Timeout to avoid hangs during pre-upload checks
-      final qrMap = await EInvoiceQRExtractor.extractQRFromPDF(
+      Map<String, dynamic>? qrMap;
+
+      // Try with Hugging Face API first
+      qrMap = await PythonQRService.extractQRFromPDF(
         doc.file,
-        dpi: 260,
         maxPages: 3,
-      ).timeout(const Duration(seconds: 12), onTimeout: () => null);
+        dpi: 400,
+      ).timeout(const Duration(seconds: 40), onTimeout: () => null);
+
+      // Fallback to Flutter extraction if HF fails
+      if (qrMap == null) {
+        qrMap = await EInvoiceQRExtractor.extractQRFromPDF(
+          doc.file,
+          dpi: 600,
+          maxPages: 2,
+        ).timeout(const Duration(seconds: 12), onTimeout: () => null);
+      }
 
       if (qrMap != null) {
         final normalized = _decodeGstQrFlexible(
@@ -500,18 +536,22 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         final idxInCaptured = _capturedDocuments.indexWhere(
           (d) => d.file.path == doc.file.path,
         );
-        if (idxInCaptured >= 0) {
-          _capturedDocuments[idxInCaptured] = updated;
+        if (idxInCaptured >= 0 && mounted) {
+          setState(() {
+            _capturedDocuments[idxInCaptured] = updated;
+          });
         }
         _einvoiceData ??= merged;
+
         if (_isEinvoiceDoc()) _autoMarkEinvoiceSelectedForEinvoiceFlow();
+
         if (_debugEinvoice) {
-          debugPrint('[EINVOICE AUTO EXTRACT @UPLOAD] ${doc.displayName}');
+          debugPrint('[QR] ✓ Pre-upload extraction: ${doc.displayName}');
         }
       }
     } catch (e) {
       if (_debugEinvoice) {
-        debugPrint('[EINVOICE AUTO EXTRACT ERROR] ${doc.displayName}: $e');
+        debugPrint('[QR] Pre-upload extraction error: ${doc.displayName}: $e');
       }
     }
   }
@@ -778,9 +818,8 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       File finalFile;
       String displayName = info.displayName;
       if (info.type == DocumentType.image) {
-        final enhanced = isFromScanner
-            ? null
-            : await _enhanceImageForOCR(originalFile);
+        final enhanced =
+            isFromScanner ? null : await _enhanceImageForOCR(originalFile);
         finalFile = await _convertSingleImageToPDF(enhanced ?? originalFile);
         displayName = '${p.basenameWithoutExtension(info.displayName)}.pdf';
       } else {
@@ -831,6 +870,12 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
 
   /// Run QR extraction on main isolate (plugins often can't run in background isolates)
   /// with a timeout and a processing counter. Shows a SnackBar if no QR is found.
+  /// ===================== QR EXTRACTION WITH ZOOM/CROP =====================
+
+  /// ===================== QR EXTRACTION WITH PROGRESSIVE DPI ZOOM =====================
+
+  /// ===================== QR EXTRACTION WITH PROGRESSIVE DPI ZOOM =====================
+
   Future<void> _autoExtractQRFromDocument(
     DocumentInfo docInfo,
     int index,
@@ -840,56 +885,552 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
     if (_capturedDocuments[index].qrData != null) return;
 
     _incProcessing();
+
+    // Reset cancellation flag and set current index
+    _isCancelled = false;
+    _currentProcessingIndex = index;
+
+    String? successStrategy;
+
     try {
-      // Yield a frame so the progress bar can render
       await Future.delayed(const Duration(milliseconds: 16));
 
-      final qrMap = await EInvoiceQRExtractor.extractQRFromPDF(
-        docInfo.file,
-        dpi: 300, // a bit higher for reliability
-        maxPages: 4,
-      ).timeout(const Duration(seconds: 15), onTimeout: () => null);
+      Map<String, dynamic>? qrMap;
 
-      if (qrMap == null) {
+      // ==========================================
+      // STRATEGY 1: Hugging Face Space (Python OpenCV)
+      // ==========================================
+      if (_debugEinvoice) {
+        debugPrint(
+          '[QR] Strategy 1: Hugging Face Space for ${docInfo.displayName}',
+        );
+      }
+
+      // Show processing indicator with SKIP button
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Extracting QR from ${docInfo.displayName}...',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      const Text(
+                        'This may take up to 2 minutes',
+                        style: TextStyle(fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            duration: const Duration(seconds: 120),
+            backgroundColor: Colors.blue.shade700,
+            action: SnackBarAction(
+              label: 'SKIP',
+              textColor: Colors.white,
+              backgroundColor: Colors.orange.shade700,
+              onPressed: () {
+                setState(() {
+                  _isCancelled = true;
+                });
+                if (_debugEinvoice) {
+                  debugPrint(
+                    '[QR] ⏭️ User cancelled extraction for ${docInfo.displayName}',
+                  );
+                }
+              },
+            ),
+          ),
+        );
+      }
+
+      // Check cancellation before each strategy
+      if (_isCancelled) {
+        if (_debugEinvoice) {
+          debugPrint('[QR] ❌ Extraction cancelled by user');
+        }
         if (mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('No QR found in ${docInfo.displayName}'),
+              content: Row(
+                children: [
+                  const Icon(Icons.skip_next, color: Colors.white, size: 20),
+                  const SizedBox(width: 8),
+                  Text('⏭️ Skipped: ${docInfo.displayName}'),
+                ],
+              ),
               duration: const Duration(seconds: 2),
+              backgroundColor: Colors.orange.shade700,
             ),
           );
-        }
-        if (_debugEinvoice) {
-          debugPrint('[QR] No QR/timeout in ${docInfo.displayName}');
         }
         return;
       }
 
+      // Try with medium DPI first (faster)
+      qrMap = await PythonQRService.extractQRFromPDF(
+        docInfo.file,
+        maxPages: 5,
+        dpi: 400,
+      ).timeout(
+        const Duration(seconds: 60),
+        onTimeout: () {
+          if (_debugEinvoice) {
+            debugPrint('[QR] ⏱️ Timeout at DPI 400');
+          }
+          return null;
+        },
+      );
+
+      if (_isCancelled) return;
+
+      if (qrMap != null) {
+        successStrategy = 'Hugging Face API (DPI 400)';
+      }
+
+      // If failed, try with higher DPI
+      if (qrMap == null && !_isCancelled) {
+        if (_debugEinvoice) {
+          debugPrint('[QR] Retrying with DPI 600...');
+        }
+
+        // Update snackbar message
+        if (mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Retrying with higher quality (DPI 600)...',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Document ${index + 1}/${_capturedDocuments.length}: ${docInfo.displayName}',
+                          style: const TextStyle(fontSize: 11),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              duration: const Duration(seconds: 120),
+              backgroundColor: Colors.blue.shade800,
+              action: SnackBarAction(
+                label: 'SKIP',
+                textColor: Colors.white,
+                backgroundColor: Colors.orange.shade700,
+                onPressed: () {
+                  setState(() {
+                    _isCancelled = true;
+                  });
+                },
+              ),
+            ),
+          );
+        }
+
+        qrMap = await PythonQRService.extractQRFromPDF(
+          docInfo.file,
+          maxPages: 5,
+          dpi: 600,
+        ).timeout(
+          const Duration(seconds: 80),
+          onTimeout: () {
+            if (_debugEinvoice) {
+              debugPrint('[QR] ⏱️ Timeout at DPI 600');
+            }
+            return null;
+          },
+        );
+
+        if (_isCancelled) return;
+
+        if (qrMap != null) {
+          successStrategy = 'Hugging Face API (DPI 600)';
+        }
+      }
+
+      // Last resort: very high DPI
+      if (qrMap == null && !_isCancelled) {
+        if (_debugEinvoice) {
+          debugPrint('[QR] Last resort: DPI 900...');
+        }
+
+        // Update snackbar message
+        if (mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Final attempt with ultra-high quality (DPI 900)...',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Document ${index + 1}/${_capturedDocuments.length}: ${docInfo.displayName}',
+                          style: const TextStyle(fontSize: 11),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              duration: const Duration(seconds: 120),
+              backgroundColor: Colors.blue.shade900,
+              action: SnackBarAction(
+                label: 'SKIP',
+                textColor: Colors.white,
+                backgroundColor: Colors.orange.shade700,
+                onPressed: () {
+                  setState(() {
+                    _isCancelled = true;
+                  });
+                },
+              ),
+            ),
+          );
+        }
+
+        qrMap = await PythonQRService.extractQRFromPDF(
+          docInfo.file,
+          maxPages: 3,
+          dpi: 900,
+        ).timeout(
+          const Duration(seconds: 100),
+          onTimeout: () {
+            if (_debugEinvoice) {
+              debugPrint('[QR] ⏱️ Timeout at DPI 900');
+            }
+            return null;
+          },
+        );
+
+        if (_isCancelled) return;
+
+        if (qrMap != null) {
+          successStrategy = 'Hugging Face API (DPI 900)';
+        }
+      }
+
+      // Dismiss loading indicator
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      }
+
+      // Check cancellation after all attempts
+      if (_isCancelled) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.skip_next, color: Colors.white, size: 20),
+                  const SizedBox(width: 8),
+                  Text('⏭️ Skipped: ${docInfo.displayName}'),
+                ],
+              ),
+              duration: const Duration(seconds: 2),
+              backgroundColor: Colors.orange.shade700,
+            ),
+          );
+        }
+        return;
+      }
+
+      // ==========================================
+      // FALLBACK: Flutter-based extraction (if HF fails)
+      // ==========================================
+      if (qrMap == null && !_isCancelled) {
+        if (_debugEinvoice) {
+          debugPrint(
+            '[QR] Strategy 2: Fallback to Flutter EInvoiceQRExtractor',
+          );
+        }
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'Trying local extraction method...',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+              duration: const Duration(seconds: 20),
+              backgroundColor: Colors.purple.shade700,
+              action: SnackBarAction(
+                label: 'SKIP',
+                textColor: Colors.white,
+                onPressed: () {
+                  setState(() {
+                    _isCancelled = true;
+                  });
+                },
+              ),
+            ),
+          );
+        }
+
+        qrMap = await EInvoiceQRExtractor.extractQRFromPDF(
+          docInfo.file,
+          dpi: 600,
+          maxPages: 4,
+        ).timeout(const Duration(seconds: 20), onTimeout: () => null);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        }
+
+        if (_isCancelled) return;
+
+        if (qrMap != null) {
+          successStrategy = 'Flutter Fallback (DPI 600)';
+        }
+      }
+
+      // ==========================================
+      // Handle Result
+      // ==========================================
+      if (qrMap == null) {
+        if (mounted && !_isCancelled) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(
+                    Icons.warning_amber,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'No QR found in ${docInfo.displayName}. Use manual scan or skip.',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+              duration: const Duration(seconds: 6),
+              backgroundColor: Colors.orange.shade700,
+              behavior: SnackBarBehavior.floating,
+              action: SnackBarAction(
+                label: 'MANUAL SCAN',
+                textColor: Colors.white,
+                onPressed: () async {
+                  final res = await Navigator.push<Map<String, dynamic>>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => GstQrApp(podId: _selectedPod?.id ?? '0'),
+                    ),
+                  );
+                  if (res != null && mounted) {
+                    setState(() {
+                      _capturedDocuments[index] = docInfo.copyWith(qrData: res);
+                      _einvoiceData ??= res;
+                    });
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('✅ QR code added manually'),
+                        backgroundColor: Colors.green,
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  }
+                },
+              ),
+            ),
+          );
+        }
+
+        if (_debugEinvoice) {
+          debugPrint('[QR] ❌ All strategies failed for ${docInfo.displayName}');
+        }
+        return;
+      }
+
+      // ==========================================
+      // SUCCESS - Process the extracted QR data
+      // ==========================================
       final normalized = _decodeGstQrFlexible(
         jsonEncode(qrMap['raw'] ?? qrMap),
       );
       final merged = {...qrMap, ...normalized};
 
       if (!mounted) return;
+
       setState(() {
         _capturedDocuments[index] = docInfo.copyWith(qrData: merged);
         _einvoiceData ??= merged;
       });
 
-      if (_debugEinvoice) {
-        debugPrint('[QR] Extracted from ${docInfo.displayName}');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '✅ QR found: ${docInfo.displayName}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Method: $successStrategy',
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                      if (merged['DocNo'] != null)
+                        Text(
+                          'Invoice: ${merged['DocNo']}',
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            duration: const Duration(seconds: 4),
+            backgroundColor: Colors.green.shade600,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
-    } catch (e) {
+
       if (_debugEinvoice) {
-        debugPrint('[QR] Extraction error: ${docInfo.displayName} -> $e');
+        debugPrint('[QR] ✓✓✓ SUCCESS with $successStrategy');
+        debugPrint(
+          '[QR] Invoice: ${merged['DocNo']} | Date: ${merged['DocDt']} | Value: ${merged['TotInvVal']}',
+        );
+      }
+    } catch (e, stackTrace) {
+      if (_debugEinvoice) {
+        debugPrint('[QR] ⚠️ Extraction error: $e');
+        debugPrint('[QR] Stack: $stackTrace');
+      }
+
+      if (mounted && !_isCancelled) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('QR extraction error: ${e.toString()}'),
+            backgroundColor: Colors.red.shade700,
+            duration: const Duration(seconds: 3),
+          ),
+        );
       }
     } finally {
+      _currentProcessingIndex = null;
       _decProcessing();
     }
   }
 
-  /// ===================== PERMISSIONS =====================
+  /// Extract QR with focus on common QR regions (top-right, bottom-right)
+  Future<Map<String, dynamic>?> _extractQRWithRegionFocus(File pdfFile) async {
+    try {
+      // This would require modifying EInvoiceQRExtractor to support region extraction
+      // For now, we'll try with very high DPI on specific regions
+      // You'll need to add this capability to EInvoiceQRExtractor.dart
 
+      // Placeholder: Try extracting with focus on top-right quadrant
+      // Most e-invoices have QR in top-right corner
+      return await EInvoiceQRExtractor.extractQRFromPDF(
+        pdfFile,
+        dpi: 800,
+        maxPages: 3,
+      ).timeout(const Duration(seconds: 15), onTimeout: () => null);
+    } catch (e) {
+      if (_debugEinvoice) {
+        debugPrint('[QR] Region-based extraction error: $e');
+      }
+      return null;
+    }
+  }
+
+  /// ===================== PERMISSIONS =====================
 
   /// ===================== JSON BUILDER (Laravel PHP-style) =====================
 
@@ -1077,9 +1618,8 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
             (d) => d.file.path == doc.file.path,
             orElse: () => doc,
           );
-          final perDocInvoice = _isEinvoiceDoc()
-              ? _normalizeEinvoiceForDoc(currentDoc)
-              : null;
+          final perDocInvoice =
+              _isEinvoiceDoc() ? _normalizeEinvoiceForDoc(currentDoc) : null;
 
           final uri = Uri.parse(API_DOC_UPLOAD_URL);
           final request = http.MultipartRequest('POST', uri);
@@ -1157,9 +1697,8 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         }
 
         if (successes.isNotEmpty) {
-          final uploadedPaths = successes
-              .map((i) => validDocs[i].file.path)
-              .toSet();
+          final uploadedPaths =
+              successes.map((i) => validDocs[i].file.path).toSet();
           setState(() {
             _capturedDocuments.removeWhere(
               (d) => uploadedPaths.contains(d.file.path),
@@ -1203,41 +1742,42 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   void _clearAllDocuments() {
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Clear All Documents'),
-        content: Text('Remove all ${_capturedDocuments.length} documents?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () {
-              Navigator.pop(context);
-              setState(() {
-                for (final d in _capturedDocuments) {
-                  try {
-                    d.file.delete();
-                  } catch (_) {}
-                }
-                _capturedDocuments.clear();
-                _einvoiceData = null;
-              });
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('All documents cleared'),
-                  backgroundColor: Colors.orange,
+      builder:
+          (_) => AlertDialog(
+            title: const Text('Clear All Documents'),
+            content: Text('Remove all ${_capturedDocuments.length} documents?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  foregroundColor: Colors.white,
                 ),
-              );
-            },
-            child: const Text('Clear All'),
+                onPressed: () {
+                  Navigator.pop(context);
+                  setState(() {
+                    for (final d in _capturedDocuments) {
+                      try {
+                        d.file.delete();
+                      } catch (_) {}
+                    }
+                    _capturedDocuments.clear();
+                    _einvoiceData = null;
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('All documents cleared'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                },
+                child: const Text('Clear All'),
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 
@@ -1268,12 +1808,13 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                       : 'Limit reached',
                 ),
                 enabled: remaining > 0,
-                onTap: remaining > 0
-                    ? () {
-                        Navigator.pop(context);
-                        _pickImagesFromGallery();
-                      }
-                    : null,
+                onTap:
+                    remaining > 0
+                        ? () {
+                          Navigator.pop(context);
+                          _pickImagesFromGallery();
+                        }
+                        : null,
               ),
               ListTile(
                 leading: const Icon(Icons.picture_as_pdf),
@@ -1284,12 +1825,13 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                       : 'Limit reached',
                 ),
                 enabled: remaining > 0,
-                onTap: remaining > 0
-                    ? () {
-                        Navigator.pop(context);
-                        _pickPdfsFromFiles();
-                      }
-                    : null,
+                onTap:
+                    remaining > 0
+                        ? () {
+                          Navigator.pop(context);
+                          _pickPdfsFromFiles();
+                        }
+                        : null,
               ),
             ],
           ),
@@ -1337,13 +1879,15 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 6),
                 child: Chip(
                   label: Text('$validDocCount/$maxDocuments'),
-                  backgroundColor: _capturedDocuments.length >= maxDocuments
-                      ? Colors.orange.shade100
-                      : Colors.green.shade100,
+                  backgroundColor:
+                      _capturedDocuments.length >= maxDocuments
+                          ? Colors.orange.shade100
+                          : Colors.green.shade100,
                   labelStyle: TextStyle(
-                    color: _capturedDocuments.length >= maxDocuments
-                        ? Colors.orange.shade800
-                        : Colors.green.shade800,
+                    color:
+                        _capturedDocuments.length >= maxDocuments
+                            ? Colors.orange.shade800
+                            : Colors.green.shade800,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -1406,8 +1950,8 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                             _isRefreshing
                                 ? 'Refreshing page...'
                                 : (_processingCount > 0 || _isProcessingImage)
-                                    ? 'Processing documents...'
-                                    : 'Loading lists...',
+                                ? 'Processing documents...'
+                                : 'Loading lists...',
                             style: TextStyle(
                               color: Colors.grey.shade600,
                               fontSize: 12,
@@ -1429,20 +1973,21 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                         ),
                       ],
                       selected: {_selectedDocType ?? 'POD'},
-                      onSelectionChanged: _isBusy
-                          ? null
-                          : (value) {
-                              setState(() {
-                                _selectedDocType = value.first;
-                                _selectedStockist = null;
-                                _selectedChemist = null;
-                                _selectedPod = null;
-                                _einvoiceData = null;
-                                _stockistKey = UniqueKey();
-                                _chemistKey = UniqueKey();
-                                _podKey = UniqueKey();
-                              });
-                            },
+                      onSelectionChanged:
+                          _isBusy
+                              ? null
+                              : (value) {
+                                setState(() {
+                                  _selectedDocType = value.first;
+                                  _selectedStockist = null;
+                                  _selectedChemist = null;
+                                  _selectedPod = null;
+                                  _einvoiceData = null;
+                                  _stockistKey = UniqueKey();
+                                  _chemistKey = UniqueKey();
+                                  _podKey = UniqueKey();
+                                });
+                              },
                     ),
                   ),
                   if (_isPodDoc()) ...[
@@ -1455,8 +2000,8 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                         options: _allStockists,
                         selected: _selectedStockist,
                         label: 'Search Stockist',
-                        onSelected: (opt) =>
-                            setState(() => _selectedStockist = opt),
+                        onSelected:
+                            (opt) => setState(() => _selectedStockist = opt),
                         onClear: () => setState(() => _selectedStockist = null),
                       ),
                     ),
@@ -1469,26 +2014,26 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                         options: _allChemists,
                         selected: _selectedChemist,
                         label: 'Search Hospital',
-                        onSelected: (opt) =>
-                            setState(() => _selectedChemist = opt),
+                        onSelected:
+                            (opt) => setState(() => _selectedChemist = opt),
                         onClear: () => setState(() => _selectedChemist = null),
                       ),
                     ),
                   ],
-                  if(!_isPodDoc())
-                  _buildSectionCard(
-                    icon: Icons.receipt_long,
-                    title: 'POD Link',
-                    subtitle: 'Select POD (recommended for E-Invoice / GRN)',
-                    child: _customAutocomplete(
-                      key: _podKey,
-                      options: _allPods,
-                      selected: _selectedPod,
-                      label: 'Search POD',
-                      onSelected: (opt) => setState(() => _selectedPod = opt),
-                      onClear: () => setState(() => _selectedPod = null),
+                  if (!_isPodDoc())
+                    _buildSectionCard(
+                      icon: Icons.receipt_long,
+                      title: 'POD Link',
+                      subtitle: 'Select POD (recommended for E-Invoice / GRN)',
+                      child: _customAutocomplete(
+                        key: _podKey,
+                        options: _allPods,
+                        selected: _selectedPod,
+                        label: 'Search POD',
+                        onSelected: (opt) => setState(() => _selectedPod = opt),
+                        onClear: () => setState(() => _selectedPod = null),
+                      ),
                     ),
-                  ),
                   _buildSectionCard(
                     icon: Icons.add_a_photo,
                     title: 'Add Documents',
@@ -1499,16 +2044,17 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                       children: [
                         ElevatedButton.icon(
                           onPressed: _isBusy ? null : _showDocumentSourceDialog,
-                          icon: _isBusy
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Icon(Icons.add),
+                          icon:
+                              _isBusy
+                                  ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                  : const Icon(Icons.add),
                           label: Text(
                             _isBusy ? 'Processing...' : 'Add Documents',
                           ),
@@ -1516,26 +2062,27 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                         const SizedBox(height: 8),
                         if (!_isPodDoc())
                           OutlinedButton.icon(
-                            onPressed: _isBusy
-                                ? null
-                                : () async {
-                                    final res =
-                                        await Navigator.push<
-                                          Map<String, dynamic>
-                                        >(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (_) => GstQrApp(
-                                              podId: _selectedPod?.id ?? '0',
-                                            ),
-                                          ),
-                                        );
-                                    if (res != null) {
-                                      setState(() => _einvoiceData = res);
-                                      _autoMarkEinvoiceSelectedForEinvoiceFlow();
-                                      await _openInvoiceDetails(res);
-                                    }
-                                  },
+                            onPressed:
+                                _isBusy
+                                    ? null
+                                    : () async {
+                                      final res = await Navigator.push<
+                                        Map<String, dynamic>
+                                      >(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder:
+                                              (_) => GstQrApp(
+                                                podId: _selectedPod?.id ?? '0',
+                                              ),
+                                        ),
+                                      );
+                                      if (res != null) {
+                                        setState(() => _einvoiceData = res);
+                                        _autoMarkEinvoiceSelectedForEinvoiceFlow();
+                                        await _openInvoiceDetails(res);
+                                      }
+                                    },
                             icon: const Icon(Icons.qr_code_scanner),
                             label: Text(
                               _einvoiceData != null
@@ -1563,8 +2110,8 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                             children: [
                               Expanded(
                                 child: ElevatedButton.icon(
-                                  onPressed: () =>
-                                      _openInvoiceDetails(_einvoiceData!),
+                                  onPressed:
+                                      () => _openInvoiceDetails(_einvoiceData!),
                                   icon: const Icon(Icons.info),
                                   label: const Text('Details'),
                                 ),
@@ -1575,8 +2122,8 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                                   backgroundColor: Colors.red.shade600,
                                   foregroundColor: Colors.white,
                                 ),
-                                onPressed: () =>
-                                    setState(() => _einvoiceData = null),
+                                onPressed:
+                                    () => setState(() => _einvoiceData = null),
                                 icon: const Icon(Icons.clear),
                                 label: const Text('Clear'),
                               ),
@@ -1597,31 +2144,33 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                           Wrap(
                             spacing: 8,
                             runSpacing: 8,
-                            children: _capturedDocuments.asMap().entries.map((e) {
-                              final i = e.key;
-                              final d = e.value;
-                              return _buildDocumentThumbnail(d, i);
-                            }).toList(),
+                            children:
+                                _capturedDocuments.asMap().entries.map((e) {
+                                  final i = e.key;
+                                  final d = e.value;
+                                  return _buildDocumentThumbnail(d, i);
+                                }).toList(),
                           ),
                           const SizedBox(height: 16),
                           ElevatedButton.icon(
                             onPressed:
                                 (_isUploading ||
-                                    validDocCount == 0 ||
-                                    _processingCount > 0 ||
-                                    _isProcessingImage)
-                                ? null
-                                : _uploadCaptured,
-                            icon: _isUploading
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Icon(Icons.cloud_upload),
+                                        validDocCount == 0 ||
+                                        _processingCount > 0 ||
+                                        _isProcessingImage)
+                                    ? null
+                                    : _uploadCaptured,
+                            icon:
+                                _isUploading
+                                    ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                    : const Icon(Icons.cloud_upload),
                             label: Text(
                               _isUploading
                                   ? 'Uploading...'
@@ -1735,15 +2284,16 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
             border: const OutlineInputBorder(),
             filled: true,
             fillColor: Colors.grey.shade50,
-            suffixIcon: controller.text.isEmpty
-                ? null
-                : IconButton(
-                    icon: const Icon(Icons.clear),
-                    onPressed: () {
-                      controller.clear();
-                      onClear();
-                    },
-                  ),
+            suffixIcon:
+                controller.text.isEmpty
+                    ? null
+                    : IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        controller.clear();
+                        onClear();
+                      },
+                    ),
           ),
         );
       },
@@ -1778,28 +2328,32 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   Widget _buildDocumentThumbnail(DocumentInfo docInfo, int index) {
     final hasQR = docInfo.qrData != null;
     final width = (MediaQuery.of(context).size.width - 64) / 3;
+
     return SizedBox(
       width: width,
       height: 132,
       child: Stack(
         children: [
+          // Main thumbnail container
           GestureDetector(
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => PdfPreviewScreen(pdfFile: docInfo.file),
-              ),
-            ),
+            onTap:
+                () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => PdfPreviewScreen(pdfFile: docInfo.file),
+                  ),
+                ),
             child: Container(
               decoration: BoxDecoration(
                 color: hasQR ? Colors.green.shade50 : Colors.grey.shade100,
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
-                  color: hasQR
-                      ? Colors.green.shade400
-                      : (docInfo.isValid
-                            ? Colors.grey.shade300
-                            : Colors.red.shade300),
+                  color:
+                      hasQR
+                          ? Colors.green.shade400
+                          : (docInfo.isValid
+                              ? Colors.grey.shade300
+                              : Colors.red.shade300),
                   width: hasQR ? 2 : (docInfo.isValid ? 1 : 2),
                 ),
               ),
@@ -1809,11 +2363,12 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                   Icon(
                     Icons.picture_as_pdf,
                     size: 34,
-                    color: hasQR
-                        ? Colors.green.shade600
-                        : (docInfo.isValid
-                              ? Colors.red.shade600
-                              : Colors.red.shade400),
+                    color:
+                        hasQR
+                            ? Colors.green.shade600
+                            : (docInfo.isValid
+                                ? Colors.red.shade600
+                                : Colors.red.shade400),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -1821,9 +2376,8 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
-                      color: hasQR
-                          ? Colors.green.shade700
-                          : Colors.red.shade700,
+                      color:
+                          hasQR ? Colors.green.shade700 : Colors.red.shade700,
                     ),
                   ),
                   if (hasQR)
@@ -1863,7 +2417,8 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
               ),
             ),
           ),
-          // Remove
+
+          // Remove button (top-right)
           Positioned(
             top: 4,
             right: 4,
@@ -1879,7 +2434,8 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
               ),
             ),
           ),
-          // Index
+
+          // Index badge (bottom-left)
           Positioned(
             bottom: 4,
             left: 4,
@@ -1899,7 +2455,8 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
               ),
             ),
           ),
-          // Extract button if needed (POD & E-INVOICE scenarios only)
+
+          // AUTO-EXTRACT BUTTON (top-left) - Blue (when no QR)
           if (docInfo.isValid &&
               docInfo.type == DocumentType.pdf &&
               !hasQR &&
@@ -1908,24 +2465,123 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
               top: 4,
               left: 4,
               child: GestureDetector(
-                onTap: _isBusy
-                    ? null
-                    : () => _enqueueExtraction(docInfo, index),
+                onTap:
+                    _isBusy ? null : () => _enqueueExtraction(docInfo, index),
                 child: Container(
-                  padding: const EdgeInsets.all(3),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: _isBusy ? Colors.grey : Colors.blue.shade600,
                     borderRadius: BorderRadius.circular(8),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Colors.black26,
+                        blurRadius: 3,
+                        offset: Offset(0, 1),
+                      ),
+                    ],
                   ),
-                  child: const Icon(
-                    Icons.qr_code_scanner,
-                    color: Colors.white,
-                    size: 14,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(Icons.auto_awesome, color: Colors.white, size: 11),
+                      SizedBox(width: 3),
+                      Text(
+                        'Auto',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
             ),
-          // View QR
+
+          // MANUAL SCAN BUTTON (bottom-right) - Orange (when no QR)
+          if (docInfo.isValid &&
+              docInfo.type == DocumentType.pdf &&
+              !hasQR &&
+              (_isPodDoc() || _isEinvoiceDoc()))
+            Positioned(
+              bottom: 4,
+              right: 4,
+              child: GestureDetector(
+                onTap:
+                    _isBusy
+                        ? null
+                        : () async {
+                          final res =
+                              await Navigator.push<Map<String, dynamic>>(
+                                context,
+                                MaterialPageRoute(
+                                  builder:
+                                      (_) => GstQrApp(
+                                        podId: _selectedPod?.id ?? '0',
+                                      ),
+                                ),
+                              );
+                          if (res != null && mounted) {
+                            setState(() {
+                              _capturedDocuments[index] = docInfo.copyWith(
+                                qrData: res,
+                              );
+                              _einvoiceData ??= res;
+                            });
+
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('✅ Manual QR scan successful'),
+                                backgroundColor: Colors.green,
+                                duration: Duration(seconds: 2),
+                              ),
+                            );
+                          }
+                        },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _isBusy ? Colors.grey : Colors.orange.shade700,
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Colors.black26,
+                        blurRadius: 3,
+                        offset: Offset(0, 1),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(
+                        Icons.qr_code_scanner,
+                        color: Colors.white,
+                        size: 11,
+                      ),
+                      SizedBox(width: 3),
+                      Text(
+                        'Scan',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+          // VIEW QR BUTTON (top-left) - Green (when QR exists)
           if (hasQR)
             Positioned(
               top: 4,
@@ -1935,19 +2591,33 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 6,
-                    vertical: 2,
+                    vertical: 4,
                   ),
                   decoration: BoxDecoration(
                     color: Colors.green.shade700,
                     borderRadius: BorderRadius.circular(8),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Colors.black26,
+                        blurRadius: 3,
+                        offset: Offset(0, 1),
+                      ),
+                    ],
                   ),
-                  child: const Text(
-                    'View',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(Icons.visibility, color: Colors.white, size: 11),
+                      SizedBox(width: 3),
+                      Text(
+                        'View',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -1963,6 +2633,10 @@ class _QrQueueItem {
   final int index;
   _QrQueueItem(this.doc, this.index);
 }
+
+/// ===================== QR REGION ENUM =====================
+
+enum QrRegion { topRight, bottomRight, topLeft, bottomLeft, center }
 
 /// ===================== AUTOCOMPLETE SUPPORT =====================
 
