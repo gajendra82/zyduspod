@@ -19,48 +19,49 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
   DateTime? _dateTo;
 
   @override
+  void initState() {
+    super.initState();
+    _initializeDefaultDates();
+    _loadDataWithDefaultDates();
+  }
+
+  void _initializeDefaultDates() {
+    final now = DateTime.now();
+    
+    // Previous month start date
+    final previousMonth = DateTime(now.year, now.month - 1, 1);
+    _dateFrom = previousMonth;
+    
+    // Current month end date
+    final currentMonthEnd = DateTime(now.year, now.month + 1, 0);
+    _dateTo = currentMonthEnd;
+    
+    print('Default dates set: From ${_formatDateForDisplay(_dateFrom!)} to ${_formatDateForDisplay(_dateTo!)}');
+  }
+
+  void _loadDataWithDefaultDates() {
+    if (_dateFrom != null && _dateTo != null) {
+      final dateFromStr = _formatDateForApi(_dateFrom!);
+      final dateToStr = _formatDateForApi(_dateTo!);
+      
+      context.read<SalesBloc>().add(
+        HospitalSalesLoadRequested(
+          dateFrom: dateFromStr,
+          dateTo: dateToStr,
+        ),
+      );
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        title: const Text('Hospital Sales Data'),
-        backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF2C3E50),
-        elevation: 0,
-        centerTitle: true,
-        actions: [
-          Stack(
-            children: [
-              IconButton(
-                onPressed: () {
-                  _showFilterBottomSheet(context);
-                },
-                icon: const Icon(Icons.filter_list),
-                tooltip: 'Filter by Date',
-              ),
-              if (_dateFrom != null || _dateTo != null)
-                Positioned(
-                  right: 8,
-                  top: 8,
-                  child: Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF00A0A8),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          IconButton(
-            onPressed: () {
-              context.read<SalesBloc>().add(const SalesRefreshRequested());
-            },
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
-      ),
+      // appBar: AppBar(
+      //   backgroundColor: Colors.white,
+      //   foregroundColor: const Color(0xFF2C3E50),
+      //   elevation: 0,
+      // ),
       body: BlocBuilder<SalesBloc, SalesState>(
         builder: (context, state) {
           if (state is SalesLoading) {
@@ -118,7 +119,15 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
           const SizedBox(height: 24),
           ElevatedButton.icon(
             onPressed: () {
-              context.read<SalesBloc>().add(const HospitalSalesLoadRequested());
+              // Retry with current date filters
+              final dateFromStr = _dateFrom != null ? _formatDateForApi(_dateFrom!) : null;
+              final dateToStr = _dateTo != null ? _formatDateForApi(_dateTo!) : null;
+              context.read<SalesBloc>().add(
+                HospitalSalesLoadRequested(
+                  dateFrom: dateFromStr,
+                  dateTo: dateToStr,
+                ),
+              );
             },
             icon: const Icon(Icons.refresh),
             label: const Text('Retry'),
@@ -134,67 +143,264 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
 
   Widget _buildLoadedWidget(BuildContext context, SalesLoaded state) {
     final filteredSummaries = _filterHospitalSummaries(state.hospitalSummaries);
-    if(filteredSummaries.isEmpty){
-      return const Center(
-        child: Text('No data found'),
-
-      );
-    }
+    
     return Column(
       children: [ 
-        _buildFilterChips(),
+        const SizedBox(height: 8),
+        _buildMonthPeriodIndicator(),
         Expanded(
-          child: RefreshIndicator(
-            onRefresh: () async {
-              context.read<SalesBloc>().add(const SalesRefreshRequested());
-            },
-            color: const Color(0xFF00A0A8),
-            child: ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: filteredSummaries.length,
-              itemBuilder: (context, index) {
-                final summary = filteredSummaries[index];
-                
-                return _buildHospitalCard(context, summary);
-              },
-            ),
-          ),
+          child: filteredSummaries.isEmpty
+            ? RefreshIndicator(
+                onRefresh: () async {
+                  // Refresh with current date filters
+                  final dateFromStr = _dateFrom != null ? _formatDateForApi(_dateFrom!) : null;
+                  final dateToStr = _dateTo != null ? _formatDateForApi(_dateTo!) : null;
+                  context.read<SalesBloc>().add(
+                    HospitalSalesLoadRequested(
+                      dateFrom: dateFromStr,
+                      dateTo: dateToStr,
+                    ),
+                  );
+                },
+                color: const Color(0xFF00A0A8),
+                child: ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    SizedBox(
+                      height: MediaQuery.of(context).size.height * 0.5,
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.search_off,
+                              size: 64,
+                              color: Colors.grey.shade400,
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'No data found',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Try adjusting your filters',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey.shade500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : RefreshIndicator(
+                onRefresh: () async {
+                  // Refresh with current date filters
+                  final dateFromStr = _dateFrom != null ? _formatDateForApi(_dateFrom!) : null;
+                  final dateToStr = _dateTo != null ? _formatDateForApi(_dateTo!) : null;
+                  context.read<SalesBloc>().add(
+                    HospitalSalesLoadRequested(
+                      dateFrom: dateFromStr,
+                      dateTo: dateToStr,
+                    ),
+                  );
+                },
+                color: const Color(0xFF00A0A8),
+                child: ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: filteredSummaries.length,
+                  itemBuilder: (context, index) {
+                    final summary = filteredSummaries[index];
+                    
+                    return _buildHospitalCard(context, summary);
+                  },
+                ),
+              ),
         ),
       ],
     );
   }
 
-  Widget _buildFilterChips() {
+  Widget _buildFilterChipsForBottomSheet(StateSetter setModalState) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: _filterOptions.map((filter) {
+        final isSelected = _selectedFilter == filter;
+        return FilterChip(
+          label: Text(filter),
+          selected: isSelected,
+          onSelected: (selected) {
+            setState(() {
+              _selectedFilter = filter;
+            });
+            setModalState(() {});
+          },
+          selectedColor: const Color(0xFF00A0A8).withOpacity(0.2),
+          checkmarkColor: const Color(0xFF00A0A8),
+          labelStyle: TextStyle(
+            color: isSelected ? const Color(0xFF00A0A8) : Colors.grey.shade700,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildMonthPeriodIndicator() {
+    if (_dateFrom == null && _dateTo == null) {
+      return const SizedBox.shrink();
+    }
+
     return Container(
-      padding: const EdgeInsets.all(16),
-      color: Colors.white,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: _filterOptions.map((filter) {
-            final isSelected = _selectedFilter == filter;
-            return Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: FilterChip(
-                label: Text(filter),
-                selected: isSelected,
-                onSelected: (selected) {
-                  setState(() {
-                    _selectedFilter = filter;
-                  });
-                },
-                selectedColor: const Color(0xFF00A0A8).withOpacity(0.2),
-                checkmarkColor: const Color(0xFF00A0A8),
-                labelStyle: TextStyle(
-                  color: isSelected ? const Color(0xFF00A0A8) : Colors.grey.shade700,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                ),
-              ),
-            );
-          }).toList(),
+      margin: const EdgeInsets.only(left: 16, right: 16, top: 0, bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF00A0A8).withOpacity(0.1),
+            const Color(0xFF6EC1C7).withOpacity(0.05),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: const Color(0xFF00A0A8).withOpacity(0.3),
+          width: 1.5,
         ),
       ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF00A0A8).withOpacity(0.2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(
+              Icons.calendar_month,
+              color: Color(0xFF00A0A8),
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _getFullDateRangeText(),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Color(0xFF2C3E50),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                if (_selectedFilter != 'All')
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      'Filter: $_selectedFilter',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Stack(
+            children: [
+              IconButton(
+                onPressed: () {
+                  _showFilterBottomSheet(context);
+                },
+                icon: const Icon(
+                  Icons.filter_list,
+                  color: Color(0xFF00A0A8),
+                  size: 20,
+                ),
+                tooltip: 'Filter & Date Range',
+              ),
+              if (_selectedFilter != 'All')
+                Positioned(
+                  right: 6,
+                  top: 6,
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF00A0A8),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          IconButton(
+            onPressed: () {
+              // Refresh with current date filters
+              final dateFromStr = _dateFrom != null ? _formatDateForApi(_dateFrom!) : null;
+              final dateToStr = _dateTo != null ? _formatDateForApi(_dateTo!) : null;
+              context.read<SalesBloc>().add(
+                HospitalSalesLoadRequested(
+                  dateFrom: dateFromStr,
+                  dateTo: dateToStr,
+                ),
+              );
+            },
+            icon: const Icon(
+              Icons.refresh,
+              color: Color(0xFF00A0A8),
+              size: 20,
+            ),
+            tooltip: 'Refresh',
+          ),
+        ],
+      ),
     );
+  }
+
+  String _getFullDateRangeText() {
+    if (_dateFrom == null || _dateTo == null) {
+      return 'All Time';
+    }
+
+    final monthNames = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+
+    final fromDay = _dateFrom!.day;
+    final fromMonth = monthNames[_dateFrom!.month - 1];
+    final fromYear = _dateFrom!.year;
+    
+    final toDay = _dateTo!.day;
+    final toMonth = monthNames[_dateTo!.month - 1];
+    final toYear = _dateTo!.year;
+
+    // Same year
+    if (_dateFrom!.year == _dateTo!.year) {
+      // Same month
+      if (_dateFrom!.month == _dateTo!.month) {
+        return '$fromDay - $toDay $fromMonth $fromYear';
+      }
+      return '$fromDay $fromMonth - $toDay $toMonth $fromYear';
+    }
+
+    // Different years
+    return '$fromDay $fromMonth $fromYear - $toDay $toMonth $toYear';
   }
 
   void _showFilterBottomSheet(BuildContext context) {
@@ -249,7 +455,7 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
                           ),
                           const SizedBox(width: 12),
                           const Text(
-                            'Filter by Date Range',
+                            'Filter & Date Range',
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.bold,
@@ -259,14 +465,46 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
                         ],
                       ),
                       const SizedBox(height: 24),
+                      // Volume Filter Section
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Filter by Volume',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF2C3E50),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          _buildFilterChipsForBottomSheet(setModalState),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+                      Divider(color: Colors.grey.shade300),
+                      const SizedBox(height: 24),
                       // Date filters
-                      const Text(
-                        'Select Date Range',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF2C3E50),
-                        ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Select Date Range',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF2C3E50),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Default: Previous month to current month end',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 12),
                       Row(
@@ -337,8 +575,8 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
                                 _clearDateFilter();
                                 Navigator.pop(context);
                               },
-                              icon: const Icon(Icons.clear, size: 18),
-                              label: const Text('Clear'),
+                              icon: const Icon(Icons.restart_alt, size: 18),
+                              label: const Text('Reset Default'),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: Colors.grey.shade700,
                                 side: BorderSide(color: Colors.grey.shade300),
@@ -440,12 +678,22 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
         ? (_dateFrom ?? DateTime.now()) 
         : (_dateTo ?? DateTime.now());
     
-    final firstDate = DateTime(2020);
+    // For "From Date", allow selection from 2020
+    // For "To Date", ensure it cannot be before "From Date"
+    final firstDate = isFromDate 
+        ? DateTime(2020)
+        : (_dateFrom ?? DateTime(2020));
+    
     final lastDate = DateTime.now();
+
+    // Ensure initialDate is within the valid range
+    final validInitialDate = initialDate.isBefore(firstDate) 
+        ? firstDate 
+        : (initialDate.isAfter(lastDate) ? lastDate : initialDate);
 
     final pickedDate = await showDatePicker(
       context: context,
-      initialDate: initialDate,
+      initialDate: validInitialDate,
       firstDate: firstDate,
       lastDate: lastDate,
       builder: (context, child) {
@@ -467,6 +715,10 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
       setState(() {
         if (isFromDate) {
           _dateFrom = pickedDate;
+          // If the new "From Date" is after the current "To Date", adjust "To Date"
+          if (_dateTo != null && pickedDate.isAfter(_dateTo!)) {
+            _dateTo = pickedDate;
+          }
         } else {
           _dateTo = pickedDate;
         }
@@ -494,11 +746,10 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
   }
 
   void _clearDateFilter() {
-    setState(() {
-      _dateFrom = null;
-      _dateTo = null;
-    });
-    context.read<SalesBloc>().add(const HospitalSalesLoadRequested());
+    // Reset to default dates instead of clearing completely
+    _initializeDefaultDates();
+    setState(() {});
+    _loadDataWithDefaultDates();
   }
 
   String _formatDateForDisplay(DateTime date) {

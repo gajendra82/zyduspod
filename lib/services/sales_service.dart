@@ -10,14 +10,15 @@ class SalesService {
 
   Future<List<SalesData>> getSalesData({SalesFilter? filter}) async {
     try {
+      return _getMockSalesData();
       print('${API_BASE_URL}sales/data');
       final queryParams = filter?.toQueryParams() ?? <String, String>{};
-      final uri = Uri.parse('${API_BASE_URL}sales/data').replace(
-        queryParameters: queryParams,
-      );
+      final uri = Uri.parse(
+        '${API_BASE_URL}sales/data',
+      ).replace(queryParameters: queryParams);
 
       final response = await _apiClient.get(uri);
-      
+
       print('response: ${response.body}');
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -29,40 +30,60 @@ class SalesService {
         // Return mock data for development
         return _getMockSalesData();
       }
-    } catch (e) { 
+    } catch (e) {
       print('error: $e');
       // Return mock data for development
       return _getMockSalesData();
     }
   }
 
-  Future<List<HospitalSalesSummary>> getHospitalSalesSummaries({String? dateFrom, String? dateTo}) async {
+  String? _formatToYMD(String? dateStr) {
+    if (dateStr == null || dateStr.isEmpty) return null;
+    // Try to parse as DateTime. If already formatted, just return.
+    try {
+      final dt = DateTime.parse(dateStr);
+      // Output 'YYYY-MM-DD'
+      return '${dt.year.toString().padLeft(4, '0')}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+    } catch (_) {
+      // If fails, assume it's already formatted or invalid, just return original
+      return dateStr;
+    }
+  }
+
+  Future<List<HospitalSalesSummary>> getHospitalSalesSummaries({
+    String? dateFrom,
+    String? dateTo,
+  }) async {
     try {
       final queryParams = <String, String>{};
+      // Ensure dateFrom and dateTo are formatted as 'YYYY-MM-DD' (Y-m-d)
+      print('dateFrom: $dateFrom');
+      print('dateTo: $dateTo');
+
       if (dateFrom != null && dateFrom.isNotEmpty) {
-        queryParams['date_from'] = dateFrom;
+        queryParams['date_from'] = _formatToYMD(dateFrom)!;
       }
       if (dateTo != null && dateTo.isNotEmpty) {
-        queryParams['date_to'] = dateTo;
+        queryParams['date_to'] = _formatToYMD(dateTo)!;
       }
-      
-      final uri = Uri.parse('${API_BASE_URL}dashboard/hospital-sales').replace(
-        queryParameters: queryParams.isNotEmpty ? queryParams : null,
-      );
-      
+      print('queryParams: $queryParams');
+      final uri = Uri.parse(
+        '${API_BASE_URL}dashboard/hospital-sales',
+      ).replace(queryParameters: queryParams.isNotEmpty ? queryParams : null);
+
       final response = await _apiClient.get(
         uri,
-        headers: {
-          'Accept': 'application/json',
-        },
+        headers: {'Accept': 'application/json'},
       );
-      
+
       print('response: ${response.body}');
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data['success'] == true) {
           return (data['data'] ?? [])
-              .map<HospitalSalesSummary>((item) => HospitalSalesSummary.fromJson(item))
+              .map<HospitalSalesSummary>(
+                (item) => HospitalSalesSummary.fromJson(item),
+              )
               .toList();
         } else {
           throw Exception(data['message'] ?? 'Failed to fetch hospital sales');
@@ -80,6 +101,7 @@ class SalesService {
 
   Future<List<StockistSalesSummary>> getStockistSalesSummaries() async {
     try {
+      return _getMockStockistSummaries();
       final response = await _apiClient.get(
         Uri.parse('${API_BASE_URL}sales/stockist-summaries'),
       );
@@ -87,7 +109,9 @@ class SalesService {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return (data['stockist_summaries'] ?? data['data'] ?? [])
-            .map<StockistSalesSummary>((item) => StockistSalesSummary.fromJson(item))
+            .map<StockistSalesSummary>(
+              (item) => StockistSalesSummary.fromJson(item),
+            )
             .toList();
       } else {
         // Return mock data for development
@@ -101,11 +125,10 @@ class SalesService {
 
   Future<Map<String, dynamic>> getSalesSummaryStats() async {
     try {
+      return _getMockSummaryStats();
       final response = await _apiClient.get(
         Uri.parse('${API_BASE_URL}/dashboard/analytics'),
-        headers: {
-          'Accept': 'application/json',
-        },
+        headers: {'Accept': 'application/json'},
       );
 
       if (response.statusCode == 200) {
@@ -142,16 +165,17 @@ class SalesService {
     try {
       final queryParams = filter?.toQueryParams() ?? <String, String>{};
       queryParams['format'] = format;
-      
-      final uri = Uri.parse('${API_BASE_URL}sales/export').replace(
-        queryParameters: queryParams,
-      );
+
+      final uri = Uri.parse(
+        '${API_BASE_URL}sales/export',
+      ).replace(queryParameters: queryParams);
 
       final response = await _apiClient.get(uri);
 
       if (response.statusCode == 200) {
         final directory = await getApplicationDocumentsDirectory();
-        final fileName = 'sales_export_${DateTime.now().millisecondsSinceEpoch}.$format';
+        final fileName =
+            'sales_export_${DateTime.now().millisecondsSinceEpoch}.$format';
         final file = File('${directory.path}/$fileName');
         await file.writeAsBytes(response.bodyBytes);
         return file.path;
@@ -238,27 +262,27 @@ class SalesService {
 
   List<StockistSalesSummary> _getMockStockistSummaries() {
     // return [
-      // StockistSalesSummary(
-      //   stockistId: '1',
-      //   stockistName: 'ABC Medical Store',
-      //   totalTransactions: 28,
-      //   totalAmount: 95000.0,
-      //   averageTransactionValue: 3392.86,
-      //   topProduct: 'Medicine A',
-      //   lastTransactionDate: '2024-01-15',
-      //   recentTransactions: _getMockSalesData().take(1).toList(),
-      // ),
-      // StockistSalesSummary(
-      //   stockistId: '2',
-      //   stockistName: 'XYZ Pharmacy',
-      //   totalTransactions: 35,
-      //   totalAmount: 110000.0,
-      //   averageTransactionValue: 3142.86,
-      //   topProduct: 'Medicine B',
-      //   lastTransactionDate: '2024-01-14',
-      //   recentTransactions: _getMockSalesData().skip(1).take(1).toList(),
-      // ),
-    // ]; 
+    // StockistSalesSummary(
+    //   stockistId: '1',
+    //   stockistName: 'ABC Medical Store',
+    //   totalTransactions: 28,
+    //   totalAmount: 95000.0,
+    //   averageTransactionValue: 3392.86,
+    //   topProduct: 'Medicine A',
+    //   lastTransactionDate: '2024-01-15',
+    //   recentTransactions: _getMockSalesData().take(1).toList(),
+    // ),
+    // StockistSalesSummary(
+    //   stockistId: '2',
+    //   stockistName: 'XYZ Pharmacy',
+    //   totalTransactions: 35,
+    //   totalAmount: 110000.0,
+    //   averageTransactionValue: 3142.86,
+    //   topProduct: 'Medicine B',
+    //   lastTransactionDate: '2024-01-14',
+    //   recentTransactions: _getMockSalesData().skip(1).take(1).toList(),
+    // ),
+    // ];
     return [];
   }
 
@@ -279,21 +303,24 @@ class SalesService {
 
   Future<String> _createMockExportFile(String format) async {
     final directory = await getApplicationDocumentsDirectory();
-    final fileName = 'sales_export_${DateTime.now().millisecondsSinceEpoch}.$format';
+    final fileName =
+        'sales_export_${DateTime.now().millisecondsSinceEpoch}.$format';
     final file = File('${directory.path}/$fileName');
-    
+
     final mockData = _getMockSalesData();
     String content = '';
-    
+
     if (format == 'csv') {
-      content = 'ID,Hospital,Stockist,Product,Quantity,Unit Price,Total Amount,Date,Status,Invoice Number,Document Type\n';
+      content =
+          'ID,Hospital,Stockist,Product,Quantity,Unit Price,Total Amount,Date,Status,Invoice Number,Document Type\n';
       for (final sale in mockData) {
-        content += '${sale.id},${sale.hospitalName},${sale.stockistName},${sale.productName},${sale.quantity},${sale.unitPrice},${sale.totalAmount},${sale.date},${sale.status},${sale.invoiceNumber},${sale.documentType}\n';
+        content +=
+            '${sale.id},${sale.hospitalName},${sale.stockistName},${sale.productName},${sale.quantity},${sale.unitPrice},${sale.totalAmount},${sale.date},${sale.status},${sale.invoiceNumber},${sale.documentType}\n';
       }
     } else {
       content = jsonEncode(mockData.map((sale) => sale.toJson()).toList());
     }
-    
+
     await file.writeAsString(content);
     return file.path;
   }
