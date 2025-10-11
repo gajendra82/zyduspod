@@ -1,35 +1,23 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:zyduspod/config.dart';
 import 'package:zyduspod/Models/sales_data.dart';
+import 'package:zyduspod/services/api_client.dart';
 
 class SalesService {
+  final ApiClient _apiClient = ApiClient();
 
   Future<List<SalesData>> getSalesData({SalesFilter? filter}) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('authToken');
-  
-      if (token == null) {
-        throw Exception('No authentication token found');
-      }
-
       print('${API_BASE_URL}sales/data');
       final queryParams = filter?.toQueryParams() ?? <String, String>{};
       final uri = Uri.parse('${API_BASE_URL}sales/data').replace(
         queryParameters: queryParams,
       );
 
-      final response = await http.get(
-        uri,
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-      );
+      final response = await _apiClient.get(uri);
+      
       print('response: ${response.body}');
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -50,20 +38,13 @@ class SalesService {
 
   Future<List<HospitalSalesSummary>> getHospitalSalesSummaries() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('authToken');
-
-      if (token == null) {
-        throw Exception('No authentication token found');
-      }
-
-      final response = await http.get(
+      final response = await _apiClient.get(
         Uri.parse('${API_BASE_URL}dashboard/hospital-sales'),
         headers: {
-          'Authorization': 'Bearer $token',
           'Accept': 'application/json',
         },
       );
+      
       print('response: ${response.body}');
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -87,19 +68,8 @@ class SalesService {
 
   Future<List<StockistSalesSummary>> getStockistSalesSummaries() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('authToken');
-
-      if (token == null) {
-        throw Exception('No authentication token found');
-      }
-
-      final response = await http.get(
+      final response = await _apiClient.get(
         Uri.parse('${API_BASE_URL}sales/stockist-summaries'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
       );
 
       if (response.statusCode == 200) {
@@ -119,17 +89,9 @@ class SalesService {
 
   Future<Map<String, dynamic>> getSalesSummaryStats() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('authToken');
-
-      if (token == null) {
-        throw Exception('No authentication token found');
-      }
-
-      final response = await http.get(
+      final response = await _apiClient.get(
         Uri.parse('${API_BASE_URL}/dashboard/analytics'),
         headers: {
-          'Authorization': 'Bearer $token',
           'Accept': 'application/json',
         },
       );
@@ -151,19 +113,8 @@ class SalesService {
   }
 
   Future<void> uploadSalesData(Map<String, dynamic> salesData) async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('authToken');
-
-    if (token == null) {
-      throw Exception('No authentication token found');
-    }
-
-    final response = await http.post(
+    final response = await _apiClient.post(
       Uri.parse('${API_BASE_URL}sales/upload'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
       body: jsonEncode(salesData),
     );
 
@@ -177,13 +128,6 @@ class SalesService {
     String format = 'csv',
   }) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('authToken');
-
-      if (token == null) {
-        throw Exception('No authentication token found');
-      }
-
       final queryParams = filter?.toQueryParams() ?? <String, String>{};
       queryParams['format'] = format;
       
@@ -191,12 +135,7 @@ class SalesService {
         queryParameters: queryParams,
       );
 
-      final response = await http.get(
-        uri,
-        headers: {
-          'Authorization': 'Bearer $token',
-        },
-      );
+      final response = await _apiClient.get(uri);
 
       if (response.statusCode == 200) {
         final directory = await getApplicationDocumentsDirectory();

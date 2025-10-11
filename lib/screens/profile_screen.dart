@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:zyduspod/login_screen.dart';
+import 'package:zyduspod/services/auth_service.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -517,20 +517,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _logout(BuildContext context) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('authToken');
-      await prefs.remove('userEmail');
-      await prefs.remove('userName');
-      
-      if (!context.mounted) return;
-      
       Navigator.of(context).pop(); // Close dialog
       
-      // Navigate to login screen
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-        (route) => false,
-      );
+      // Use AuthService for logout
+      await AuthService.logout(context);
+      
+      if (!context.mounted) return;
       
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -568,22 +560,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       // Simulate API call delay
       await Future.delayed(const Duration(seconds: 2));
-
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('authToken');
-      await prefs.remove('userEmail');
-      await prefs.remove('userName');
       
       if (!context.mounted) return;
       
       Navigator.of(context).pop(); // Close processing dialog
       Navigator.of(context).pop(); // Close delete dialog
       
-      // Navigate to login screen
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-        (route) => false,
-      );
+      // Use AuthService for logout
+      await AuthService.logout(context);
+      
+      if (!context.mounted) return;
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
