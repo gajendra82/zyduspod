@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
@@ -18,6 +19,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:zyduspod/GstInvoiceScanner.dart';
+import 'package:zyduspod/Models/_SplitOut.dart';
 import 'package:zyduspod/Models/pod.dart';
 import 'package:zyduspod/config.dart';
 import 'package:zyduspod/services/PythonQRService.dart';
@@ -75,6 +77,160 @@ Map<String, dynamic> _enhanceImageForOCRWorker(Map<String, dynamic> args) {
   } catch (e) {
     return {'success': false, 'bytes': imgBytes, 'error': e.toString()};
   }
+}
+
+// Put near other imports
+// already have: import 'package:http_parser/http_parser.dart';
+const String _SPLIT_API_BASE = 'https://anujakkulkarni-splitpdffile.hf.space';
+
+Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
+  try {
+    final uri = Uri.parse('$_SPLIT_API_BASE/split-invoices');
+
+    final req =
+        http.MultipartRequest('POST', uri)
+          ..files.add(
+            await http.MultipartFile.fromPath(
+              'file',
+              pdfFile.path,
+              filename: p.basename(pdfFile.path),
+              contentType: MediaType('application', 'pdf'),
+            ),
+          )
+          ..fields['include_pdf'] = 'true'
+          ..fields['initial_dpi'] = '300';
+
+    final streamed = await req.send().timeout(
+      const Duration(seconds: 120),
+      onTimeout: () => throw TimeoutException('Split API timed out'),
+    );
+    final resp = await http.Response.fromStream(streamed);
+
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      debugPrint('[SPLIT] HTTP ${resp.statusCode}: ${resp.body}');
+      throw Exception('Split API error ${resp.statusCode}');
+    }
+
+    final decoded = jsonDecode(resp.body);
+    if (decoded is! Map || decoded['parts'] is! List) {
+      debugPrint('[SPLIT] Unexpected response: ${resp.body}');
+      return <SplitOut>[];
+    }
+
+    final parts = decoded['parts'] as List;
+    final tmp = await getTemporaryDirectory();
+    final out = <SplitOut>[];
+
+    for (int i = 0; i < parts.length; i++) {
+      final e = parts[i];
+      if (e is! Map) continue;
+
+      final String? b64 = e['pdf_base64'] as String?;
+      if (b64 == null || b64.isEmpty) continue;
+
+      Uint8List? bytes;
+      try {
+        bytes = Uint8List.fromList(base64.decode(base64.normalize(b64)));
+      } catch (err) {
+        debugPrint('[SPLIT] base64 decode failed: $err');
+        continue;
+      }
+
+      final invoiceNo = (e['invoice_no'] as String?)?.trim();
+      final List<int>? pages =
+          (e['pages'] is List)
+              ? (e['pages'] as List).whereType<int>().toList()
+              : null;
+      final int? sizeBytes =
+          (e['size_bytes'] is int) ? e['size_bytes'] as int : null;
+
+      // Prefer invoice number in file name if available
+      final baseName =
+          invoiceNo?.isNotEmpty == true
+              ? 'invoice_${invoiceNo!.replaceAll(RegExp(r"[^A-Za-z0-9_-]"), "_")}'
+              : 'split_part_${i + 1}';
+      final outPath =
+          '${tmp.path}/$baseName${DateTime.now().millisecondsSinceEpoch}.pdf';
+
+      final f = File(outPath);
+      await f.writeAsBytes(bytes, flush: true);
+
+      out.add(
+        SplitOut(
+          file: f,
+          invoiceNo: invoiceNo,
+          pages: pages,
+          sizeBytes: sizeBytes,
+        ),
+      );
+    }
+
+    debugPrint('[SPLIT] Created ${out.length} split PDFs.');
+    return out;
+  } catch (e, st) {
+    debugPrint('[SPLIT] Exception: $e');
+    debugPrint('$st');
+    return <SplitOut>[]; // soft-fail; caller can fallback to original
+  }
+}
+
+List<Uint8List> _extractBase64PdfBytes(dynamic decoded) {
+  List<Uint8List> out = [];
+
+  Uint8List? _tryDecode(dynamic v) {
+    try {
+      if (v is String && v.isNotEmpty) {
+        final norm = base64.normalize(v);
+        return Uint8List.fromList(base64.decode(norm));
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  if (decoded is Map<String, dynamic>) {
+    // files: [{ filename, content_base64 }]
+    if (decoded['files'] is List) {
+      for (final e in (decoded['files'] as List)) {
+        if (e is Map && (e['content_base64'] is String)) {
+          final b = _tryDecode(e['content_base64']);
+          if (b != null) out.add(b);
+        } else if (e is Map && (e['content'] is String)) {
+          final b = _tryDecode(e['content']);
+          if (b != null) out.add(b);
+        }
+      }
+    }
+    // parts: [{ filename, content }]
+    if (decoded['parts'] is List) {
+      for (final e in (decoded['parts'] as List)) {
+        if (e is Map && (e['content'] is String)) {
+          final b = _tryDecode(e['content']);
+          if (b != null) out.add(b);
+        }
+      }
+    }
+    // pdfs: ["base64", ...]
+    if (decoded['pdfs'] is List) {
+      for (final s in (decoded['pdfs'] as List)) {
+        final b = _tryDecode(s);
+        if (b != null) out.add(b);
+      }
+    }
+    // data: ["base64", ...]
+    if (decoded['data'] is List) {
+      for (final s in (decoded['data'] as List)) {
+        final b = _tryDecode(s);
+        if (b != null) out.add(b);
+      }
+    }
+  } else if (decoded is List) {
+    for (final s in decoded) {
+      final b = _tryDecode(s);
+      if (b != null) out.add(b);
+    }
+  }
+
+  return out;
 }
 
 /// ===================== DATA MODEL =====================
@@ -815,39 +971,86 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         return;
       }
 
-      File finalFile;
-      String displayName = info.displayName;
+      final List<File> finalPdfFiles = [];
+      final List<String?> finalDisplayNames = [];
+      final String displayNameBase = p.basenameWithoutExtension(
+        info.displayName,
+      );
+
       if (info.type == DocumentType.image) {
         final enhanced =
             isFromScanner ? null : await _enhanceImageForOCR(originalFile);
-        finalFile = await _convertSingleImageToPDF(enhanced ?? originalFile);
-        displayName = '${p.basenameWithoutExtension(info.displayName)}.pdf';
+        final converted = await _convertSingleImageToPDF(
+          enhanced ?? originalFile,
+        );
+        finalPdfFiles.add(converted);
+        finalDisplayNames.add('$displayNameBase.pdf');
       } else {
-        finalFile = originalFile;
+        // ========= NEW: Split first =========
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Splitting ${info.displayName} into invoices...'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+
+        final splitParts = await _splitPdfViaApi(originalFile);
+
+        if (splitParts.isNotEmpty) {
+          for (int i = 0; i < splitParts.length; i++) {
+            final part = splitParts[i];
+            finalPdfFiles.add(part.file);
+            // Prefer invoice number in display if available
+            final disp =
+                (part.invoiceNo != null && part.invoiceNo!.isNotEmpty)
+                    ? 'Invoice_${part.invoiceNo}.pdf'
+                    : '${displayNameBase}_part${i + 1}.pdf';
+            finalDisplayNames.add(disp);
+          }
+        } else {
+          // Fallback to original single PDF
+          finalPdfFiles.add(originalFile);
+          finalDisplayNames.add('$displayNameBase.pdf');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'No splits returned. Using original ${info.displayName}.',
+              ),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
       }
 
+      // Persist each final PDF into temp (copy) and enqueue QR
       final tmp = await getTemporaryDirectory();
-      final savedPath =
-          '${tmp.path}/doc_${DateTime.now().millisecondsSinceEpoch}_${_capturedDocuments.length}.pdf';
-      final saved = await finalFile.copy(savedPath);
+      for (int i = 0; i < finalPdfFiles.length; i++) {
+        final f = finalPdfFiles[i];
+        final savedPath =
+            '${tmp.path}/doc_${DateTime.now().millisecondsSinceEpoch}_${_capturedDocuments.length}_$i.pdf';
+        final saved = await f.copy(savedPath);
 
-      if (!mounted) return;
-      final newDoc = DocumentInfo(
-        file: saved,
-        isValid: true,
-        type: DocumentType.pdf,
-        displayName: displayName,
-      );
-      setState(() {
-        _capturedDocuments.add(newDoc);
-      });
-      _scheduleScrollToBottom();
+        final dispName = finalDisplayNames[i] ?? '${displayNameBase}.pdf';
 
-      // Enqueue extraction (sequential) to keep UI responsive
-      final idx = _capturedDocuments.length - 1;
-      if (_isPodDoc() || _isEinvoiceDoc()) {
-        _enqueueExtraction(newDoc, idx);
+        if (!mounted) return;
+        final newDoc = DocumentInfo(
+          file: saved,
+          isValid: true,
+          type: DocumentType.pdf,
+          displayName: dispName,
+        );
+
+        setState(() {
+          _capturedDocuments.add(newDoc);
+        });
+
+        if (_isPodDoc() || _isEinvoiceDoc()) {
+          final idx = _capturedDocuments.length - 1;
+          _enqueueExtraction(newDoc, idx); // ← your existing QR pipeline
+        }
       }
+
+      _scheduleScrollToBottom();
     } catch (e) {
       if (!mounted) return;
       setState(() {
