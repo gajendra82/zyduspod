@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-// import 'package:zyduspod/GstInvoiceScanner.dart';
 import 'package:zyduspod/screens/splash_screen.dart';
+import 'package:zyduspod/widgets/connectivity_wrapper.dart';
 
 void main() {
   runApp(const MyApp());
@@ -79,7 +79,9 @@ class MyApp extends StatelessWidget {
         useMaterial3: true,
         fontFamily: 'SF Pro Display',
       ),
-      home: const SplashScreen(),
+      home: const ConnectivityWrapper(
+        child: SplashScreen(),
+      ),
     );
   }
 }

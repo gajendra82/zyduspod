@@ -44,12 +44,14 @@ class PythonQRService {
       debugPrint('[HF-QR] Fields: ${request.fields}');
 
       // Send request with timeout
-      final streamedResponse = await request.send().timeout(
-        const Duration(seconds: 120),
-        onTimeout: () {
-          throw TimeoutException('Request timed out after 120 seconds');
-        },
-      );
+      final streamedResponse = await request.send()
+      // .timeout(
+      //   const Duration(seconds: 120),
+      //   onTimeout: () {
+      //     throw TimeoutException('Request timed out after 120 seconds');
+      //   },
+      // )
+      ;
 
       final response = await http.Response.fromStream(streamedResponse);
 

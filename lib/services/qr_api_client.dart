@@ -33,7 +33,9 @@ class QrApiClient {
         ),
       );
 
-    final streamed = await req.send().timeout(timeout);
+    final streamed = await req.send()
+    // .timeout(timeout)
+    ;
     final resp = await http.Response.fromStream(streamed);
 
     if (resp.statusCode != 200) {

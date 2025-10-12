@@ -100,10 +100,7 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
           ..fields['include_pdf'] = 'true'
           ..fields['initial_dpi'] = '300';
 
-    final streamed = await req.send().timeout(
-      const Duration(seconds: 120),
-      onTimeout: () => throw TimeoutException('Split API timed out'),
-    );
+    final streamed = await req.send();
     final resp = await http.Response.fromStream(streamed);
 
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
@@ -671,7 +668,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         doc.file,
         maxPages: 3,
         dpi: 400,
-      ).timeout(const Duration(seconds: 40), onTimeout: () => null);
+      );
 
       // Fallback to Flutter extraction if HF fails
       if (qrMap == null) {
@@ -679,7 +676,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
           doc.file,
           dpi: 600,
           maxPages: 2,
-        ).timeout(const Duration(seconds: 12), onTimeout: () => null);
+        );
       }
 
       if (qrMap != null) {
@@ -1153,9 +1150,36 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
               textColor: Colors.white,
               backgroundColor: Colors.orange.shade700,
               onPressed: () {
-                setState(() {
-                  _isCancelled = true;
-                });
+                if (mounted) {
+                  setState(() {
+                    _isCancelled = true;
+                    _isProcessingImage = false;
+                    _isRefreshing = false;
+                  });
+                  // Decrement processing counter to enable upload button
+                  _decProcessing();
+                  // Hide the current loading snackbar immediately
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                  // Show skip message
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Row(
+                        children: [
+                          const Icon(Icons.info_outline, color: Colors.white, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'No QR code e-invoice data extracted for ${docInfo.displayName}',
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                          ),
+                        ],
+                      ),
+                      duration: const Duration(seconds: 3),
+                      backgroundColor: Colors.orange.shade700,
+                    ),
+                  );
+                }
                 if (_debugEinvoice) {
                   debugPrint(
                     '[QR] ⏭️ User cancelled extraction for ${docInfo.displayName}',
@@ -1170,43 +1194,30 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       // Check cancellation before each strategy
       if (_isCancelled) {
         if (_debugEinvoice) {
-          debugPrint('[QR] ❌ Extraction cancelled by user');
+          debugPrint('[QR] ❌ Extraction cancelled by user - already handled in skip button');
         }
-        if (mounted) {
-          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  const Icon(Icons.skip_next, color: Colors.white, size: 20),
-                  const SizedBox(width: 8),
-                  Text('⏭️ Skipped: ${docInfo.displayName}'),
-                ],
-              ),
-              duration: const Duration(seconds: 2),
-              backgroundColor: Colors.orange.shade700,
-            ),
-          );
-        }
+        // Processing already decremented in skip button - just return
         return;
       }
 
       // Try with medium DPI first (faster)
-      qrMap = await PythonQRService.extractQRFromPDF(
-        docInfo.file,
-        maxPages: 5,
-        dpi: 400,
-      ).timeout(
-        const Duration(seconds: 60),
-        onTimeout: () {
-          if (_debugEinvoice) {
-            debugPrint('[QR] ⏱️ Timeout at DPI 400');
-          }
-          return null;
-        },
-      );
+      if (!_isCancelled) {
+        qrMap = await PythonQRService.extractQRFromPDF(
+          docInfo.file,
+          maxPages: 5,
+          dpi: 400,
+        );
+      }
 
-      if (_isCancelled) return;
+      if (_isCancelled) {
+        if (_debugEinvoice) {
+          debugPrint('[QR] ❌ Cancelled after DPI 400 - already handled');
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        }
+        return;
+      }
 
       if (qrMap != null) {
         successStrategy = 'Hugging Face API (DPI 400)';
@@ -1265,30 +1276,62 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                 textColor: Colors.white,
                 backgroundColor: Colors.orange.shade700,
                 onPressed: () {
-                  setState(() {
-                    _isCancelled = true;
-                  });
+                  if (mounted) {
+                    setState(() {
+                      _isCancelled = true;
+                      _isProcessingImage = false;
+                      _isRefreshing = false;
+                    });
+                    // Decrement processing counter to enable upload button
+                    _decProcessing();
+                    // Hide the current loading snackbar immediately
+                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                    // Show skip message
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Row(
+                          children: [
+                            const Icon(Icons.info_outline, color: Colors.white, size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'No QR code e-invoice data extracted for ${docInfo.displayName}',
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                            ),
+                          ],
+                        ),
+                        duration: const Duration(seconds: 3),
+                        backgroundColor: Colors.orange.shade700,
+                      ),
+                    );
+                  }
+                  if (_debugEinvoice) {
+                    debugPrint('[QR] ⏭️ User cancelled extraction (DPI 600 stage)');
+                  }
                 },
               ),
             ),
           );
         }
 
-        qrMap = await PythonQRService.extractQRFromPDF(
-          docInfo.file,
-          maxPages: 5,
-          dpi: 600,
-        ).timeout(
-          const Duration(seconds: 80),
-          onTimeout: () {
-            if (_debugEinvoice) {
-              debugPrint('[QR] ⏱️ Timeout at DPI 600');
-            }
-            return null;
-          },
-        );
+        if (!_isCancelled) {
+          qrMap = await PythonQRService.extractQRFromPDF(
+            docInfo.file,
+            maxPages: 5,
+            dpi: 600,
+          );
+        }
 
-        if (_isCancelled) return;
+        if (_isCancelled) {
+          if (_debugEinvoice) {
+            debugPrint('[QR] ❌ Cancelled after DPI 600 - already handled');
+          }
+          if (mounted) {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          }
+          return;
+        }
 
         if (qrMap != null) {
           successStrategy = 'Hugging Face API (DPI 600)';
@@ -1348,30 +1391,62 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                 textColor: Colors.white,
                 backgroundColor: Colors.orange.shade700,
                 onPressed: () {
-                  setState(() {
-                    _isCancelled = true;
-                  });
+                  if (mounted) {
+                    setState(() {
+                      _isCancelled = true;
+                      _isProcessingImage = false;
+                      _isRefreshing = false;
+                    });
+                    // Decrement processing counter to enable upload button
+                    _decProcessing();
+                    // Hide the current loading snackbar immediately
+                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                    // Show skip message
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Row(
+                          children: [
+                            const Icon(Icons.info_outline, color: Colors.white, size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'No QR code e-invoice data extracted for ${docInfo.displayName}',
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                            ),
+                          ],
+                        ),
+                        duration: const Duration(seconds: 3),
+                        backgroundColor: Colors.orange.shade700,
+                      ),
+                    );
+                  }
+                  if (_debugEinvoice) {
+                    debugPrint('[QR] ⏭️ User cancelled extraction (DPI 900 stage)');
+                  }
                 },
               ),
             ),
           );
         }
 
-        qrMap = await PythonQRService.extractQRFromPDF(
-          docInfo.file,
-          maxPages: 3,
-          dpi: 900,
-        ).timeout(
-          const Duration(seconds: 100),
-          onTimeout: () {
-            if (_debugEinvoice) {
-              debugPrint('[QR] ⏱️ Timeout at DPI 900');
-            }
-            return null;
-          },
-        );
+        if (!_isCancelled) {
+          qrMap = await PythonQRService.extractQRFromPDF(
+            docInfo.file,
+            maxPages: 3,
+            dpi: 900,
+          );
+        }
 
-        if (_isCancelled) return;
+        if (_isCancelled) {
+          if (_debugEinvoice) {
+            debugPrint('[QR] ❌ Cancelled after DPI 900 - already handled');
+          }
+          if (mounted) {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          }
+          return;
+        }
 
         if (qrMap != null) {
           successStrategy = 'Hugging Face API (DPI 900)';
@@ -1385,20 +1460,11 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
 
       // Check cancellation after all attempts
       if (_isCancelled) {
+        if (_debugEinvoice) {
+          debugPrint('[QR] ❌ Cancelled after all Python attempts - already handled');
+        }
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  const Icon(Icons.skip_next, color: Colors.white, size: 20),
-                  const SizedBox(width: 8),
-                  Text('⏭️ Skipped: ${docInfo.displayName}'),
-                ],
-              ),
-              duration: const Duration(seconds: 2),
-              backgroundColor: Colors.orange.shade700,
-            ),
-          );
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
         }
         return;
       }
@@ -1440,27 +1506,68 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
               action: SnackBarAction(
                 label: 'SKIP',
                 textColor: Colors.white,
+                backgroundColor: Colors.orange.shade700,
                 onPressed: () {
-                  setState(() {
-                    _isCancelled = true;
-                  });
+                  if (mounted) {
+                    setState(() {
+                      _isCancelled = true;
+                      _isProcessingImage = false;
+                      _isRefreshing = false;
+                    });
+                    // Decrement processing counter to enable upload button
+                    _decProcessing();
+                    // Hide the current loading snackbar immediately
+                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                    // Show skip message
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Row(
+                          children: [
+                            const Icon(Icons.info_outline, color: Colors.white, size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'No QR code e-invoice data extracted for ${docInfo.displayName}',
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                            ),
+                          ],
+                        ),
+                        duration: const Duration(seconds: 3),
+                        backgroundColor: Colors.orange.shade700,
+                      ),
+                    );
+                  }
+                  if (_debugEinvoice) {
+                    debugPrint('[QR] ⏭️ User cancelled extraction (Flutter fallback stage)');
+                  }
                 },
               ),
             ),
           );
         }
 
-        qrMap = await EInvoiceQRExtractor.extractQRFromPDF(
-          docInfo.file,
-          dpi: 600,
-          maxPages: 4,
-        ).timeout(const Duration(seconds: 20), onTimeout: () => null);
+        if (!_isCancelled) {
+          qrMap = await EInvoiceQRExtractor.extractQRFromPDF(
+            docInfo.file,
+            dpi: 600,
+            maxPages: 4,
+          );
+        }
 
         if (mounted) {
           ScaffoldMessenger.of(context).hideCurrentSnackBar();
         }
 
-        if (_isCancelled) return;
+        if (_isCancelled) {
+          if (_debugEinvoice) {
+            debugPrint('[QR] ❌ Cancelled after Flutter fallback - already handled');
+          }
+          if (mounted) {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          }
+          return;
+        }
 
         if (qrMap != null) {
           successStrategy = 'Flutter Fallback (DPI 600)';
@@ -1605,9 +1712,14 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
           ),
         );
       }
+      
+      // Decrement processing if not already done
+      if (!_isCancelled) {
+        _decProcessing();
+      }
     } finally {
       _currentProcessingIndex = null;
-      _decProcessing();
+      // Processing counter already decremented in cancellation checks or catch block
     }
   }
 
@@ -1624,7 +1736,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         pdfFile,
         dpi: 800,
         maxPages: 3,
-      ).timeout(const Duration(seconds: 15), onTimeout: () => null);
+      );
     } catch (e) {
       if (_debugEinvoice) {
         debugPrint('[QR] Region-based extraction error: $e');
