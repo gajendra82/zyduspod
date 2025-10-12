@@ -1240,7 +1240,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          'Retrying with higher quality (DPI 600)...',
+                          'Retrying with higher quality (DPI 600).. .',
                           style: const TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.bold,

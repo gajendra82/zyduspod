@@ -241,6 +241,73 @@ Consider implementing:
 ### Issue: Context null error
 **Solution**: Ensure context is set before making API calls
 
+## Login Error Handling
+
+### Enhanced Login Screen (`lib/login_screen.dart`)
+
+The login screen now includes comprehensive error handling for all scenarios:
+
+#### Error Types Handled
+
+1. **401 Unauthorized**
+   - Title: "Invalid Credentials"
+   - Message: "Your email or password is incorrect. Please try again."
+   - User-friendly message for wrong credentials
+
+2. **403 Forbidden**
+   - Title: "Access Denied"
+   - Message: Account doesn't have permission to access the application
+
+3. **404 Not Found**
+   - Title: "Service Not Found"
+   - Message: Authentication service is unreachable
+
+4. **422 Unprocessable Entity**
+   - Title: "Invalid Input"
+   - Message: Email and password format validation issue
+
+5. **429 Too Many Requests**
+   - Title: "Too Many Attempts"
+   - Message: Rate limiting - wait before trying again
+
+6. **500/502/503 Server Errors**
+   - Title: "Server Error"
+   - Message: Server is currently unavailable
+
+7. **Network Errors**
+   - Title: "Network Error"
+   - Message: Unable to connect to server
+
+8. **Timeout Errors**
+   - 30-second timeout with custom message
+   - Suggests checking internet connection
+
+9. **Invalid Response Format**
+   - Title: "Invalid Response"
+   - Message: Server returned malformed data
+
+#### Features
+
+- **Error Dialog**: Beautiful, user-friendly error dialog instead of snackbar
+- **API Error Parsing**: Extracts error messages from API response (message, error, detail fields)
+- **Success Feedback**: Shows green success snackbar on successful login
+- **Specific Messages**: Different messages for different error scenarios
+- **Timeout Protection**: 30-second request timeout
+- **Exception Handling**: Catches network, format, and generic exceptions
+
+#### Example Error Response Handling
+
+```dart
+// API returns 401 with custom message
+{
+  "message": "Invalid password provided"
+}
+
+// App shows:
+// Title: "Invalid Credentials"
+// Message: "Incorrect email or password. Please check your credentials and try again."
+```
+
 ## Files Modified
 
 - ✅ `lib/services/auth_service.dart` (NEW)
@@ -250,6 +317,7 @@ Consider implementing:
 - ✅ `lib/services/sales_service.dart` (MODIFIED)
 - ✅ `lib/screens/main_navigation.dart` (MODIFIED)
 - ✅ `lib/screens/profile_screen.dart` (MODIFIED)
+- ✅ `lib/login_screen.dart` (MODIFIED - Enhanced error handling)
 
 ## Conclusion
 
