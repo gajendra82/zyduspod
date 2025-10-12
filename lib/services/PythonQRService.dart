@@ -13,7 +13,7 @@ class PythonQRService {
   static Future<Map<String, dynamic>?> extractQRFromPDF(
     File pdfFile, {
     int maxPages = 6,
-    int dpi = 600,
+    int dpi = 1200,
   }) async {
     try {
       debugPrint('[HF-QR] 📤 Uploading to: $_baseUrl/extract-qr');
@@ -37,7 +37,7 @@ class PythonQRService {
       );
 
       // Add form fields
-      request.fields['max_pages'] = maxPages.toString();
+      request.fields['pages'] = maxPages.toString();
       request.fields['dpi'] = dpi.toString();
 
       debugPrint('[HF-QR] 📡 Sending multipart request...');
