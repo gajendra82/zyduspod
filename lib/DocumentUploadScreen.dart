@@ -291,24 +291,48 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
 
   // Processing counter and unified busy flag
   int _processingCount = 0;
+  bool _isBusy = false;
   void _incProcessing() {
     if (!mounted) return;
-    setState(() => _processingCount++);
+    setState(() {
+      _processingCount++;
+      _updateBusyState();
+    });
   }
 
   void _decProcessing() {
     if (!mounted) return;
     setState(() {
       if (_processingCount > 0) _processingCount--;
+      _updateBusyState();
     });
   }
 
-  bool get _isBusy =>
-      _isUploading ||
-      _isLoadingLists ||
-      _isProcessingImage ||
-      _processingCount > 0 ||
-      _isRefreshing;
+  void _updateBusyState() {
+
+    _isBusy = _isUploading ||
+        _isLoadingLists ||
+        _isProcessingImage ||
+        _processingCount > 0 ||
+        _isRefreshing;
+        debugPrint('isBusy: $_isBusy');
+  }
+
+  // Method to manually reset all processing flags
+  void resetAllProcessingFlags() {
+    if (mounted) {
+      setState(() {
+        _isProcessingImage = false;
+        _processingCount = 0;
+        _currentProcessingIndex = null;
+        _qrQueueRunning = false;
+        _isCancelled = false;
+        _updateBusyState();
+      });
+      debugPrint('[QR] All processing flags reset - isBusy: $_isBusy');
+    }
+  }
+
 
   // Simple sequential queue for QR extraction (prevents parallel heavy work)
   final List<_QrQueueItem> _qrQueue = [];
@@ -345,7 +369,17 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         // _qrQueue.clear();
       }
     }
-    _qrQueueRunning = false;
+    
+    // Reset all processing flags when queue is complete
+    if (mounted) {
+      setState(() {
+        _qrQueueRunning = false;
+        _isProcessingImage = false;
+        _processingCount = 0;
+        _currentProcessingIndex = null;
+        _updateBusyState();
+      });
+    }
   }
 
   // Selected doc type
@@ -419,7 +453,10 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   Future<void> _onRefresh() async {
     if (_isRefreshing) return;
 
-    setState(() => _isRefreshing = true);
+    setState(() {
+      _isRefreshing = true;
+      _updateBusyState();
+    });
 
     try {
       // Clear current selections and data
@@ -457,7 +494,10 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       }
     } finally {
       if (mounted) {
-        setState(() => _isRefreshing = false);
+        setState(() {
+          _isRefreshing = false;
+          _updateBusyState();
+        });
       }
     }
   }
@@ -479,7 +519,10 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   /// ===================== LIST LOADING =====================
 
   Future<void> _loadLists() async {
-    setState(() => _isLoadingLists = true);
+    setState(() {
+      _isLoadingLists = true;
+      _updateBusyState();
+    });
     try {
       final results = await Future.wait([
         _fetchSelectItems(API_STOCKISTS_URL),
@@ -508,7 +551,10 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text('Failed to load lists: $e')));
     } finally {
-      if (mounted) setState(() => _isLoadingLists = false);
+      if (mounted) setState(() {
+        _isLoadingLists = false;
+        _updateBusyState();
+      });
     }
   }
 
@@ -663,20 +709,49 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
     try {
       Map<String, dynamic>? qrMap;
 
-      // Try with Hugging Face API first
-      qrMap = await PythonQRService.extractQRFromPDF(
-        doc.file,
-        maxPages: 3,
-        dpi: 400,
-      );
-
-      // Fallback to Flutter extraction if HF fails
-      if (qrMap == null) {
-        qrMap = await EInvoiceQRExtractor.extractQRFromPDF(
+      // Try with Hugging Face API first with timeout
+      try {
+        qrMap = await PythonQRService.extractQRFromPDF(
           doc.file,
-          dpi: 600,
-          maxPages: 2,
+          maxPages: 3,
+          dpi: 400,
+        ).timeout(
+          const Duration(seconds: 90),
+          onTimeout: () {
+            if (_debugEinvoice) {
+              debugPrint('[QR] HF API timeout for ${doc.displayName}');
+            }
+            return null;
+          },
         );
+      } catch (e) {
+        if (_debugEinvoice) {
+          debugPrint('[QR] HF API error for ${doc.displayName}: $e');
+        }
+        qrMap = null;
+      }
+
+      if (qrMap == null) {
+        try {
+          qrMap = await EInvoiceQRExtractor.extractQRFromPDF(
+            doc.file,
+            dpi: 600,
+            maxPages: 2,
+          ).timeout(
+            const Duration(seconds: 30),
+            onTimeout: () {
+              if (_debugEinvoice) {
+                debugPrint('[QR] Flutter extraction timeout for ${doc.displayName}');
+              }
+              return null;
+            },
+          );
+        } catch (e) {
+          if (_debugEinvoice) {
+            debugPrint('[QR] Flutter extraction error for ${doc.displayName}: $e');
+          }
+          qrMap = null;
+        }
       }
 
       if (qrMap != null) {
@@ -837,7 +912,10 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
 
   Future<void> _takePhotoWithScanner() async {
     try {
-      setState(() => _isProcessingImage = true);
+      setState(() {
+        _isProcessingImage = true;
+        _updateBusyState();
+      });
       final scanned = await FlutterDocScanner().getScanDocuments(page: 1);
       if (scanned != null && scanned is Map) {
         String? filePath =
@@ -865,13 +943,19 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text('Scanner error: $e')));
     } finally {
-      if (mounted) setState(() => _isProcessingImage = false);
+      if (mounted) setState(() {
+        _isProcessingImage = false;
+        _updateBusyState();
+      });
     }
   }
 
   Future<void> _pickImagesFromGallery() async {
     try {
-      setState(() => _isProcessingImage = true);
+      setState(() {
+        _isProcessingImage = true;
+        _updateBusyState();
+      });
       final remaining = maxDocuments - _capturedDocuments.length;
       if (remaining <= 0) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -908,13 +992,19 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text('Gallery error: $e')));
     } finally {
-      if (mounted) setState(() => _isProcessingImage = false);
+      if (mounted) setState(() {
+        _isProcessingImage = false;
+        _updateBusyState();
+      });
     }
   }
 
   Future<void> _pickPdfsFromFiles() async {
     try {
-      setState(() => _isProcessingImage = true);
+      setState(() {
+        _isProcessingImage = true;
+        _updateBusyState();
+      });
       final remaining = maxDocuments - _capturedDocuments.length;
       if (remaining <= 0) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -952,7 +1042,10 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text('Pick PDF error: $e')));
     } finally {
-      if (mounted) setState(() => _isProcessingImage = false);
+      if (mounted) setState(() {
+        _isProcessingImage = false;
+        _updateBusyState();
+      });
     }
   }
 
@@ -1045,6 +1138,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
           final idx = _capturedDocuments.length - 1;
           _enqueueExtraction(newDoc, idx); // ← your existing QR pipeline
         }
+        
       }
 
       _scheduleScrollToBottom();
@@ -1065,6 +1159,10 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }finally {
+      setState(() {
+        _updateBusyState();
+      });
     }
   }
 
@@ -1697,6 +1795,19 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
           '[QR] Invoice: ${merged['DocNo']} | Date: ${merged['DocDt']} | Value: ${merged['TotInvVal']}',
         );
       }
+      setState(() {
+        _updateBusyState();
+      });
+      
+      // Ensure processing flags are reset after successful QR extraction
+      if (mounted) {
+        setState(() {
+          _isProcessingImage = false;
+          _processingCount = 0;
+          _currentProcessingIndex = null;
+          _updateBusyState();
+        });
+      }
     } catch (e, stackTrace) {
       if (_debugEinvoice) {
         debugPrint('[QR] ⚠️ Extraction error: $e');
@@ -1717,6 +1828,17 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       if (!_isCancelled) {
         _decProcessing();
       }
+      
+      // Ensure all processing flags are reset after error
+      if (mounted) {
+        setState(() {
+          _isProcessingImage = false;
+          _processingCount = 0;
+          _currentProcessingIndex = null;
+          _updateBusyState();
+        });
+      }
+      
     } finally {
       _currentProcessingIndex = null;
       // Processing counter already decremented in cancellation checks or catch block
@@ -1787,6 +1909,30 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       return;
     }
 
+    // Add overall timeout for the entire upload process
+    try {
+      await _performUpload().timeout(
+        const Duration(minutes: 10),
+        onTimeout: () {
+          throw TimeoutException('Upload process timed out after 10 minutes');
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isUploading = false;
+        _updateBusyState();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Upload failed: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _performUpload() async {
     final validDocs = _capturedDocuments.where((d) => d.isValid).toList();
     if (validDocs.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1822,15 +1968,48 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       }
     }
 
-    setState(() => _isUploading = true);
+    setState(() {
+      _isUploading = true;
+      _updateBusyState();
+    });
 
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('authToken');
 
     try {
       if (_isPodDoc()) {
+        // Show progress for QR processing
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Processing QR codes...'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+        
         for (int i = 0; i < validDocs.length; i++) {
+          if (!mounted) return;
           await _ensureQrForDocument(validDocs[i], i);
+        }
+        
+        // Reset QR processing states but keep upload state active
+        if (mounted) {
+          setState(() {
+            _isProcessingImage = false;
+            _processingCount = 0;
+            _updateBusyState();
+          });
+        }
+        
+        // Show upload progress message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Uploading documents to server...'),
+              duration: Duration(seconds: 2),
+            ),
+          );
         }
 
         final uri = Uri.parse(Multi_Api_POD_UPLOAD_URL);
@@ -1876,6 +2055,16 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
 
         if (token != null) req.headers['Authorization'] = 'Bearer $token';
 
+        // Show final upload progress
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Sending data to server...'),
+              duration: Duration(seconds: 1),
+            ),
+          );
+        }
+
         final streamed = await req.send();
         final resp = await http.Response.fromStream(streamed);
 
@@ -1907,6 +2096,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
             } catch (_) {}
           }
         } else {
+          debugPrint('POD upload failed: ${resp.statusCode} ${resp.body.isNotEmpty ? "- ${resp.body}" : ""}');
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
@@ -1922,6 +2112,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         final failures = <int>[];
         print('Uploading ${validDocs.length} documents');
         for (int i = 0; i < validDocs.length; i++) {
+          if (!mounted) return;
           final doc = validDocs[i];
           print('Uploading document: ${doc.qrData}');
           if (_isEinvoiceDoc()) {
@@ -1976,6 +2167,16 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
             request.headers['Authorization'] = 'Bearer $token';
           }
 
+          // Show upload progress for each document
+          if (mounted && i == 0) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Sending documents to server...'),
+                duration: Duration(seconds: 1),
+              ),
+            );
+          }
+
           final streamed = await request.send();
           final resp = await http.Response.fromStream(streamed);
           if (resp.statusCode >= 200 && resp.statusCode < 300) {
@@ -1988,6 +2189,25 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
               );
             }
           }
+        }
+        
+        // Reset QR processing states but keep upload state active
+        if (mounted) {
+          setState(() {
+            _isProcessingImage = false;
+            _processingCount = 0;
+            _updateBusyState();
+          });
+        }
+        
+        // Show upload progress message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Uploading documents to server...'),
+              duration: Duration(seconds: 2),
+            ),
+          );
         }
 
         if (!mounted) return;
@@ -2036,7 +2256,43 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text('Upload error: $e')));
     } finally {
-      if (mounted) setState(() => _isUploading = false);
+      if (mounted) {
+        setState(() {
+          _isUploading = false;
+          _updateBusyState();
+        });
+        debugPrint('[UPLOAD] Upload process completed - isBusy: $_isBusy');
+      }
+    }
+  }
+
+  /// ===================== QR PROCESSING =====================
+  
+  Future<void> _processAllQRCodes() async {
+    if (_capturedDocuments.isEmpty) return;
+    
+    final validDocs = _capturedDocuments.where((d) => d.isValid && d.type == DocumentType.pdf).toList();
+    if (validDocs.isEmpty) return;
+    
+    setState(() {
+      _isProcessingImage = true;
+      _processingCount = validDocs.length;
+    });
+    
+    try {
+      for (int i = 0; i < validDocs.length; i++) {
+        if (!mounted) return;
+        await _ensureQrForDocument(validDocs[i], i);
+        _decProcessing();
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessingImage = false;
+          _updateBusyState();
+          _processingCount = 0;
+        });
+      }
     }
   }
 
@@ -2375,6 +2631,29 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                           ),
                         ),
                         const SizedBox(height: 8),
+                        // Process QR Codes button
+                        // if (_capturedDocuments.any((d) => d.isValid && d.type == DocumentType.pdf && d.qrData == null))
+                        //   OutlinedButton.icon(
+                        //     onPressed: _isBusy ? null : _processAllQRCodes,
+                        //     icon: _isBusy
+                        //         ? const SizedBox(
+                        //             width: 18,
+                        //             height: 18,
+                        //             child: CircularProgressIndicator(
+                        //               strokeWidth: 2,
+                        //               color: Colors.blue,
+                        //             ),
+                        //           )
+                        //         : const Icon(Icons.qr_code_scanner),
+                        //     label: Text(
+                        //       _isBusy ? 'Processing QR...' : 'Process QR Codes',
+                        //     ),
+                        //     style: OutlinedButton.styleFrom(
+                        //       foregroundColor: Colors.blue,
+                        //       side: const BorderSide(color: Colors.blue),
+                        //     ),
+                        //   ),
+                        // const SizedBox(height: 8),
                         if (!_isPodDoc())
                           OutlinedButton.icon(
                             onPressed:
@@ -2489,6 +2768,8 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                             label: Text(
                               _isUploading
                                   ? 'Uploading...'
+                                  : _processingCount > 0 || _isProcessingImage
+                                  ? 'Processing QR Codes...'
                                   : validDocCount > 0
                                   ? 'Upload $validDocCount Document(s)'
                                   : 'No Valid Documents',

@@ -1796,13 +1796,14 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
   }
 
   String _formatAmount(double amount) {
-    if (amount >= 100000) {
-      return '${(amount / 100000).toStringAsFixed(1)}L';
-    } else if (amount >= 1000) {
-      return '${(amount / 1000).toStringAsFixed(1)}K';
-    } else {
-      return amount.toStringAsFixed(0);
-    }
+    // if (amount >= 100000) {
+    //   return '${(amount / 100000).toStringAsFixed(1)}L';
+    // } else if (amount >= 1000) {
+    //   return '${(amount / 1000).toStringAsFixed(1)}K';
+    // } else {
+    //   return amount.toStringAsFixed(0);
+    // }
+    return amount.toStringAsFixed(2);
   }
 
   String _formatDate(String dateString) {

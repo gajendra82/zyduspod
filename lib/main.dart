@@ -116,7 +116,7 @@ class _GstQrScannerPageState extends State<GstQrScannerPage> {
         invoiceDetails = null;
         isScanning = false;
       });
-    }
+    } 
   }
 
   String _tryDecodeJwtOrBase64(String data) {

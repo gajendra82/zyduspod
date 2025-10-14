@@ -45,13 +45,12 @@ class PythonQRService {
 
       // Send request with timeout
       final streamedResponse = await request.send()
-      // .timeout(
-      //   const Duration(seconds: 120),
-      //   onTimeout: () {
-      //     throw TimeoutException('Request timed out after 120 seconds');
-      //   },
-      // )
-      ;
+          .timeout(
+            const Duration(seconds: 60),
+            onTimeout: () {
+              throw TimeoutException('Request timed out after 60 seconds');
+            },
+          );
 
       final response = await http.Response.fromStream(streamedResponse);
 

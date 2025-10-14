@@ -452,7 +452,6 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
             ),
             const SizedBox(height: 20),
             
-            // Password Field with modern design
             _buildModernTextField(
               controller: _passwordController,
               label: 'Password',
