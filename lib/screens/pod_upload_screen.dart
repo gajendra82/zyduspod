@@ -906,7 +906,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
       }
 
       // Process QR codes first
-      await _processAllQRCodes(validDocs);
+      // await _processAllQRCodes(validDocs);
 
       // Reset QR processing flags but keep upload flag
       setState(() {
@@ -994,7 +994,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
       final resp = await req.send();
       final responseBody = await resp.stream.bytesToString();
 
-      if (resp.statusCode == 200) {
+      if (resp.statusCode == 201) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(

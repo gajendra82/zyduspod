@@ -23,24 +23,24 @@ class _ModernDocumentUploadScreenState extends State<ModernDocumentUploadScreen>
       color: const Color(0xFF00A0A8),
       page: const PODUploadPage(),
     ),
-    TabInfo(
-      title: 'E-Invoice',
-      icon: Icons.receipt_long,
-      color: const Color(0xFF6EC1C7),
-      page: const EInvoiceUploadPage(),
-    ),
-    TabInfo(
-      title: 'GRN Upload',
-      icon: Icons.inventory,
-      color: const Color(0xFF4CAF50),
-      page: const GRNUploadPage(),
-    ),
-    TabInfo(
-      title: 'Documents',
-      icon: Icons.folder_open,
-      color: const Color(0xFF2196F3),
-      page: const DocumentsPage(),
-    ),
+    // TabInfo(
+    //   title: 'E-Invoice',
+    //   icon: Icons.receipt_long,
+    //   color: const Color(0xFF6EC1C7),
+    //   page: const EInvoiceUploadPage(),
+    // ),
+    // TabInfo(
+    //   title: 'GRN Upload',
+    //   icon: Icons.inventory,
+    //   color: const Color(0xFF4CAF50),
+    //   page: const GRNUploadPage(),
+    // ),
+    // TabInfo(
+    //   title: 'Documents',
+    //   icon: Icons.folder_open,
+    //   color: const Color(0xFF2196F3),
+    //   page: const DocumentsPage(),
+    // ),
   ];
 
   @override

@@ -1550,10 +1550,10 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
           );
         }
 
-        for (int i = 0; i < validDocs.length; i++) {
-          if (!mounted) return;
-          await _ensureQrForDocument(validDocs[i], i);
-        }
+        // for (int i = 0; i < validDocs.length; i++) {
+        //   if (!mounted) return;
+        //   await _ensureQrForDocument(validDocs[i], i);
+        // }
 
         // Reset QR processing states but keep upload state active
         if (mounted) {
