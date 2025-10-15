@@ -403,6 +403,12 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   Key _chemistKey = UniqueKey();
   Key _podKey = UniqueKey();
 
+  // Debouncing variables for search
+  Timer? _stockistSearchTimer;
+  Timer? _hospitalSearchTimer;
+  bool _isSearchingStockists = false;
+  bool _isSearchingHospitals = false;
+
   final ImagePicker _imagePicker = ImagePicker();
   static const int maxDocuments = 25;
   final ScrollController _scrollController = ScrollController();
@@ -417,6 +423,8 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   @override
   void dispose() {
     _scrollController.dispose();
+    _stockistSearchTimer?.cancel();
+    _hospitalSearchTimer?.cancel();
     super.dispose();
   }
 
@@ -604,6 +612,65 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
     return list
         .whereType<Map<String, dynamic>>()
         .map((m) => Pod.fromJson(m))
+        .toList();
+  }
+
+  // Search methods with debouncing
+  Future<List<_SelectItem>> _searchStockists(String query) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('authToken');
+    
+    // Always hit the API, even for empty search to get default list
+    final searchParam = query.trim().isEmpty ? '' : '?search=${query.trim()}';
+    final uri = Uri.parse('$API_STOCKISTS_URL$searchParam');
+    
+    final resp = await http.get(
+      uri,
+      headers: token != null ? {'Authorization': 'Bearer $token'} : null,
+    );
+    
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw Exception('HTTP ${resp.statusCode}');
+    }
+    
+    final decoded = _safeDecode(resp.bodyBytes);
+    final rawList = decoded is Map && decoded['data'] is List
+        ? (decoded['data'] as List)
+        : (decoded is List ? decoded : <dynamic>[]);
+    
+    return rawList
+        .map((e) => _SelectItem.fromDynamic(e))
+        .where((e) => e != null)
+        .cast<_SelectItem>()
+        .toList();
+  }
+
+  Future<List<_SelectItem>> _searchHospitals(String query) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('authToken');
+    
+    // Always hit the API, even for empty search to get default list
+    final searchParam = query.trim().isEmpty ? '' : '?search=${query.trim()}';
+    final uri = Uri.parse('$API_HOSPITALS_URL$searchParam');
+    
+    final resp = await http.get(
+      uri,
+      headers: token != null ? {'Authorization': 'Bearer $token'} : null,
+    );
+    
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw Exception('HTTP ${resp.statusCode}');
+    }
+    
+    final decoded = _safeDecode(resp.bodyBytes);
+    final rawList = decoded is Map && decoded['data'] is List
+        ? (decoded['data'] as List)
+        : (decoded is List ? decoded : <dynamic>[]);
+    
+    return rawList
+        .map((e) => _SelectItem.fromDynamic(e))
+        .where((e) => e != null)
+        .cast<_SelectItem>()
         .toList();
   }
 
@@ -2566,28 +2633,32 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                       icon: Icons.store_mall_directory,
                       title: 'Stockist',
                       subtitle: 'Select Stockist',
-                      child: _customAutocomplete(
+                      child: _debouncedAutocomplete(
                         key: _stockistKey,
-                        options: _allStockists,
+                        initialOptions: _allStockists,
                         selected: _selectedStockist,
                         label: 'Search Stockist',
                         onSelected:
                             (opt) => setState(() => _selectedStockist = opt),
                         onClear: () => setState(() => _selectedStockist = null),
+                        searchFunction: _searchStockists,
+                        isSearching: _isSearchingStockists,
                       ),
                     ),
                     _buildSectionCard(
                       icon: Icons.local_hospital,
                       title: 'Hospital',
                       subtitle: 'Select Hospital',
-                      child: _customAutocomplete(
+                      child: _debouncedAutocomplete(
                         key: _chemistKey,
-                        options: _allChemists,
+                        initialOptions: _allChemists,
                         selected: _selectedChemist,
                         label: 'Search Hospital',
                         onSelected:
                             (opt) => setState(() => _selectedChemist = opt),
                         onClear: () => setState(() => _selectedChemist = null),
+                        searchFunction: _searchHospitals,
+                        isSearching: _isSearchingHospitals,
                       ),
                     ),
                   ],
@@ -2913,6 +2984,180 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                   );
                 },
               ),
+            ),
+          ),
+        );
+      },
+      onSelected: onSelected,
+    );
+  }
+
+  // Debounced autocomplete for stockist and hospital search
+  Widget _debouncedAutocomplete({
+    Key? key,
+    required List<_SelectItem> initialOptions,
+    required _SelectItem? selected,
+    required String label,
+    required Function(_SelectItem) onSelected,
+    required VoidCallback onClear,
+    required Future<List<_SelectItem>> Function(String) searchFunction,
+    required bool isSearching,
+  }) {
+    return Autocomplete<_SelectItem>(
+      key: key,
+      displayStringForOption: (o) => o.label,
+      optionsBuilder: (TextEditingValue tv) async {
+        final text = tv.text.trim();
+        
+        // Cancel any existing timer
+        if (label.contains('Stockist')) {
+          _stockistSearchTimer?.cancel();
+        } else if (label.contains('Hospital')) {
+          _hospitalSearchTimer?.cancel();
+        }
+        
+        // If text is empty, return initial options
+        if (text.isEmpty) {
+          return initialOptions.take(50);
+        }
+        
+        // Create a completer for the debounced result
+        final completer = Completer<Iterable<_SelectItem>>();
+        
+        // Set up debounced timer
+        final timer = Timer(const Duration(milliseconds: 500), () async {
+          // Set loading state only when we actually start the API call
+          if (mounted) {
+            setState(() {
+              if (label.contains('Stockist')) {
+                _isSearchingStockists = true;
+              } else if (label.contains('Hospital')) {
+                _isSearchingHospitals = true;
+              }
+            });
+          }
+          
+          try {
+            final searchResults = await searchFunction(text);
+            if (mounted) {
+              setState(() {
+                if (label.contains('Stockist')) {
+                  _isSearchingStockists = false;
+                } else if (label.contains('Hospital')) {
+                  _isSearchingHospitals = false;
+                }
+              });
+            }
+            completer.complete(searchResults);
+          } catch (e) {
+            print('Search error: $e');
+            if (mounted) {
+              setState(() {
+                if (label.contains('Stockist')) {
+                  _isSearchingStockists = false;
+                } else if (label.contains('Hospital')) {
+                  _isSearchingHospitals = false;
+                }
+              });
+            }
+            // Fallback to local filtering if API fails
+            final fallbackResults = initialOptions.where(
+              (o) =>
+                  o.label.toLowerCase().contains(text.toLowerCase()) ||
+                  o.id.toLowerCase().contains(text.toLowerCase()),
+            );
+            completer.complete(fallbackResults);
+          }
+        });
+        
+        // Store the timer
+        if (label.contains('Stockist')) {
+          _stockistSearchTimer = timer;
+        } else if (label.contains('Hospital')) {
+          _hospitalSearchTimer = timer;
+        }
+        
+        // Return initial filtered results immediately for better UX
+        final initialFiltered = initialOptions.where(
+          (o) =>
+              o.label.toLowerCase().contains(text.toLowerCase()) ||
+              o.id.toLowerCase().contains(text.toLowerCase()),
+        ).take(20);
+        
+        // If we have good initial results, return them immediately
+        if (initialFiltered.isNotEmpty) {
+          return initialFiltered;
+        }
+        
+        // Otherwise, wait for the debounced search results
+        return completer.future;
+      },
+      fieldViewBuilder: (ctx, controller, focusNode, onSubmit) {
+        if (selected != null && controller.text.isEmpty) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (controller.text.isEmpty) {
+              controller.text = selected.label;
+              controller.selection = TextSelection.fromPosition(
+                TextPosition(offset: controller.text.length),
+              );
+            }
+          });
+        }
+        return TextField(
+          controller: controller,
+          focusNode: focusNode,
+          onTapOutside: (_) => FocusScope.of(ctx).unfocus(),
+          decoration: InputDecoration(
+            labelText: label,
+            prefixIcon: isSearching 
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.search),
+            border: const OutlineInputBorder(),
+            filled: true,
+            fillColor: Colors.grey.shade50,
+            suffixIcon: controller.text.isEmpty
+                ? null
+                : IconButton(
+                    icon: const Icon(Icons.clear),
+                    onPressed: () {
+                      controller.clear();
+                      onClear();
+                    },
+                  ),
+          ),
+        );
+      },
+      optionsViewBuilder: (ctx, onSelectedOpt, iterable) {
+        return Align(
+          alignment: Alignment.topLeft,
+          child: Material(
+            elevation: 4,
+            borderRadius: BorderRadius.circular(8),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 250),
+              child: isSearching
+                  ? const Padding(
+                      padding: EdgeInsets.all(16.0),
+                      child: Center(
+                        child: CircularProgressIndicator(),
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: EdgeInsets.zero,
+                      itemCount: iterable.length,
+                      itemBuilder: (_, i) {
+                        final opt = iterable.elementAt(i);
+                        return ListTile(
+                          dense: true,
+                          title: Text(opt.label),
+                          onTap: () => onSelectedOpt(opt),
+                        );
+                      },
+                    ),
             ),
           ),
         );

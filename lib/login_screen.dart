@@ -668,7 +668,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
             Icon(Icons.shield_outlined, size: 16, color: Colors.grey.shade600),
             const SizedBox(width: 8),
             Text(
-              'Protected by Zydus Security',
+              'Powered by Globalspace Technologies Ltd.',
               style: TextStyle(
                 color: Colors.grey.shade600,
                 fontSize: 13,

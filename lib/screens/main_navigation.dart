@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:zyduspod/DocumentUploadScreen.dart';
+import 'package:zyduspod/screens/modern_document_upload_screen.dart';
 import 'package:zyduspod/screens/profile_screen.dart';
 import 'package:zyduspod/screens/unified_dashboard_screen.dart';
 import 'package:zyduspod/services/api_client.dart';
@@ -114,7 +114,7 @@ class _MainNavigationState extends State<MainNavigation> {
   Widget build(BuildContext context) {
     final List<Widget> screens = [
       const UnifiedDashboardScreen(),
-      const DocumentUploadScreen(),
+      const ModernDocumentUploadScreen(),
       const ProfileScreen(),
     ];
 
