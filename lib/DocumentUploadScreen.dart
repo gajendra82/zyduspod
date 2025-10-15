@@ -309,13 +309,13 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   }
 
   void _updateBusyState() {
-
-    _isBusy = _isUploading ||
+    _isBusy =
+        _isUploading ||
         _isLoadingLists ||
         _isProcessingImage ||
         _processingCount > 0 ||
         _isRefreshing;
-        debugPrint('isBusy: $_isBusy');
+    debugPrint('isBusy: $_isBusy');
   }
 
   // Method to manually reset all processing flags
@@ -332,7 +332,6 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       debugPrint('[QR] All processing flags reset - isBusy: $_isBusy');
     }
   }
-
 
   // Simple sequential queue for QR extraction (prevents parallel heavy work)
   final List<_QrQueueItem> _qrQueue = [];
@@ -369,7 +368,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         // _qrQueue.clear();
       }
     }
-    
+
     // Reset all processing flags when queue is complete
     if (mounted) {
       setState(() {
@@ -551,10 +550,11 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text('Failed to load lists: $e')));
     } finally {
-      if (mounted) setState(() {
-        _isLoadingLists = false;
-        _updateBusyState();
-      });
+      if (mounted)
+        setState(() {
+          _isLoadingLists = false;
+          _updateBusyState();
+        });
     }
   }
 
@@ -741,14 +741,18 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
             const Duration(seconds: 30),
             onTimeout: () {
               if (_debugEinvoice) {
-                debugPrint('[QR] Flutter extraction timeout for ${doc.displayName}');
+                debugPrint(
+                  '[QR] Flutter extraction timeout for ${doc.displayName}',
+                );
               }
               return null;
             },
           );
         } catch (e) {
           if (_debugEinvoice) {
-            debugPrint('[QR] Flutter extraction error for ${doc.displayName}: $e');
+            debugPrint(
+              '[QR] Flutter extraction error for ${doc.displayName}: $e',
+            );
           }
           qrMap = null;
         }
@@ -943,10 +947,11 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text('Scanner error: $e')));
     } finally {
-      if (mounted) setState(() {
-        _isProcessingImage = false;
-        _updateBusyState();
-      });
+      if (mounted)
+        setState(() {
+          _isProcessingImage = false;
+          _updateBusyState();
+        });
     }
   }
 
@@ -992,10 +997,11 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text('Gallery error: $e')));
     } finally {
-      if (mounted) setState(() {
-        _isProcessingImage = false;
-        _updateBusyState();
-      });
+      if (mounted)
+        setState(() {
+          _isProcessingImage = false;
+          _updateBusyState();
+        });
     }
   }
 
@@ -1042,10 +1048,11 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text('Pick PDF error: $e')));
     } finally {
-      if (mounted) setState(() {
-        _isProcessingImage = false;
-        _updateBusyState();
-      });
+      if (mounted)
+        setState(() {
+          _isProcessingImage = false;
+          _updateBusyState();
+        });
     }
   }
 
@@ -1138,7 +1145,6 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
           final idx = _capturedDocuments.length - 1;
           _enqueueExtraction(newDoc, idx); // ← your existing QR pipeline
         }
-        
       }
 
       _scheduleScrollToBottom();
@@ -1159,7 +1165,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Error: $e')));
-    }finally {
+    } finally {
       setState(() {
         _updateBusyState();
       });
@@ -1178,39 +1184,24 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
     DocumentInfo docInfo,
     int index,
   ) async {
+    // Basic guards
     if (!docInfo.isValid || docInfo.type != DocumentType.pdf) return;
     if (index < 0 || index >= _capturedDocuments.length) return;
     if (_capturedDocuments[index].qrData != null) return;
 
     _incProcessing();
-
-    // Reset cancellation flag and set current index
     _isCancelled = false;
     _currentProcessingIndex = index;
 
-    String? successStrategy;
-
     try {
-      await Future.delayed(const Duration(milliseconds: 16));
-
-      Map<String, dynamic>? qrMap;
-
-      // ==========================================
-      // STRATEGY 1: Hugging Face Space (Python OpenCV)
-      // ==========================================
-      if (_debugEinvoice) {
-        debugPrint(
-          '[QR] Strategy 1: Hugging Face Space for ${docInfo.displayName}',
-        );
-      }
-
-      // Show processing indicator with SKIP button
+      // Single, simple progress message
       if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
-              children: [
-                const SizedBox(
+              children: const [
+                SizedBox(
                   width: 16,
                   height: 16,
                   child: CircularProgressIndicator(
@@ -1218,463 +1209,40 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                     valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                   ),
                 ),
-                const SizedBox(width: 12),
+                SizedBox(width: 12),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        'Extracting QR from ${docInfo.displayName}...',
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      const Text(
-                        'This may take up to 2 minutes',
-                        style: TextStyle(fontSize: 11),
-                      ),
-                    ],
+                  child: Text(
+                    'Extracting QR (single API call)...',
+                    style: TextStyle(fontSize: 13),
                   ),
                 ),
               ],
             ),
-            duration: const Duration(seconds: 120),
-            backgroundColor: Colors.blue.shade700,
-            action: SnackBarAction(
-              label: 'SKIP',
-              textColor: Colors.white,
-              backgroundColor: Colors.orange.shade700,
-              onPressed: () {
-                if (mounted) {
-                  setState(() {
-                    _isCancelled = true;
-                    _isProcessingImage = false;
-                    _isRefreshing = false;
-                  });
-                  // Decrement processing counter to enable upload button
-                  _decProcessing();
-                  // Hide the current loading snackbar immediately
-                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                  // Show skip message
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Row(
-                        children: [
-                          const Icon(Icons.info_outline, color: Colors.white, size: 20),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'No QR code e-invoice data extracted for ${docInfo.displayName}',
-                              style: const TextStyle(fontSize: 13),
-                            ),
-                          ),
-                        ],
-                      ),
-                      duration: const Duration(seconds: 3),
-                      backgroundColor: Colors.orange.shade700,
-                    ),
-                  );
-                }
-                if (_debugEinvoice) {
-                  debugPrint(
-                    '[QR] ⏭️ User cancelled extraction for ${docInfo.displayName}',
-                  );
-                }
-              },
-            ),
+            duration: Duration(seconds: 60),
+            backgroundColor: Colors.blue,
           ),
         );
       }
 
-      // Check cancellation before each strategy
-      if (_isCancelled) {
-        if (_debugEinvoice) {
-          debugPrint('[QR] ❌ Extraction cancelled by user - already handled in skip button');
-        }
-        // Processing already decremented in skip button - just return
-        return;
-      }
-
-      // Try with medium DPI first (faster)
-      if (!_isCancelled) {
+      // Single API attempt — no DPI retries, no local fallback
+      Map<String, dynamic>? qrMap;
+      try {
         qrMap = await PythonQRService.extractQRFromPDF(
           docInfo.file,
           maxPages: 5,
-          dpi: 400,
         );
-      }
-
-      if (_isCancelled) {
+      } catch (e, st) {
         if (_debugEinvoice) {
-          debugPrint('[QR] ❌ Cancelled after DPI 400 - already handled');
+          debugPrint('[QR] API call threw: $e');
+          debugPrint('$st');
         }
+        qrMap = null;
+      } finally {
         if (mounted) {
           ScaffoldMessenger.of(context).hideCurrentSnackBar();
         }
-        return;
       }
 
-      if (qrMap != null) {
-        successStrategy = 'Hugging Face API (DPI 400)';
-      }
-
-      // If failed, try with higher DPI
-      if (qrMap == null && !_isCancelled) {
-        if (_debugEinvoice) {
-          debugPrint('[QR] Retrying with DPI 600...');
-        }
-
-        // Update snackbar message
-        if (mounted) {
-          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'Retrying with higher quality (DPI 600).. .',
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Document ${index + 1}/${_capturedDocuments.length}: ${docInfo.displayName}',
-                          style: const TextStyle(fontSize: 11),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              duration: const Duration(seconds: 120),
-              backgroundColor: Colors.blue.shade800,
-              action: SnackBarAction(
-                label: 'SKIP',
-                textColor: Colors.white,
-                backgroundColor: Colors.orange.shade700,
-                onPressed: () {
-                  if (mounted) {
-                    setState(() {
-                      _isCancelled = true;
-                      _isProcessingImage = false;
-                      _isRefreshing = false;
-                    });
-                    // Decrement processing counter to enable upload button
-                    _decProcessing();
-                    // Hide the current loading snackbar immediately
-                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                    // Show skip message
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Row(
-                          children: [
-                            const Icon(Icons.info_outline, color: Colors.white, size: 20),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'No QR code e-invoice data extracted for ${docInfo.displayName}',
-                                style: const TextStyle(fontSize: 13),
-                              ),
-                            ),
-                          ],
-                        ),
-                        duration: const Duration(seconds: 3),
-                        backgroundColor: Colors.orange.shade700,
-                      ),
-                    );
-                  }
-                  if (_debugEinvoice) {
-                    debugPrint('[QR] ⏭️ User cancelled extraction (DPI 600 stage)');
-                  }
-                },
-              ),
-            ),
-          );
-        }
-
-        if (!_isCancelled) {
-          qrMap = await PythonQRService.extractQRFromPDF(
-            docInfo.file,
-            maxPages: 5,
-            dpi: 600,
-          );
-        }
-
-        if (_isCancelled) {
-          if (_debugEinvoice) {
-            debugPrint('[QR] ❌ Cancelled after DPI 600 - already handled');
-          }
-          if (mounted) {
-            ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          }
-          return;
-        }
-
-        if (qrMap != null) {
-          successStrategy = 'Hugging Face API (DPI 600)';
-        }
-      }
-
-      // Last resort: very high DPI
-      if (qrMap == null && !_isCancelled) {
-        if (_debugEinvoice) {
-          debugPrint('[QR] Last resort: DPI 900...');
-        }
-
-        // Update snackbar message
-        if (mounted) {
-          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text(
-                          'Final attempt with ultra-high quality (DPI 900)...',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Document ${index + 1}/${_capturedDocuments.length}: ${docInfo.displayName}',
-                          style: const TextStyle(fontSize: 11),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              duration: const Duration(seconds: 120),
-              backgroundColor: Colors.blue.shade900,
-              action: SnackBarAction(
-                label: 'SKIP',
-                textColor: Colors.white,
-                backgroundColor: Colors.orange.shade700,
-                onPressed: () {
-                  if (mounted) {
-                    setState(() {
-                      _isCancelled = true;
-                      _isProcessingImage = false;
-                      _isRefreshing = false;
-                    });
-                    // Decrement processing counter to enable upload button
-                    _decProcessing();
-                    // Hide the current loading snackbar immediately
-                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                    // Show skip message
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Row(
-                          children: [
-                            const Icon(Icons.info_outline, color: Colors.white, size: 20),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'No QR code e-invoice data extracted for ${docInfo.displayName}',
-                                style: const TextStyle(fontSize: 13),
-                              ),
-                            ),
-                          ],
-                        ),
-                        duration: const Duration(seconds: 3),
-                        backgroundColor: Colors.orange.shade700,
-                      ),
-                    );
-                  }
-                  if (_debugEinvoice) {
-                    debugPrint('[QR] ⏭️ User cancelled extraction (DPI 900 stage)');
-                  }
-                },
-              ),
-            ),
-          );
-        }
-
-        if (!_isCancelled) {
-          qrMap = await PythonQRService.extractQRFromPDF(
-            docInfo.file,
-            maxPages: 3,
-            dpi: 900,
-          );
-        }
-
-        if (_isCancelled) {
-          if (_debugEinvoice) {
-            debugPrint('[QR] ❌ Cancelled after DPI 900 - already handled');
-          }
-          if (mounted) {
-            ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          }
-          return;
-        }
-
-        if (qrMap != null) {
-          successStrategy = 'Hugging Face API (DPI 900)';
-        }
-      }
-
-      // Dismiss loading indicator
-      if (mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      }
-
-      // Check cancellation after all attempts
-      if (_isCancelled) {
-        if (_debugEinvoice) {
-          debugPrint('[QR] ❌ Cancelled after all Python attempts - already handled');
-        }
-        if (mounted) {
-          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        }
-        return;
-      }
-
-      // ==========================================
-      // FALLBACK: Flutter-based extraction (if HF fails)
-      // ==========================================
-      if (qrMap == null && !_isCancelled) {
-        if (_debugEinvoice) {
-          debugPrint(
-            '[QR] Strategy 2: Fallback to Flutter EInvoiceQRExtractor',
-          );
-        }
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Text(
-                      'Trying local extraction method...',
-                      style: TextStyle(fontSize: 13),
-                    ),
-                  ),
-                ],
-              ),
-              duration: const Duration(seconds: 20),
-              backgroundColor: Colors.purple.shade700,
-              action: SnackBarAction(
-                label: 'SKIP',
-                textColor: Colors.white,
-                backgroundColor: Colors.orange.shade700,
-                onPressed: () {
-                  if (mounted) {
-                    setState(() {
-                      _isCancelled = true;
-                      _isProcessingImage = false;
-                      _isRefreshing = false;
-                    });
-                    // Decrement processing counter to enable upload button
-                    _decProcessing();
-                    // Hide the current loading snackbar immediately
-                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                    // Show skip message
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Row(
-                          children: [
-                            const Icon(Icons.info_outline, color: Colors.white, size: 20),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'No QR code e-invoice data extracted for ${docInfo.displayName}',
-                                style: const TextStyle(fontSize: 13),
-                              ),
-                            ),
-                          ],
-                        ),
-                        duration: const Duration(seconds: 3),
-                        backgroundColor: Colors.orange.shade700,
-                      ),
-                    );
-                  }
-                  if (_debugEinvoice) {
-                    debugPrint('[QR] ⏭️ User cancelled extraction (Flutter fallback stage)');
-                  }
-                },
-              ),
-            ),
-          );
-        }
-
-        if (!_isCancelled) {
-          qrMap = await EInvoiceQRExtractor.extractQRFromPDF(
-            docInfo.file,
-            dpi: 600,
-            maxPages: 4,
-          );
-        }
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        }
-
-        if (_isCancelled) {
-          if (_debugEinvoice) {
-            debugPrint('[QR] ❌ Cancelled after Flutter fallback - already handled');
-          }
-          if (mounted) {
-            ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          }
-          return;
-        }
-
-        if (qrMap != null) {
-          successStrategy = 'Flutter Fallback (DPI 600)';
-        }
-      }
-
-      // ==========================================
-      // Handle Result
-      // ==========================================
       if (qrMap == null) {
         if (mounted && !_isCancelled) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1689,60 +1257,32 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'No QR found in ${docInfo.displayName}. Use manual scan or skip.',
+                      'No QR found in ${docInfo.displayName}.',
                       style: const TextStyle(fontSize: 13),
                     ),
                   ),
                 ],
               ),
-              duration: const Duration(seconds: 6),
+              duration: const Duration(seconds: 3),
               backgroundColor: Colors.orange.shade700,
-              behavior: SnackBarBehavior.floating,
-              action: SnackBarAction(
-                label: 'MANUAL SCAN',
-                textColor: Colors.white,
-                onPressed: () async {
-                  final res = await Navigator.push<Map<String, dynamic>>(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => GstQrApp(podId: _selectedPod?.id ?? '0'),
-                    ),
-                  );
-                  if (res != null && mounted) {
-                    setState(() {
-                      _capturedDocuments[index] = docInfo.copyWith(qrData: res);
-                      _einvoiceData ??= res;
-                    });
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('✅ QR code added manually'),
-                        backgroundColor: Colors.green,
-                        duration: Duration(seconds: 2),
-                      ),
-                    );
-                  }
-                },
-              ),
             ),
           );
         }
-
         if (_debugEinvoice) {
-          debugPrint('[QR] ❌ All strategies failed for ${docInfo.displayName}');
+          debugPrint(
+            '[QR] ❌ No QR from single API attempt for ${docInfo.displayName}',
+          );
         }
         return;
       }
 
-      // ==========================================
-      // SUCCESS - Process the extracted QR data
-      // ==========================================
+      // Merge/normalize like before
       final normalized = _decodeGstQrFlexible(
         jsonEncode(qrMap['raw'] ?? qrMap),
       );
       final merged = {...qrMap, ...normalized};
 
       if (!mounted) return;
-
       setState(() {
         _capturedDocuments[index] = docInfo.copyWith(qrData: merged);
         _einvoiceData ??= merged;
@@ -1752,96 +1292,51 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
-              children: [
-                const Icon(Icons.check_circle, color: Colors.white, size: 20),
-                const SizedBox(width: 8),
+              children: const [
+                Icon(Icons.check_circle, color: Colors.white, size: 20),
+                SizedBox(width: 8),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        '✅ QR found: ${docInfo.displayName}',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Method: $successStrategy',
-                        style: const TextStyle(fontSize: 11),
-                      ),
-                      if (merged['DocNo'] != null)
-                        Text(
-                          'Invoice: ${merged['DocNo']}',
-                          style: const TextStyle(fontSize: 11),
-                        ),
-                    ],
+                  child: Text(
+                    '✅ QR extracted via API',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
             ),
-            duration: const Duration(seconds: 4),
-            backgroundColor: Colors.green.shade600,
-            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 2),
+            backgroundColor: Colors.green.shade700,
           ),
         );
       }
-
+    } catch (e, st) {
       if (_debugEinvoice) {
-        debugPrint('[QR] ✓✓✓ SUCCESS with $successStrategy');
-        debugPrint(
-          '[QR] Invoice: ${merged['DocNo']} | Date: ${merged['DocDt']} | Value: ${merged['TotInvVal']}',
-        );
+        debugPrint('[QR] Unexpected error during extraction: $e');
+        debugPrint('$st');
       }
-      setState(() {
-        _updateBusyState();
-      });
-      
-      // Ensure processing flags are reset after successful QR extraction
       if (mounted) {
-        setState(() {
-          _isProcessingImage = false;
-          _processingCount = 0;
-          _currentProcessingIndex = null;
-          _updateBusyState();
-        });
-      }
-    } catch (e, stackTrace) {
-      if (_debugEinvoice) {
-        debugPrint('[QR] ⚠️ Extraction error: $e');
-        debugPrint('[QR] Stack: $stackTrace');
-      }
-
-      if (mounted && !_isCancelled) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('QR extraction error: ${e.toString()}'),
-            backgroundColor: Colors.red.shade700,
+            content: Row(
+              children: const [
+                Icon(Icons.error_outline, color: Colors.white, size: 20),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Something went wrong during QR extraction',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
             duration: const Duration(seconds: 3),
+            backgroundColor: Colors.red.shade700,
           ),
         );
       }
-      
-      // Decrement processing if not already done
-      if (!_isCancelled) {
-        _decProcessing();
-      }
-      
-      // Ensure all processing flags are reset after error
-      if (mounted) {
-        setState(() {
-          _isProcessingImage = false;
-          _processingCount = 0;
-          _currentProcessingIndex = null;
-          _updateBusyState();
-        });
-      }
-      
     } finally {
       _currentProcessingIndex = null;
-      // Processing counter already decremented in cancellation checks or catch block
+      _decProcessing();
     }
   }
 
@@ -1987,12 +1482,12 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
             ),
           );
         }
-        
+
         for (int i = 0; i < validDocs.length; i++) {
           if (!mounted) return;
           await _ensureQrForDocument(validDocs[i], i);
         }
-        
+
         // Reset QR processing states but keep upload state active
         if (mounted) {
           setState(() {
@@ -2001,7 +1496,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
             _updateBusyState();
           });
         }
-        
+
         // Show upload progress message
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -2096,7 +1591,9 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
             } catch (_) {}
           }
         } else {
-          debugPrint('POD upload failed: ${resp.statusCode} ${resp.body.isNotEmpty ? "- ${resp.body}" : ""}');
+          debugPrint(
+            'POD upload failed: ${resp.statusCode} ${resp.body.isNotEmpty ? "- ${resp.body}" : ""}',
+          );
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
@@ -2190,7 +1687,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
             }
           }
         }
-        
+
         // Reset QR processing states but keep upload state active
         if (mounted) {
           setState(() {
@@ -2199,7 +1696,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
             _updateBusyState();
           });
         }
-        
+
         // Show upload progress message
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -2267,18 +1764,21 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   }
 
   /// ===================== QR PROCESSING =====================
-  
+
   Future<void> _processAllQRCodes() async {
     if (_capturedDocuments.isEmpty) return;
-    
-    final validDocs = _capturedDocuments.where((d) => d.isValid && d.type == DocumentType.pdf).toList();
+
+    final validDocs =
+        _capturedDocuments
+            .where((d) => d.isValid && d.type == DocumentType.pdf)
+            .toList();
     if (validDocs.isEmpty) return;
-    
+
     setState(() {
       _isProcessingImage = true;
       _processingCount = validDocs.length;
     });
-    
+
     try {
       for (int i = 0; i < validDocs.length; i++) {
         if (!mounted) return;
