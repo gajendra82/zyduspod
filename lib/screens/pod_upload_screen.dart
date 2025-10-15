@@ -1,7 +1,10 @@
+// COMMENTED OUT: QR extraction functionality is disabled but imports are kept for easy restoration
+// To restore QR functionality: uncomment all QR-related code and remove this comment block
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' as math;
+import 'dart:math' as math; // COMMENTED OUT: Used for QR processing
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -16,12 +19,13 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:zyduspod/config.dart';
-import 'package:zyduspod/GstInvoiceScanner.dart';
+import 'package:zyduspod/GstInvoiceScanner.dart'; // COMMENTED OUT: Used for QR processing
 import 'package:zyduspod/Models/_SplitOut.dart';
-import 'package:zyduspod/services/PythonQRService.dart';
-import 'package:zyduspod/widgets/EInvoiceQRExtractor.dart';
+import 'package:zyduspod/services/PythonQRService.dart'; // COMMENTED OUT: Used for QR processing
+import 'package:zyduspod/widgets/EInvoiceQRExtractor.dart'; // COMMENTED OUT: Used for QR processing
 import 'package:zyduspod/widgets/PdfPreviewScreen.dart';
 import 'package:zyduspod/widgets/modern_ui_components.dart';
+import 'package:zyduspod/screens/upload_status_screen.dart';
 
 // PDF Splitting API
 const String _SPLIT_API_BASE = 'https://anujakkulkarni-splitpdffile.hf.space';
@@ -108,11 +112,13 @@ class PODUploadScreen extends StatefulWidget {
 class _PODUploadScreenState extends State<PODUploadScreen> {
   // Loading states
   bool _isLoadingLists = false;
-  bool _isProcessingImage = false;
+  // bool _isProcessingImage = false; // COMMENTED OUT: QR processing disabled
   bool _isUploading = false;
   bool _isRefreshing = false;
-  int _processingCount = 0;
+  // int _processingCount = 0; // COMMENTED OUT: QR processing disabled
   bool _isBusy = false;
+  bool _isProcessingDocuments = false; // NEW: For document processing and splitting
+  String _currentProcessingMessage = ''; // NEW: Current processing message
 
   // Selection data
   List<_SelectItem> _allStockists = [];
@@ -153,7 +159,9 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
 
   void _updateBusyState() {
     setState(() {
-      _isBusy = _isUploading || _isLoadingLists || _isProcessingImage || _processingCount > 0 || _isRefreshing;
+      // COMMENTED OUT: QR processing disabled - _isProcessingImage and _processingCount removed
+      _isBusy = _isUploading || _isLoadingLists || _isRefreshing || _isProcessingDocuments;
+      // Original: _isBusy = _isUploading || _isLoadingLists || _isProcessingImage || _processingCount > 0 || _isRefreshing;
     });
   }
 
@@ -451,7 +459,8 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
     if (_isBusy) return;
     
     setState(() {
-      _isProcessingImage = true;
+      _isProcessingDocuments = true;
+      _currentProcessingMessage = 'Capturing from camera...';
       _updateBusyState();
     });
     
@@ -501,7 +510,8 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
     } finally {
       if (mounted) {
         setState(() {
-          _isProcessingImage = false;
+          _isProcessingDocuments = false;
+          _currentProcessingMessage = '';
           _updateBusyState();
         });
       }
@@ -512,7 +522,8 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
     if (_isBusy) return;
     
     setState(() {
-      _isProcessingImage = true;
+      _isProcessingDocuments = true;
+      _currentProcessingMessage = 'Selecting from gallery...';
       _updateBusyState();
     });
     
@@ -554,7 +565,8 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
     } finally {
       if (mounted) {
         setState(() {
-          _isProcessingImage = false;
+          _isProcessingDocuments = false;
+          _currentProcessingMessage = '';
           _updateBusyState();
         });
       }
@@ -565,7 +577,8 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
     if (_isBusy) return;
     
     setState(() {
-      _isProcessingImage = true;
+      _isProcessingDocuments = true;
+      _currentProcessingMessage = 'Selecting PDF files...';
       _updateBusyState();
     });
     
@@ -611,7 +624,8 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
     } finally {
       if (mounted) {
         setState(() {
-          _isProcessingImage = false;
+          _isProcessingDocuments = false;
+          _currentProcessingMessage = '';
           _updateBusyState();
         });
       }
@@ -619,25 +633,31 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
   }
 
   Future<void> _processAndAddDocument(File originalFile, {required bool isFromScanner}) async {
+    setState(() {
+      _isProcessingDocuments = true;
+      _currentProcessingMessage = 'Processing ${p.basename(originalFile.path)}...';
+      _updateBusyState();
+    });
+
     try {
       final displayNameBase = p.basenameWithoutExtension(originalFile.path);
       final extension = p.extension(originalFile.path).toLowerCase();
       
       // Check if it's a PDF file for splitting
       if (extension == '.pdf') {
-        // Show splitting message
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Splitting ${p.basename(originalFile.path)} into invoices...'),
-              duration: const Duration(seconds: 3),
-            ),
-          );
-        }
+        // Update processing message for splitting
+        setState(() {
+          _currentProcessingMessage = 'Splitting ${p.basename(originalFile.path)} into invoices...';
+        });
 
         final splitParts = await _splitPdfViaApi(originalFile);
 
         if (splitParts.isNotEmpty) {
+          // Update processing message for adding split parts
+          setState(() {
+            _currentProcessingMessage = 'Adding ${splitParts.length} split documents...';
+          });
+
           for (int i = 0; i < splitParts.length; i++) {
             final part = splitParts[i];
             final displayName = (part.invoiceNo != null && part.invoiceNo!.isNotEmpty)
@@ -649,16 +669,15 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
               displayName: displayName,
               isValid: true,
               qrData: null,
-              qrStatus: QRProcessingStatus.notStarted,
+              qrStatus: QRProcessingStatus.completed, // Skip QR extraction - mark as completed
             );
             
             setState(() {
               _capturedDocuments.add(newDoc);
             });
             
-            // Enqueue QR extraction for each split part
-            final idx = _capturedDocuments.length - 1;
-            _enqueueExtraction(newDoc, idx);
+            // COMMENTED OUT: QR extraction disabled - directly proceed to upload ready state
+            // Original: _enqueueExtraction(newDoc, idx); // This would trigger QR processing
           }
         } else {
           // Fallback to original single PDF
@@ -667,15 +686,15 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
             displayName: '${displayNameBase}.pdf',
             isValid: true,
             qrData: null,
-            qrStatus: QRProcessingStatus.notStarted,
+            qrStatus: QRProcessingStatus.completed, // Skip QR extraction - mark as completed
           );
           
           setState(() {
             _capturedDocuments.add(newDoc);
           });
           
-          final idx = _capturedDocuments.length - 1;
-          _enqueueExtraction(newDoc, idx);
+          // COMMENTED OUT: QR extraction disabled - directly proceed to upload ready state
+          // Original: _enqueueExtraction(newDoc, idx); // This would trigger QR processing
           
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -688,20 +707,24 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
         }
       } else {
         // For non-PDF files, process directly
+        setState(() {
+          _currentProcessingMessage = 'Adding ${p.basename(originalFile.path)}...';
+        });
+
         final newDoc = DocumentInfo(
           file: originalFile,
           displayName: p.basename(originalFile.path),
           isValid: true,
           qrData: null,
-          qrStatus: QRProcessingStatus.notStarted,
+          qrStatus: QRProcessingStatus.completed, // Skip QR extraction - mark as completed
         );
         
         setState(() {
           _capturedDocuments.add(newDoc);
         });
         
-        final idx = _capturedDocuments.length - 1;
-        _enqueueExtraction(newDoc, idx);
+        // COMMENTED OUT: QR extraction disabled - directly proceed to upload ready state
+        // Original: _enqueueExtraction(newDoc, idx); // This would trigger QR processing
       }
       
       _scheduleScrollToBottom();
@@ -712,6 +735,8 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
       );
     } finally {
       setState(() {
+        _isProcessingDocuments = false;
+        _currentProcessingMessage = '';
         _updateBusyState();
       });
     }
@@ -729,8 +754,10 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
     });
   }
 
-  /// ===================== QR EXTRACTION =====================
+  /// ===================== QR EXTRACTION (COMMENTED OUT) =====================
+  // COMMENTED OUT: QR extraction disabled - can be restored by uncommenting
 
+  /*
   void _enqueueExtraction(DocumentInfo doc, int index) {
     _incProcessing();
     _autoExtractQRFromDocument(doc, index);
@@ -816,6 +843,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
       return null;
     }
   }
+  */
 
   /// ===================== UPLOAD =====================
 
@@ -895,27 +923,8 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
     });
 
     try {
-      // Show progress for QR processing
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Processing QR codes...'),
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
-
-      // Process QR codes first
-      // await _processAllQRCodes(validDocs);
-
-      // Reset QR processing flags but keep upload flag
-      setState(() {
-        _isProcessingImage = false;
-        _processingCount = 0;
-        _updateBusyState();
-      });
-
-      // Show upload progress
+      // COMMENTED OUT: QR processing disabled - directly proceed to upload
+      // Original: Show progress for QR processing, then await _processAllQRCodes(validDocs);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -995,11 +1004,12 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
       final responseBody = await resp.stream.bytesToString();
 
       if (resp.statusCode == 201) {
+        // Status 201: Data generated immediately
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                '✅ Uploaded ${validDocs.length} POD document(s) successfully.',
+                '✅ Uploaded ${validDocs.length} POD document(s) successfully. Data generated.',
               ),
               backgroundColor: Colors.green,
             ),
@@ -1014,6 +1024,46 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
         // Navigate back or show success
         if (mounted) {
           Navigator.pop(context);
+        }
+      } else if (resp.statusCode == 202) {
+        // Status 202: Background processing initiated
+        try {
+          final responseData = jsonDecode(responseBody);
+          
+          if (mounted) {
+            // Navigate to upload status screen
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => UploadStatusScreen(
+                  uploadData: responseData,
+                  totalFiles: validDocs.length,
+                ),
+              ),
+            );
+          }
+        } catch (e) {
+          debugPrint('Error parsing 202 response: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  '✅ Uploaded ${validDocs.length} POD document(s) successfully. Background processing initiated.',
+                ),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
+          
+          // Clear documents after successful upload
+          setState(() {
+            _capturedDocuments.clear();
+          });
+
+          // Navigate back
+          if (mounted) {
+            Navigator.pop(context);
+          }
         }
       } else {
         debugPrint('POD upload failed: ${resp.statusCode} ${responseBody.isNotEmpty ? "- $responseBody" : ""}');
@@ -1048,6 +1098,8 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
     }
   }
 
+  // COMMENTED OUT: QR processing method - can be restored by uncommenting
+  /*
   Future<void> _processAllQRCodes(List<DocumentInfo> docs) async {
     // Process QR codes for all documents
     for (int i = 0; i < docs.length; i++) {
@@ -1065,6 +1117,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
       }
     }
   }
+  */
 
   MediaType _inferContentType(File file) {
     final ext = p.extension(file.path).toLowerCase();
@@ -1139,8 +1192,9 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
   @override
   Widget build(BuildContext context) {
     final validDocCount = _capturedDocuments.where((d) => d.isValid).length;
-    final docsWithQR = _capturedDocuments.where((d) => d.qrData != null).length;
-    final showTopLoader = _isLoadingLists || _isProcessingImage || _processingCount > 0;
+    // final docsWithQR = _capturedDocuments.where((d) => d.qrData != null).length; // COMMENTED OUT: QR processing disabled
+    final showTopLoader = _isLoadingLists || _isProcessingDocuments; // UPDATED: Include document processing
+    // Original: _isLoadingLists || _isProcessingImage || _processingCount > 0
 
     return Scaffold(
       appBar: ModernUIComponents.buildModernAppBar(
@@ -1221,9 +1275,10 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                           Text(
                             _isRefreshing
                                 ? 'Refreshing page...'
-                                : (_processingCount > 0 || _isProcessingImage)
-                                ? 'Processing documents...'
-                                : 'Loading lists...',
+                                : _isProcessingDocuments
+                                    ? _currentProcessingMessage
+                                    : 'Loading lists...', // UPDATED: Show current processing message
+                            // Original: (_processingCount > 0 || _isProcessingImage) ? 'Processing documents...' : 'Loading lists...'
                             style: TextStyle(
                               color: Colors.grey.shade600,
                               fontSize: 12,
@@ -1263,7 +1318,8 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                   _buildSectionCard(
                     icon: Icons.add_a_photo,
                     title: 'Add Documents',
-                    subtitle: 'Images converted to PDF. POD documents auto-extract QR.',
+                    subtitle: 'Images converted to PDF. POD documents ready for upload.', // COMMENTED OUT: QR extraction disabled
+                    // Original: 'Images converted to PDF. POD documents auto-extract QR.'
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -1292,8 +1348,10 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                   if (_capturedDocuments.isNotEmpty)
                     _buildSectionCard(
                       icon: Icons.collections,
-                      title: 'Uploaded Documents (${_capturedDocuments.length} total, $validDocCount valid, $docsWithQR with QR)',
-                      subtitle: 'Tap to preview, swipe to remove. Green = QR extracted, Yellow = Processing, Red = Failed.',
+                      title: 'Uploaded Documents (${_capturedDocuments.length} total, $validDocCount valid)', // COMMENTED OUT: QR count removed
+                      // Original: 'Uploaded Documents (${_capturedDocuments.length} total, $validDocCount valid, $docsWithQR with QR)'
+                      subtitle: 'Tap to preview, swipe to remove. Documents ready for upload.', // COMMENTED OUT: QR status removed
+                      // Original: 'Tap to preview, swipe to remove. Green = QR extracted, Yellow = Processing, Red = Failed.'
                       child: Column(
                         children: [
                           // Summary stats
@@ -1309,7 +1367,8 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                               children: [
                                 _buildStatItem('Total', _capturedDocuments.length, Colors.blue),
                                 _buildStatItem('Valid', validDocCount, Colors.green),
-                                _buildStatItem('QR Processed', docsWithQR, Colors.orange),
+                                // COMMENTED OUT: QR processed stat removed
+                                // _buildStatItem('QR Processed', docsWithQR, Colors.orange),
                                 _buildStatItem('Remaining', maxDocuments - _capturedDocuments.length, Colors.grey),
                               ],
                             ),
@@ -1361,11 +1420,12 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                           : const Icon(Icons.cloud_upload),
                       label: Text(
                         _isBusy
-                            ? (_isProcessingImage || _processingCount > 0
-                                ? 'Processing QR Codes...'
-                                : _isUploading
+                            ? (_isUploading
                                 ? 'Uploading...'
-                                : 'Loading...')
+                                : _isProcessingDocuments
+                                    ? 'Processing Documents...'
+                                    : 'Loading...') // UPDATED: Show document processing status
+                            // Original: (_isProcessingImage || _processingCount > 0) ? 'Processing QR Codes...' : (_isUploading ? 'Uploading...' : 'Loading...')
                             : 'Upload $validDocCount POD Documents',
                       ),
                       style: ElevatedButton.styleFrom(
@@ -1576,29 +1636,12 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
   }
 
   Widget _buildDocumentCard(DocumentInfo doc, int index) {
-    final hasQR = doc.qrData != null;
     final fileSize = _getFileSize(doc.file);
     
-    // Determine border color based on QR status
-    Color borderColor;
-    double borderWidth = 1;
-    switch (doc.qrStatus) {
-      case QRProcessingStatus.completed:
-        borderColor = Colors.green;
-        borderWidth = 2;
-        break;
-      case QRProcessingStatus.processing:
-        borderColor = Colors.orange;
-        borderWidth = 2;
-        break;
-      case QRProcessingStatus.failed:
-        borderColor = Colors.red;
-        borderWidth = 2;
-        break;
-      default:
-        borderColor = Colors.grey.shade300;
-        borderWidth = 1;
-    }
+    // COMMENTED OUT: QR status-based border colors - now using simple validity-based colors
+    // Original: Complex border colors based on QR processing status (green=completed, orange=processing, red=failed)
+    Color borderColor = doc.isValid ? Colors.green : Colors.red;
+    double borderWidth = 2;
     
     return Dismissible(
       key: Key('doc_$index'),
@@ -1658,8 +1701,8 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    // QR status indicator
-                    _buildQRStatusIndicator(doc, index),
+                    // COMMENTED OUT: QR status indicator removed
+                    // _buildQRStatusIndicator(doc, index),
                     const SizedBox(width: 8),
                     IconButton(
                       onPressed: () => _removeDocument(index),
@@ -1703,40 +1746,15 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                     ),
                   ],
                 ),
-                if (hasQR && doc.qrData != null) ...[
-                  const SizedBox(height: 8),
-                  _buildQRInfo(doc.qrData!),
-                ],
-                if (doc.qrStatus == QRProcessingStatus.failed && doc.errorMessage != null) ...[
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.red.shade50,
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: Colors.red.shade200),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.error_outline,
-                          size: 14,
-                          color: Colors.red.shade700,
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            'QR Error: ${doc.errorMessage}',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.red.shade700,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+                // COMMENTED OUT: QR info section removed
+                // if (hasQR && doc.qrData != null) ...[
+                //   const SizedBox(height: 8),
+                //   _buildQRInfo(doc.qrData!),
+                // ],
+                // if (doc.qrStatus == QRProcessingStatus.failed && doc.errorMessage != null) ...[
+                //   const SizedBox(height: 8),
+                //   Container(...), // Error message container
+                // ],
               ],
             ),
           ),
@@ -1745,6 +1763,8 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
     );
   }
 
+  // COMMENTED OUT: QR-related UI methods - can be restored by uncommenting
+  /*
   Widget _buildQRStatusIndicator(DocumentInfo doc, int index) {
     switch (doc.qrStatus) {
       case QRProcessingStatus.completed:
@@ -1960,6 +1980,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
       ),
     );
   }
+  */
 
   String _getFileSize(File file) {
     try {
