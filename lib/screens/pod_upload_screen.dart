@@ -55,6 +55,8 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
     }
 
     final decoded = jsonDecode(resp.body);
+    debugPrint('[SPLIT] Response: ${resp.body}'); 
+    debugPrint('[SPLIT] Decoded: $decoded');
     if (decoded is! Map || decoded['parts'] is! List) {
       debugPrint('[SPLIT] Unexpected response: ${resp.body}');
       return <SplitOut>[];
@@ -84,7 +86,8 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
       await file.writeAsBytes(bytes);
 
       final invoiceNo = e['invoice_no'] as String?;
-      final pages = e['pages'] as List<int>?;
+      final pagesDynamic = e['pages'] as List<dynamic>?;
+      final pages = pagesDynamic?.map((p) => p as int).toList();
       final sizeBytes = bytes.length;
 
       out.add(SplitOut(
