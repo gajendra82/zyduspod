@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:zyduspod/screens/modern_document_upload_screen.dart';
 import 'package:zyduspod/screens/profile_screen.dart';
 import 'package:zyduspod/screens/unified_dashboard_screen.dart';
@@ -36,7 +39,7 @@ class _MainNavigationState extends State<MainNavigation> {
   Future<bool> _onWillPop() async {
     // Only show exit dialog when on the first tab (Dashboard)
     if (_currentIndex == 0) {
-      final shouldExit = await showDialog<bool>(
+      await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           shape: RoundedRectangleBorder(
@@ -79,7 +82,19 @@ class _MainNavigationState extends State<MainNavigation> {
               ),
             ),
             ElevatedButton(
-              onPressed: () => Navigator.of(context).pop(true),
+              onPressed: () {
+                // Exit the app properly
+                SystemNavigator.pop();
+                if(Theme.of(context).platform == TargetPlatform.iOS){
+                  Future.delayed(const Duration(milliseconds: 300), () {
+                    exit(0);
+                  });
+                }else{
+                  Navigator.of(context).pop(true);
+                  SystemNavigator.pop();
+                }
+                  
+              },
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF00A0A8),
                 foregroundColor: Colors.white,
@@ -100,7 +115,7 @@ class _MainNavigationState extends State<MainNavigation> {
           ],
         ),
       );
-      return shouldExit ?? false;
+      return false; // Always return false since we handle exit in the button
     } else {
       // Navigate back to Dashboard tab instead of exiting
       setState(() {
@@ -123,10 +138,7 @@ class _MainNavigationState extends State<MainNavigation> {
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
         
-        final shouldPop = await _onWillPop();
-        if (shouldPop && context.mounted) {
-          Navigator.of(context).pop();
-        }
+        await _onWillPop();
       },
       child: Scaffold(
         body: IndexedStack(
