@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:zyduspod/services/pod_details_service.dart';
+import 'package:zyduspod/screens/e_invoice_data_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class PodDetailsScreen extends StatefulWidget {
@@ -173,214 +174,25 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
               ),
               Expanded(
                 child: InkWell(
-                  onTap: () {
-                  showModalBottomSheet(
-                    context: context,
-                    isScrollControlled: true,
-                    shape: const RoundedRectangleBorder(
-                      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                    ),
-                    builder: (context) {
-                      final eInvoice = pod['e_invoice'];
-                      if (eInvoice == null) {
-                        return Padding(
-                          padding: const EdgeInsets.all(32),
-                          child: Center(
-                            child: Text(
-                              'No E-Invoice data available.',
-                              style: TextStyle(
-                                fontSize: 18,
-                                color: Colors.grey.shade700,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                        );
-                      }
-
-                      return Padding(
-                        padding: EdgeInsets.only(
-                          left: 20,
-                          right: 20,
-                          top: 24,
-                          bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-                        ),
-                        child: SingleChildScrollView(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  const Text(
-                                    'E-Invoice Details',
-                                    style: TextStyle(
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF00A0A8),
-                                    ),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.close),
-                                    onPressed: () => Navigator.pop(context),
-                                  ),
-                                ],
-                              ),
-                              const Divider(),
-                              
-                              // Invoice Number
-                              _buildEInvoiceListTile(
-                                icon: Icons.receipt_long,
-                                title: 'Invoice Number',
-                                subtitle: eInvoice['invoice_number']?.toString() ?? 'N/A',
-                              ),
-                              
-                              // IRN
-                              _buildEInvoiceListTile(
-                                icon: Icons.qr_code_2,
-                                title: 'IRN',
-                                subtitle: eInvoice['irn']?.toString() ?? 'N/A',
-                              ),
-                              
-                              // Acknowledgement Number
-                              if (eInvoice['ack_no'] != null)
-                                _buildEInvoiceListTile(
-                                  icon: Icons.check_circle_outline,
-                                  title: 'Acknowledgement No',
-                                  subtitle: eInvoice['ack_no']?.toString() ?? 'N/A',
-                                ),
-                              
-                              // Invoice Date
-                              _buildEInvoiceListTile(
-                                icon: Icons.calendar_today,
-                                title: 'Invoice Date',
-                                subtitle: _formatDate(eInvoice['invoice_date']?.toString()),
-                              ),
-                              
-                              // Total Amount
-                              _buildEInvoiceListTile(
-                                icon: Icons.currency_rupee,
-                                title: 'Total Amount',
-                                subtitle: '₹${eInvoice['total_amount']?.toString() ?? '0.00'}',
-                              ),
-                              
-                              // Tax Amount
-                              _buildEInvoiceListTile(
-                                icon: Icons.receipt,
-                                title: 'Tax Amount',
-                                subtitle: '₹${eInvoice['tax_amount']?.toString() ?? '0.00'}',
-                              ),
-                              
-                              // Discount Amount
-                              if (eInvoice['discount_amount'] != null && eInvoice['discount_amount'].toString() != '0.00')
-                                _buildEInvoiceListTile(
-                                  icon: Icons.discount,
-                                  title: 'Discount Amount',
-                                  subtitle: '₹${eInvoice['discount_amount']?.toString() ?? '0.00'}',
-                                ),
-                              
-                              // Status
-                              _buildEInvoiceListTile(
-                                icon: Icons.info_outline,
-                                title: 'Status',
-                                subtitle: eInvoice['status']?.toString().toUpperCase() ?? 'N/A',
-                              ),
-                              
-                              // GST Status
-                              _buildEInvoiceListTile(
-                                icon: Icons.verified,
-                                title: 'GST Status',
-                                subtitle: eInvoice['gst_status']?.toString().replaceAll('_', ' ').toUpperCase() ?? 'N/A',
-                              ),
-                              
-                              // Metadata Section
-                              if (eInvoice['metadata'] != null) ...[
-                                const SizedBox(height: 16),
-                                const Text(
-                                  'Additional Information',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF00A0A8),
-                                  ),
-                                ),
-                                const Divider(),
-                                _buildEInvoiceListTile(
-                                  icon: Icons.document_scanner,
-                                  title: 'Document Type',
-                                  subtitle: eInvoice['metadata']['doc_type']?.toString() ?? 'N/A',
-                                ),
-                                _buildEInvoiceListTile(
-                                  icon: Icons.event,
-                                  title: 'IRN Date',
-                                  subtitle: eInvoice['metadata']['irn_date']?.toString() ?? 'N/A',
-                                ),
-                                _buildEInvoiceListTile(
-                                  icon: Icons.inventory_2,
-                                  title: 'Item Count',
-                                  subtitle: eInvoice['metadata']['item_count']?.toString() ?? 'N/A',
-                                ),
-                                _buildEInvoiceListTile(
-                                  icon: Icons.business,
-                                  title: 'Buyer GSTIN',
-                                  subtitle: eInvoice['metadata']['buyer_gstin']?.toString() ?? 'N/A',
-                                ),
-                                _buildEInvoiceListTile(
-                                  icon: Icons.store,
-                                  title: 'Seller GSTIN',
-                                  subtitle: eInvoice['metadata']['seller_gstin']?.toString() ?? 'N/A',
-                                ),
-                                _buildEInvoiceListTile(
-                                  icon: Icons.code,
-                                  title: 'Main HSN Code',
-                                  subtitle: eInvoice['metadata']['main_hsn_code']?.toString() ?? 'N/A',
-                                ),
-                              ],
-                              
-                              // View PDF Button
-                              if (eInvoice['file_path'] != null && eInvoice['file_path'].toString().isNotEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 16.0),
-                                  child: SizedBox(
-                                    width: double.infinity,
-                                    child: ElevatedButton.icon(
-                                      icon: const Icon(Icons.open_in_new),
-                                      label: const Text('View E-Invoice PDF'),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFF00A0A8),
-                                        foregroundColor: Colors.white,
-                                        padding: const EdgeInsets.symmetric(vertical: 14),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                      ),
-                                      onPressed: () async {
-                                        final url = eInvoice['file_path'];
-                                        if (url != null && url is String && url.isNotEmpty) {
-                                          final uri = Uri.parse(url);
-                                          if (!await launchUrl(
-                                            uri,
-                                            mode: LaunchMode.externalApplication,
-                                          )) {
-                                            if (context.mounted) {
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                const SnackBar(content: Text('Could not open E-Invoice file')),
-                                              );
-                                            }
-                                          }
-                                        }
-                                      },
-                                    ),
-                                  ),
-                                ),
-                              const SizedBox(height: 12),
-                            ],
+                  onTap: () async{
+                    final eInvoice = pod['e_invoice'];
+                    if (eInvoice == null) {
+                      // Navigate to E-Invoice data screen with null data to show no-data view
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => EInvoiceDataScreen(
+                            qrData: null,
+                            fileName: 'POD_${pod['id']}_E-Invoice.pdf',
+                            uploadTime: DateTime.now(),
+                            podId: pod['id']?.toString() ?? '0',
                           ),
                         ),
                       );
-                    },
-                  );
+                    } else {
+                      // Navigate to E-Invoice data screen with existing data
+                      _navigateToEInvoiceDataScreen(pod, eInvoice);
+                    }
                     
                   },
                   child: Container(
@@ -911,30 +723,67 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
     }
   }
 
-  Widget _buildEInvoiceListTile({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-  }) {
-    return ListTile(
-      leading: Icon(icon, color: const Color(0xFF00A0A8)),
-      title: Text(
-        title,
-        style: TextStyle(
-          color: Colors.grey.shade700,
-          fontWeight: FontWeight.bold,
-          fontSize: 13,
+
+
+
+
+
+  void _navigateToEInvoiceDataScreen(Map<String, dynamic> pod, Map<String, dynamic> eInvoice) {
+    // Convert POD E-Invoice data to QR data format for the E-Invoice data screen
+    final qrData = _convertPodEInvoiceToQrData(eInvoice);
+    
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EInvoiceDataScreen(
+          qrData: qrData,
+          fileName: 'POD_${pod['id']}_E-Invoice.pdf',
+          uploadTime: DateTime.now(),
+          podId: pod['id']?.toString() ?? '0',
         ),
       ),
-      subtitle: Text(
-        subtitle,
-        style: const TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-      contentPadding: EdgeInsets.zero,
-      dense: true,
     );
   }
+
+  Map<String, dynamic> _convertPodEInvoiceToQrData(Map<String, dynamic> eInvoice) {
+    // Convert POD E-Invoice format to QR data format expected by EInvoiceDataScreen
+    final qrData = <String, dynamic>{};
+    
+    // Map basic fields
+    qrData['DocNo'] = eInvoice['invoice_number'];
+    qrData['DocDt'] = eInvoice['invoice_date'];
+    qrData['DocTyp'] = eInvoice['metadata']?['doc_type'] ?? 'INV';
+    qrData['TotInvVal'] = eInvoice['total_amount'];
+    qrData['Gstin'] = eInvoice['metadata']?['seller_gstin'];
+    qrData['CgstAmt'] = eInvoice['tax_amount'] != null ? 
+        (double.tryParse(eInvoice['tax_amount'].toString()) ?? 0) / 2 : null;
+    qrData['SgstAmt'] = eInvoice['tax_amount'] != null ? 
+        (double.tryParse(eInvoice['tax_amount'].toString()) ?? 0) / 2 : null;
+    qrData['IgstAmt'] = '0.00';
+    qrData['TotGstAmt'] = eInvoice['tax_amount'];
+    qrData['SellerName'] = eInvoice['metadata']?['seller_name'];
+    qrData['BuyerName'] = eInvoice['metadata']?['buyer_name'];
+    qrData['BuyerGstin'] = eInvoice['metadata']?['buyer_gstin'];
+    qrData['Irn'] = eInvoice['irn'];
+    qrData['AckNo'] = eInvoice['ack_no'];
+    qrData['AckDt'] = eInvoice['metadata']?['irn_date'];
+    qrData['Status'] = eInvoice['status'];
+    qrData['GstStatus'] = eInvoice['gst_status'];
+    
+    // Add metadata
+    if (eInvoice['metadata'] != null) {
+      qrData['ItemCount'] = eInvoice['metadata']['item_count'];
+      qrData['MainHsnCode'] = eInvoice['metadata']['main_hsn_code'];
+      qrData['DiscountAmount'] = eInvoice['discount_amount'];
+    }
+    
+    // Add file path if available
+    if (eInvoice['file_path'] != null) {
+      qrData['FilePath'] = eInvoice['file_path'];
+    }
+    
+    return qrData;
+  }
+
+
 }

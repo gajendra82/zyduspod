@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:zyduspod/services/auth_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
@@ -297,7 +298,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
             () => _showLogoutDialog(context),
           ),
           _buildDivider(),
-          
+          _buildActionButton(
+            context,
+            'Contact Support',
+            Icons.support_agent_rounded,
+            const Color(0xFFFF9800),
+            () {
+              launchUrl(Uri.parse('https://crm.globalspace.in/forms/ticket?styled=1'));
+            },
+          ),
+          _buildDivider(),
           // Delete Account Button
           _buildActionButton(
             context,
@@ -374,38 +384,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Column(
         children: [
           Container(
+            width: double.infinity,
             padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  const Color(0xFF00A0A8).withOpacity(0.1),
-                  const Color(0xFF6EC1C7).withOpacity(0.05),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: const Color(0xFF00A0A8).withOpacity(0.2),
-              ),
-            ),
             child: Column(
               children: [
-                Icon(
-                  Icons.info_outline,
-                  color: const Color(0xFF00A0A8),
-                  size: 28,
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Zydus POD',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF2C3E50),
-                  ),
-                ),
-                const SizedBox(height: 4),
                 Text(
                   'Version $_appVersion',
                   style: TextStyle(
@@ -419,7 +401,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           const SizedBox(height: 12),
           Text(
-            '© ${DateTime.now().year} Zydus. All rights reserved.',
+            '© ${DateTime.now().year} Globalspace Technologies Pvt. Ltd. All rights reserved.',
             style: TextStyle(
               fontSize: 12,
               color: Colors.grey.shade500,

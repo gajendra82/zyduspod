@@ -536,6 +536,19 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
                   ),
                 ),
               ),
+              const SizedBox(width: 8),
+              IconButton(
+                onPressed: () async {
+                  await _loadAllDocuments(isRefresh: true);
+                  // Optionally, show a SnackBar or update state to indicate refresh complete
+                },
+                icon: const Icon(Icons.refresh),
+                tooltip: 'Refresh',
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.grey.shade100,
+                  foregroundColor: const Color(0xFF00A0A8),
+                ),
+              ),
               if (hasActiveFilters) ...[
                 const SizedBox(width: 8),
                 IconButton(

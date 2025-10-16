@@ -1300,7 +1300,19 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                       selected: _selectedStockist,
                       label: 'Search Stockist',
                       onSelected: (opt) => setState(() => _selectedStockist = opt),
-                      onClear: () => setState(() => _selectedStockist = null),
+                      onClear: () {
+                        setState(() {
+                          _selectedStockist = null;
+                          _stockistKey = UniqueKey();
+                        });
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Stockist selection cleared'),
+                            duration: Duration(seconds: 1),
+                            backgroundColor: Colors.orange,
+                          ),
+                        );
+                      },
                       isStockist: true,
                     ),
                   ),
@@ -1314,7 +1326,19 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                       selected: _selectedChemist,
                       label: 'Search Hospital',
                       onSelected: (opt) => setState(() => _selectedChemist = opt),
-                      onClear: () => setState(() => _selectedChemist = null),
+                      onClear: () {
+                        setState(() {
+                          _selectedChemist = null;
+                          _chemistKey = UniqueKey();
+                        });
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Hospital selection cleared'),
+                            duration: Duration(seconds: 1),
+                            backgroundColor: Colors.orange,
+                          ),
+                        );
+                      },
                       isStockist: false,
                     ),
                   ),
@@ -1572,6 +1596,8 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                   IconButton(
                     icon: const Icon(Icons.clear),
                     onPressed: onClear,
+                    tooltip: 'Clear selection',
+                    color: Colors.red.shade600,
                   ),
               ],
             ),

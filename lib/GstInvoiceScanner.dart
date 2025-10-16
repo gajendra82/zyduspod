@@ -305,7 +305,7 @@ class _InvoiceResultScreenState extends State<InvoiceResultScreen> {
         headers: headers,
         body: json.encode(invoiceFields),
       );
-
+      print('Response: ${response.body}');
       if (response.statusCode == 200) {
         setState(() => apiStatus = "✅ Sent successfully!");
       } else {

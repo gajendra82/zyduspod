@@ -379,8 +379,8 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                   ],
                 ),
                 child: Image.asset(
-                  'assets/branding/logo.png',
-                  height: 70,
+                  'assets/branding/logo_1.jpeg',
+                  height: 140,
                   fit: BoxFit.contain,
                 ),
               );
@@ -392,10 +392,10 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
               colors: [Colors.white, Colors.white70],
             ).createShader(bounds),
             child: const Text(
-              'Welcome Back',
+              'Welcome',
               style: TextStyle(
                 color: Colors.white,
-                fontSize: 32,
+                fontSize: 30,
                 fontWeight: FontWeight.bold,
                 letterSpacing: 0.5,
               ),

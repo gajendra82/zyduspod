@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:zyduspod/DocumentUploadScreen.dart';
 import 'package:zyduspod/screens/pod_upload_screen.dart';
+import 'package:zyduspod/screens/e_invoice_data_screen.dart';
 import 'package:zyduspod/widgets/modern_ui_components.dart';
 
 class ModernDocumentUploadScreen extends StatefulWidget {
@@ -191,6 +191,27 @@ class EInvoiceUploadPage extends StatefulWidget {
 }
 
 class _EInvoiceUploadPageState extends State<EInvoiceUploadPage> {
+  // Sample QR data for demonstration - in real app this would come from upload process
+  final Map<String, dynamic> _sampleQrData = {
+    'DocNo': '5EN13986',
+    'DocDt': '15/12/2024',
+    'DocTyp': 'INV',
+    'TotInvVal': '25000.00',
+    'Gstin': '27AABCU9603R1ZX',
+    'CgstAmt': '2250.00',
+    'SgstAmt': '2250.00',
+    'IgstAmt': '0.00',
+    'TotGstAmt': '4500.00',
+    'SellerName': 'Zydus Healthcare Ltd',
+    'BuyerName': 'Global Healthcare Solutions',
+    'BuyerGstin': '07AABCU9603R1ZX',
+    'ItemName': 'Pharmaceutical Products',
+    'HsnCode': '3004',
+    'Qty': '100',
+    'UnitPrice': '250.00',
+    'TaxableAmt': '25000.00',
+  };
+
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
@@ -211,13 +232,27 @@ class _EInvoiceUploadPageState extends State<EInvoiceUploadPage> {
             icon: Icons.receipt,
             color: const Color(0xFF6EC1C7),
             onTap: () {
-              // Navigate to original DocumentUploadScreen with E-Invoice type
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const DocumentUploadScreen(),
-                ),
-              );
+              _handleEInvoiceUpload();
+            },
+          ),
+          const SizedBox(height: 16),
+          ModernUIComponents.buildUploadCard(
+            title: 'View Sample QR Data',
+            subtitle: 'Preview scanned QR code information',
+            icon: Icons.qr_code_scanner,
+            color: const Color(0xFF9C27B0),
+            onTap: () {
+              _showSampleQrData();
+            },
+          ),
+          const SizedBox(height: 16),
+          ModernUIComponents.buildUploadCard(
+            title: 'Open Empty E-Invoice Page',
+            subtitle: 'Test the new QR scan functionality',
+            icon: Icons.add_circle_outline,
+            color: const Color(0xFFFF9800),
+            onTap: () {
+              _showEmptyEInvoicePage();
             },
           ),
           const SizedBox(height: 16),
@@ -225,12 +260,60 @@ class _EInvoiceUploadPageState extends State<EInvoiceUploadPage> {
             title: 'E-Invoice Features',
             items: [
               'Automatic QR code extraction',
+              'Manual QR code scanning',
               'GST validation',
               'Invoice data parsing',
               'Digital signature verification',
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  void _handleEInvoiceUpload() {
+    // Navigate to original DocumentUploadScreen with E-Invoice type
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const DocumentUploadScreen(),
+      ),
+    ).then((result) {
+      // Handle result from DocumentUploadScreen
+      if (result != null && result is Map<String, dynamic>) {
+        _showQrData(result);
+      }
+    });
+  }
+
+  void _showSampleQrData() {
+    _showQrData(_sampleQrData, fileName: 'Sample_E-Invoice_5EN13986.pdf');
+  }
+
+  void _showEmptyEInvoicePage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EInvoiceDataScreen(
+          qrData: null, // No QR data - will show scan options
+          fileName: 'Test_E-Invoice.pdf',
+          uploadTime: DateTime.now(),
+          podId: '0',
+        ),
+      ),
+    );
+  }
+
+  void _showQrData(Map<String, dynamic> qrData, {String? fileName}) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EInvoiceDataScreen(
+          qrData: qrData,
+          fileName: fileName ?? 'E-Invoice_${qrData['DocNo'] ?? 'Unknown'}.pdf',
+          uploadTime: DateTime.now(),
+          podId: '0',
+        ),
       ),
     );
   }
