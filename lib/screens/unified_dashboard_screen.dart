@@ -9,6 +9,7 @@ import 'package:zyduspod/Bloc/sales_state.dart';
 import 'package:zyduspod/DocumentUploadScreen.dart';
 import 'package:zyduspod/screens/hospital_sales_screen.dart';
 import 'package:zyduspod/screens/documents_list_screen.dart';
+import 'package:zyduspod/screens/modern_document_upload_screen.dart';
 import 'package:zyduspod/services/hospital_dashboard_service.dart';
 import 'package:zyduspod/services/sales_service.dart';
 
@@ -37,7 +38,8 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
 
   void _openUploader(BuildContext context) {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const DocumentUploadScreen()),
+      // MaterialPageRoute(builder: (_) => const Docume ntUploadScreen()),
+      MaterialPageRoute(builder: (_) =>  ModernDocumentUploadScreen()),
     );
   }
 

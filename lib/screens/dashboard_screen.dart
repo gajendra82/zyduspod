@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:zyduspod/Bloc/hospital_dashboard_bloc.dart';
 import 'package:zyduspod/Bloc/hospital_dashboard_event.dart';
 import 'package:zyduspod/DocumentUploadScreen.dart';
+import 'package:zyduspod/screens/modern_document_upload_screen.dart';
 import 'package:zyduspod/widgets/hospital_dashboard_pane.dart';
 import 'package:zyduspod/services/hospital_dashboard_service.dart';
 
@@ -11,7 +12,8 @@ class DashboardScreen extends StatelessWidget {
 
   void _openUploader(BuildContext context) {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const DocumentUploadScreen()),
+      // MaterialPageRoute(builder: (_) => const DocumentUploadScreen()),
+      MaterialPageRoute(builder: (_) =>  ModernDocumentUploadScreen()),
     );
   }
 
