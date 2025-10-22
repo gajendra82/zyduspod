@@ -955,30 +955,6 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
                           const SizedBox(width: 12),
                           Expanded(
                             child: _buildEnhancedStatItem(
-                              'Avg. Value',
-                              '₹${_formatAmount(summary.averageTransactionValue)}',
-                              Icons.trending_up,
-                              Colors.blue,
-                              isHighPerformer,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildEnhancedStatItem(
-                              'Growth Rate',
-                              '${growthRate.toStringAsFixed(1)}%',
-                              Icons.show_chart,
-                              growthRate >= 0 ? Colors.green : Colors.red,
-                              isHighPerformer,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _buildEnhancedStatItem(
                               'Last Sale',
                               _formatDate(summary.lastTransactionDate),
                               Icons.calendar_today,
@@ -986,8 +962,43 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
                               isHighPerformer,
                             ),
                           ),
+                          
                         ],
                       ),
+                      // const SizedBox(height: 12),
+                      // Row(
+                      //   children: [
+                      //     Expanded(
+                      //       child: _buildEnhancedStatItem(
+                      //         'Avg. Value',
+                      //         '₹${_formatAmount(summary.averageTransactionValue)}',
+                      //         Icons.trending_up,
+                      //         Colors.blue,
+                      //         isHighPerformer,
+                      //       ),
+                      //     ),
+                      //     Expanded(
+                      //       child: _buildEnhancedStatItem(
+                      //         'Growth Rate',
+                      //         '${growthRate.toStringAsFixed(1)}%',
+                      //         Icons.show_chart,
+                      //         growthRate >= 0 ? Colors.green : Colors.red,
+                      //         isHighPerformer,
+                      //       ),
+                      //     ),
+                      //     const SizedBox(width: 12),
+                      //     Expanded(
+                      //       child: _buildEnhancedStatItem(
+                      //         'Last Sale',
+                      //         _formatDate(summary.lastTransactionDate),
+                      //         Icons.calendar_today,
+                      //         Colors.purple,
+                      //         isHighPerformer,
+                      //       ),
+                      //     ),
+                      //   ],
+                      // ),
+                    
                     ],
                   ),
                 ),
@@ -998,56 +1009,59 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
                 const SizedBox(height: 16),
                 
                 // Top product with enhanced design
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.orange.withOpacity(0.3)),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(
-                          Icons.inventory,
-                          color: Colors.orange,
-                          size: 16,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Top Product',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            Text(
-                              summary.topProduct,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.orange,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                // Container(
+                //   padding: const EdgeInsets.all(12),
+                //   decoration: BoxDecoration(
+                //     color: Colors.orange.withOpacity(0.1),
+                //     borderRadius: BorderRadius.circular(12),
+                //     border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                //   ),
+                //   child: Row(
+                //     children: [
+                //       Container(
+                //         padding: const EdgeInsets.all(8),
+                //         decoration: BoxDecoration(
+                //           color: Colors.orange.withOpacity(0.2),
+                //           borderRadius: BorderRadius.circular(8),
+                //         ),
+                //         child: const Icon(
+                //           Icons.inventory,
+                //           color: Colors.orange,
+                //           size: 16,
+                //         ),
+                //       ),
+                //       const SizedBox(width: 12),
+                //       // Expanded(
+                //       //   child: Column(
+                //       //     crossAxisAlignment: CrossAxisAlignment.start,
+                //       //     children: [
+                //       //       const Text(
+                //       //         'Top Product',
+                //       //         style: TextStyle(
+                //       //           fontSize: 12,
+                //       //           color: Colors.grey,
+                //       //           fontWeight: FontWeight.w500,
+                //       //         ),
+                //       //       ),
+                //       //       Text(
+                //       //         summary.topProduct,
+                //       //         style: const TextStyle(
+                //       //           fontSize: 14,
+                //       //           fontWeight: FontWeight.bold,
+                //       //           color: Colors.orange,
+                //       //         ),
+                //       //         maxLines: 1,
+                //       //         overflow: TextOverflow.ellipsis,
+                //       //       ),
+                //       //     ],
+                //       //   ),
+                //       // ),
+                    
+                //     ],
+                //   ),
+                // ),
+              
+              
               ],
             ),
           ),
@@ -1286,7 +1300,7 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
                   'System Sales',
                   '₹${_formatAmount(systemSales)}',
                   100 - podPercentage,
-                  Colors.orange,
+                  Colors.blue,
                   Icons.analytics,
                 ),
               ),
@@ -1449,19 +1463,19 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
                       const SizedBox(height: 24),
                       _buildDetailSection('Sales Summary', [
                         _buildDetailRow('Total Transactions', summary.totalTransactions.toString()),
-                        _buildDetailRow('Total Sales Amount', '₹${_formatAmount(summary.totalAmount)}'),
-                        _buildDetailRow('Average Transaction Value', '₹${_formatAmount(summary.averageTransactionValue)}'),
+                        _buildDetailRow('Total POD Amount', '₹${_formatAmount(summary.totalAmount)}'),
+                        // _buildDetailRow('Average Transaction Value', '₹${_formatAmount(summary.averageTransactionValue)}'),
                         _buildDetailRow('Top Product', summary.topProduct),
                         _buildDetailRow('Last Transaction', _formatDate(summary.lastTransactionDate)),
                       ]),
                       const SizedBox(height: 20),
                       _buildPodVsSalesDetailSection(summary),
-                      const SizedBox(height: 20),
-                      _buildDetailSection('Recent Transactions', [
-                        ...summary.recentTransactions.map((transaction) => 
-                          _buildTransactionItem(transaction)
-                        ).toList(),
-                      ]),
+                      // const SizedBox(height: 20),
+                      // _buildDetailSection('Recent Transactions', [
+                      //   ...summary.recentTransactions.map((transaction) => 
+                      //     _buildTransactionItem(transaction)
+                      //   ).toList(),
+                      // ]),
                     ],
                   ),
                 ),
@@ -1567,7 +1581,7 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
                       'System Sales (Total)',
                       '₹${_formatAmount(systemSales)}',
                       100 - podPercentage,
-                      Colors.orange,
+                      Colors.blue,
                       Icons.analytics,
                     ),
                   ),
@@ -1617,9 +1631,9 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              _buildDetailRow('Total System Sales', '₹${_formatAmount(totalSystemSales)}'),
-              _buildDetailRow('POD Sales (App)', '₹${_formatAmount(podSales)}'),
-              _buildDetailRow('System Sales (Other)', '₹${_formatAmount(systemSales)}'),
+              _buildDetailRow('Total', '₹${_formatAmount(totalSystemSales)}'),
+              _buildDetailRow('POD Sales', '₹${_formatAmount(podSales)}'),
+              _buildDetailRow('System Sales', '₹${_formatAmount(systemSales)}'),
               _buildDetailRow('POD Coverage', '${podPercentage.toStringAsFixed(1)}%'),
             ],
           ),
@@ -1796,14 +1810,25 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
   }
 
   String _formatAmount(double amount) {
-    // if (amount >= 100000) {
-    //   return '${(amount / 100000).toStringAsFixed(1)}L';
-    // } else if (amount >= 1000) {
-    //   return '${(amount / 1000).toStringAsFixed(1)}K';
-    // } else {
-    //   return amount.toStringAsFixed(0);
-    // }
-    return amount.toStringAsFixed(2);
+    // Format according to Indian numbering (lakhs/crores)
+    String amtStr = amount.toStringAsFixed(2);
+    List<String> parts = amtStr.split('.');
+    String number = parts[0];
+    String dec = parts.length > 1 ? parts[1] : '00';
+    if (number.length <= 3) return '$number.$dec';
+
+    String lastThree = number.substring(number.length - 3);
+    String rest = number.substring(0, number.length - 3);
+    List<String> restChars = [];
+    while (rest.length > 2) {
+      restChars.insert(0, rest.substring(rest.length - 2));
+      rest = rest.substring(0, rest.length - 2);
+    }
+    if (rest.isNotEmpty) {
+      restChars.insert(0, rest);
+    }
+    String formatted = '${restChars.join(",")},$lastThree.$dec';
+    return formatted;
   }
 
   String _formatDate(String dateString) {

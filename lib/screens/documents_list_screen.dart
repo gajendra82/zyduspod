@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:zyduspod/config.dart';
 import 'package:zyduspod/screens/pod_details_screen.dart';
+import 'package:zyduspod/services/master_data_service.dart';
 
 class DocumentsListScreen extends StatefulWidget {
   const DocumentsListScreen({super.key});
@@ -14,8 +15,8 @@ class DocumentsListScreen extends StatefulWidget {
 
 class _DocumentsListScreenState extends State<DocumentsListScreen> {
   List<Map<String, dynamic>> _allDocuments = [];
-  List<String> _stockistList = [];
-  List<String> _hospitalList = [];
+  List<Map<String, dynamic>> _stockistList = [];
+  List<Map<String, dynamic>> _hospitalList = [];
   bool _isLoading = true;
   bool _isLoadingMore = false;
   bool _hasMoreData = true;
@@ -27,12 +28,15 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
   String? _errorMessage;
   String _selectedFilter = 'All';
   String _searchQuery = '';
-  String _selectedStockist = '';
-  String _selectedHospital = '';
+  String _selectedStockistId = '';
+  String _selectedHospitalId = '';
+  String _selectedStockistName = '';
+  String _selectedHospitalName = '';
   bool _hasApiError = false;
   DateTime? _fromDate;
   DateTime? _toDate;
   final ScrollController _scrollController = ScrollController();
+  final MasterDataService _masterDataService = MasterDataService();
 
   final List<String> _filterOptions = [
     'All',
@@ -48,7 +52,7 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
   @override
   void initState() {
     super.initState();
-    _loadAllDocuments();
+    _loadMasterDataAndDocuments();
     _scrollController.addListener(_onScroll);
   }
 
@@ -57,6 +61,54 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
+  }
+
+  /// Load master data (hospitals and stockists) and then load documents
+  Future<void> _loadMasterDataAndDocuments() async {
+    try {
+      // Load master data in parallel
+      await Future.wait([
+        _loadMasterHospitals(),
+        _loadMasterStockists(),
+      ]);
+    } catch (e) {
+      print('Error loading master data: $e');
+    }
+
+    // Load documents after master data is loaded
+    _loadAllDocuments();
+  }
+
+  /// Load master hospitals data
+  Future<void> _loadMasterHospitals() async {
+    try {
+      final hospitals = await _masterDataService.getAllHospitals();
+      setState(() {
+        _hospitalList = hospitals;
+      });
+      print('Loaded ${hospitals.length} hospitals from master API');
+    } catch (e) {
+      print('Error loading hospitals: $e');
+      setState(() {
+        _hospitalList = [];
+      });
+    }
+  }
+
+  /// Load master stockists data
+  Future<void> _loadMasterStockists() async {
+    try {
+      final stockists = await _masterDataService.getAllStockists();
+      setState(() {
+        _stockistList = stockists;
+      });
+      print('Loaded ${stockists.length} stockists from master API');
+    } catch (e) {
+      print('Error loading stockists: $e');
+      setState(() {
+        _stockistList = [];
+      });
+    }
   }
 
   void _onScroll() {
@@ -89,8 +141,8 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
       }
       
       final String type = _selectedFilter == 'All' ? '' : _selectedFilter;
-      final String hospitalId = _selectedHospital.isEmpty ? '' : _selectedHospital;
-      final String stockistId = _selectedStockist.isEmpty ? '' : _selectedStockist;
+      final String hospitalId = _selectedHospitalId.isEmpty ? '' : _selectedHospitalId;
+      final String stockistId = _selectedStockistId.isEmpty ? '' : _selectedStockistId;
       final String startDate = _fromDate != null ? _formatDateForApi(_fromDate!) : '';
       final String endDate = _toDate != null ? _formatDateForApi(_toDate!) : '';
       
@@ -136,7 +188,6 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
 
         setState(() {
           _allDocuments = documents;
-          _extractStockistAndHospitalLists();
           if (documents.isEmpty) {
             _hasApiError = true;
           }
@@ -180,8 +231,8 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
       }
 
       final String type = _selectedFilter == 'All' ? '' : _selectedFilter;
-      final String hospitalId = _selectedHospital.isEmpty ? '' : _selectedHospital;
-      final String stockistId = _selectedStockist.isEmpty ? '' : _selectedStockist;
+      final String hospitalId = _selectedHospitalId.isEmpty ? '' : _selectedHospitalId;
+      final String stockistId = _selectedStockistId.isEmpty ? '' : _selectedStockistId;
       final String startDate = _fromDate != null ? _formatDateForApi(_fromDate!) : '';
       final String endDate = _toDate != null ? _formatDateForApi(_toDate!) : '';
 
@@ -212,7 +263,6 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
           setState(() {
             // Add documents first
             _allDocuments.addAll(documents);
-            _extractStockistAndHospitalLists();
             
             // Then update pagination from API response
             final pagination = data['pagination'] as Map<String, dynamic>?;
@@ -276,27 +326,6 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
 
   String _formatDateForApi(DateTime date) {
     return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-  }
-
-  void _extractStockistAndHospitalLists() {
-    Set<String> stockists = {};
-    Set<String> hospitals = {};
-
-    for (var doc in _allDocuments) {
-      if (doc['stockist_name'] != null &&
-          doc['stockist_name'].toString().isNotEmpty) {
-        stockists.add(doc['stockist_name'].toString());
-      }
-      if (doc['hospital_name'] != null &&
-          doc['hospital_name'].toString().isNotEmpty) {
-        hospitals.add(doc['hospital_name'].toString());
-      }
-    }
-
-    _stockistList = stockists.toList()..sort();
-    print('Stockists: ${_stockistList}');
-    _hospitalList = hospitals.toList()..sort();
-    print('Hospitals: ${_hospitalList}');
   }
 
   List<Map<String, dynamic>> get _filteredDocuments {
@@ -372,36 +401,20 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      // appBar: AppBar(
-      //   // title: const Text('All Documents'),
-      //   backgroundColor: Colors.white,
-      //   foregroundColor: const Color(0xFF2C3E50),
-      //   elevation: 0,
-      //   centerTitle: true,
-      //   actions: [
-      //     if (_hasApiError || _errorMessage != null || _allDocuments.isEmpty)
-      //       IconButton(
-      //         onPressed: _loadAllDocuments,
-      //         icon: const Icon(Icons.refresh),
-      //         tooltip: 'Refresh',
-      //       ),
-      //   ],
-      // ),
-      body:
-          _isLoading
-              ? const Center(
-                child: CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00A0A8)),
-                ),
-              )
-              : _errorMessage != null
-              ? _buildErrorWidget()
-              : Column(
-                children: [
-                  _buildSearchAndFilter(),
-                  Expanded(child: _buildDocumentsList()),
-                ],
+      body: _isLoading
+          ? const Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00A0A8)),
               ),
+            )
+          : _errorMessage != null
+          ? _buildErrorWidget()
+          : Column(
+              children: [
+                _buildSearchAndFilter(),
+                Expanded(child: _buildDocumentsList()),
+              ],
+            ),
     );
   }
 
@@ -442,8 +455,8 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
   }
 
   Widget _buildSearchAndFilter() {
-    final hasActiveFilters = _selectedStockist.isNotEmpty ||
-        _selectedHospital.isNotEmpty ||
+    final hasActiveFilters = _selectedStockistId.isNotEmpty ||
+        _selectedHospitalId.isNotEmpty ||
         _selectedFilter != 'All' ||
         _fromDate != null ||
         _toDate != null;
@@ -554,8 +567,10 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
                 IconButton(
                   onPressed: () {
                     setState(() {
-                      _selectedStockist = '';
-                      _selectedHospital = '';
+                      _selectedStockistId = '';
+                      _selectedHospitalId = '';
+                      _selectedStockistName = '';
+                      _selectedHospitalName = '';
                       _selectedFilter = 'All';
                       _searchQuery = '';
                       _fromDate = null;
@@ -579,13 +594,14 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
               spacing: 8,
               runSpacing: 8,
               children: [
-                if (_selectedStockist.isNotEmpty)
+                if (_selectedStockistId.isNotEmpty)
                   Chip(
-                    label: Text('Stockist: $_selectedStockist'),
+                    label: Text('Stockist: $_selectedStockistName'),
                     deleteIcon: const Icon(Icons.close, size: 18),
                     onDeleted: () {
                       setState(() {
-                        _selectedStockist = '';
+                        _selectedStockistId = '';
+                        _selectedStockistName = '';
                       });
                     },
                     backgroundColor: const Color(0xFF00A0A8).withOpacity(0.1),
@@ -594,13 +610,14 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
                       fontWeight: FontWeight.w500,
                     ),
                   ),
-                if (_selectedHospital.isNotEmpty)
+                if (_selectedHospitalId.isNotEmpty)
                   Chip(
-                    label: Text('Hospital: $_selectedHospital'),
+                    label: Text('Hospital: $_selectedHospitalName'),
                     deleteIcon: const Icon(Icons.close, size: 18),
                     onDeleted: () {
                       setState(() {
-                        _selectedHospital = '';
+                        _selectedHospitalId = '';
+                        _selectedHospitalName = '';
                       });
                     },
                     backgroundColor: const Color(0xFF00A0A8).withOpacity(0.1),
@@ -664,8 +681,10 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
 
   void _showFilterBottomSheet() {
     // Temporary state variables for the bottom sheet
-    String tempStockist = _selectedStockist;
-    String tempHospital = _selectedHospital;
+    String tempStockistId = _selectedStockistId;
+    String tempHospitalId = _selectedHospitalId;
+    String tempStockistName = _selectedStockistName;
+    String tempHospitalName = _selectedHospitalName;
     String tempFilter = _selectedFilter;
     DateTime? tempFromDate = _fromDate;
     DateTime? tempToDate = _toDate;
@@ -874,7 +893,7 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
                     ),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
-                      value: tempStockist.isEmpty ? null : tempStockist,
+                      value: tempStockistId.isEmpty ? null : tempStockistId,
                       decoration: InputDecoration(
                         hintText: 'Select Stockist',
                         prefixIcon: const Icon(Icons.store),
@@ -897,18 +916,27 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
                         fillColor: Colors.grey.shade50,
                       ),
                       isExpanded: true,
-                      items: _stockistList.map((String stockist) {
+                      items: _stockistList.map((Map<String, dynamic> stockist) {
                         return DropdownMenuItem<String>(
-                          value: stockist,
+                          value: stockist['id']?.toString() ?? '',
                           child: Text(
-                            stockist,
+                            stockist['name'] ?? 'Unknown Stockist',
                             overflow: TextOverflow.ellipsis,
                           ),
                         );
                       }).toList(),
                       onChanged: (String? value) {
                         setModalState(() {
-                          tempStockist = value ?? '';
+                          tempStockistId = value ?? '';
+                          if (value != null && value.isNotEmpty) {
+                            final selectedStockist = _stockistList.firstWhere(
+                              (s) => s['id']?.toString() == value,
+                              orElse: () => {'name': 'Unknown Stockist'},
+                            );
+                            tempStockistName = selectedStockist['name'] ?? 'Unknown Stockist';
+                          } else {
+                            tempStockistName = '';
+                          }
                         });
                       },
                     ),
@@ -926,7 +954,7 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
                     ),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
-                      value: tempHospital.isEmpty ? null : tempHospital,
+                      value: tempHospitalId.isEmpty ? null : tempHospitalId,
                       decoration: InputDecoration(
                         hintText: 'Select Hospital',
                         prefixIcon: const Icon(Icons.local_hospital),
@@ -949,18 +977,27 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
                         fillColor: Colors.grey.shade50,
                       ),
                       isExpanded: true,
-                      items: _hospitalList.map((String hospital) {
+                      items: _hospitalList.map((Map<String, dynamic> hospital) {
                         return DropdownMenuItem<String>(
-                          value: hospital,
+                          value: hospital['id']?.toString() ?? '',
                           child: Text(
-                            hospital,
+                            hospital['name'] ?? 'Unknown Hospital',
                             overflow: TextOverflow.ellipsis,
                           ),
                         );
                       }).toList(),
                       onChanged: (String? value) {
                         setModalState(() {
-                          tempHospital = value ?? '';
+                          tempHospitalId = value ?? '';
+                          if (value != null && value.isNotEmpty) {
+                            final selectedHospital = _hospitalList.firstWhere(
+                              (h) => h['id']?.toString() == value,
+                              orElse: () => {'name': 'Unknown Hospital'},
+                            );
+                            tempHospitalName = selectedHospital['name'] ?? 'Unknown Hospital';
+                          } else {
+                            tempHospitalName = '';
+                          }
                         });
                       },
                     ),
@@ -1008,8 +1045,10 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
                       child: ElevatedButton(
                         onPressed: () {
                           setState(() {
-                            _selectedStockist = tempStockist;
-                            _selectedHospital = tempHospital;
+                            _selectedStockistId = tempStockistId;
+                            _selectedHospitalId = tempHospitalId;
+                            _selectedStockistName = tempStockistName;
+                            _selectedHospitalName = tempHospitalName;
                             _selectedFilter = tempFilter;
                             _fromDate = tempFromDate;
                             _toDate = tempToDate;
@@ -1044,8 +1083,6 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
     );
   }
 
-
-
   Widget _buildDocumentsList() {
     final filteredDocs = _filteredDocuments;
 
@@ -1063,8 +1100,8 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
             Text(
               _searchQuery.isNotEmpty ||
                       _selectedFilter != 'All' ||
-                      _selectedStockist.isNotEmpty ||
-                      _selectedHospital.isNotEmpty ||
+                      _selectedStockistId.isNotEmpty ||
+                      _selectedHospitalId.isNotEmpty ||
                       _fromDate != null ||
                       _toDate != null
                   ? 'No documents found'
@@ -1079,8 +1116,8 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
             Text(
               _searchQuery.isNotEmpty ||
                       _selectedFilter != 'All' ||
-                      _selectedStockist.isNotEmpty ||
-                      _selectedHospital.isNotEmpty ||
+                      _selectedStockistId.isNotEmpty ||
+                      _selectedHospitalId.isNotEmpty ||
                       _fromDate != null ||
                       _toDate != null
                   ? 'Try adjusting your search or filter'
@@ -1370,5 +1407,4 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
       );
     }
   }
-
 }
