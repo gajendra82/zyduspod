@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zyduspod/config.dart';
 import 'package:zyduspod/screens/main_navigation.dart';
+import 'package:zyduspod/services/firebase_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -92,12 +93,16 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     setState(() => _isLoading = true);
     
     try {
+      // Get FCM token for notifications
+      final fcmToken = FirebaseService().fcmToken;
+      
       final response = await http.post(
         Uri.parse(API_LOGIN_URL),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'email': _emailController.text.trim(),
           'password': _passwordController.text,
+          'fcm_token': fcmToken, // Include FCM token in login request
         }),
       );
 
