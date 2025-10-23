@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:zyduspod/services/auth_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:zyduspod/widgets/modern_ui_components.dart';
+import 'package:zyduspod/widgets/notification_handler.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:zyduspod/config.dart';
@@ -369,6 +370,21 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
             Icons.lock_reset_rounded,
             const Color(0xFF00A0A8),
             () => _showChangePasswordDialog(context),
+          ),
+          _buildModernDivider(),
+          // Notification Settings Button
+          _buildModernActionButton(
+            context,
+            'Notification Settings',
+            'Manage app notifications and updates',
+            Icons.notifications_rounded,
+            const Color(0xFF9C27B0),
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const NotificationSettings(),
+              ),
+            ),
           ),
           _buildModernDivider(),
           // Contact Support Button

@@ -3,8 +3,15 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:zyduspod/screens/splash_screen.dart';
 import 'package:zyduspod/widgets/connectivity_wrapper.dart';
+import 'package:zyduspod/widgets/notification_handler.dart';
+import 'package:zyduspod/services/firebase_service.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize Firebase services
+  await FirebaseService().initialize();
+  
   runApp(const MyApp());
 }
 
@@ -79,8 +86,10 @@ class MyApp extends StatelessWidget {
         useMaterial3: true,
         fontFamily: 'SF Pro Display',
       ),
-      home: const ConnectivityWrapper(
-        child: SplashScreen(),
+      home: const NotificationHandler(
+        child: ConnectivityWrapper(
+          child: SplashScreen(),
+        ),
       ),
     );
   }
