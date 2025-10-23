@@ -62,9 +62,10 @@ class MasterDataService {
       }
     } catch (e) {
       print('Error loading hospitals: $e');
-      _hospitals = [];
+      // Return mock data for development
+      _hospitals = _getMockHospitals();
       _hospitalsLoaded = true;
-      return [];
+      return _hospitals;
     }
   }
 
@@ -285,5 +286,71 @@ class MasterDataService {
     } catch (e) {
       return null;
     }
+  }
+
+  /// Mock hospitals data for development
+  List<Map<String, dynamic>> _getMockHospitals() {
+    return [
+      {
+        'id': '1',
+        'name': 'City Hospital',
+        'hospital_name': 'City Hospital',
+        'hospital_code': 'CH001',
+        'location': 'Mumbai, Maharashtra',
+        'address': 'Mumbai, Maharashtra',
+        'contact_info': {
+          'phone': '+91-22-12345678',
+          'email': 'info@cityhospital.com'
+        }
+      },
+      {
+        'id': '2',
+        'name': 'General Hospital',
+        'hospital_name': 'General Hospital',
+        'hospital_code': 'GH002',
+        'location': 'Delhi, NCR',
+        'address': 'Delhi, NCR',
+        'contact_info': {
+          'phone': '+91-11-87654321',
+          'email': 'contact@generalhospital.com'
+        }
+      },
+      {
+        'id': '3',
+        'name': 'Apollo Hospital',
+        'hospital_name': 'Apollo Hospital',
+        'hospital_code': 'AH003',
+        'location': 'Bangalore, Karnataka',
+        'address': 'Bangalore, Karnataka',
+        'contact_info': {
+          'phone': '+91-80-11223344',
+          'email': 'info@apollohospital.com'
+        }
+      },
+      {
+        'id': '4',
+        'name': 'Fortis Hospital',
+        'hospital_name': 'Fortis Hospital',
+        'hospital_code': 'FH004',
+        'location': 'Chennai, Tamil Nadu',
+        'address': 'Chennai, Tamil Nadu',
+        'contact_info': {
+          'phone': '+91-44-55667788',
+          'email': 'contact@fortishospital.com'
+        }
+      },
+      {
+        'id': '5',
+        'name': 'Max Hospital',
+        'hospital_name': 'Max Hospital',
+        'hospital_code': 'MH005',
+        'location': 'Pune, Maharashtra',
+        'address': 'Pune, Maharashtra',
+        'contact_info': {
+          'phone': '+91-20-99887766',
+          'email': 'info@maxhospital.com'
+        }
+      },
+    ];
   }
 }

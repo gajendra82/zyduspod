@@ -409,7 +409,6 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   bool _isSearchingHospitals = false;
 
   final ImagePicker _imagePicker = ImagePicker();
-  static const int maxDocuments = 25;
   final ScrollController _scrollController = ScrollController();
 
   @override
@@ -1028,19 +1027,8 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         _isProcessingImage = true;
         _updateBusyState();
       });
-      final remaining = maxDocuments - _capturedDocuments.length;
-      if (remaining <= 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Maximum $maxDocuments documents reached'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-        return;
-      }
       final imgs = await _imagePicker.pickMultiImage(
         imageQuality: 100,
-        limit: remaining,
       );
       if (imgs.isNotEmpty) {
         for (int i = 0; i < imgs.length; i++) {
@@ -1078,16 +1066,6 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         _isProcessingImage = true;
         _updateBusyState();
       });
-      final remaining = maxDocuments - _capturedDocuments.length;
-      if (remaining <= 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Maximum documents reached'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-        return;
-      }
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf'],
@@ -1095,7 +1073,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       );
       if (result != null && result.files.isNotEmpty) {
         int added = 0;
-        for (final f in result.files.take(remaining)) {
+        for (final f in result.files) {
           if (f.path == null) continue;
           await _processAndAddDocument(File(f.path!), isFromScanner: true);
           added++;
@@ -1923,7 +1901,6 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
     showDialog(
       context: context,
       builder: (_) {
-        final remaining = maxDocuments - _capturedDocuments.length;
         return AlertDialog(
           title: const Text('Select Document Source'),
           content: Column(
@@ -1940,36 +1917,20 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
               ListTile(
                 leading: const Icon(Icons.photo_library),
                 title: const Text('Gallery (Images)'),
-                subtitle: Text(
-                  remaining > 0
-                      ? 'Select up to $remaining images'
-                      : 'Limit reached',
-                ),
-                enabled: remaining > 0,
-                onTap:
-                    remaining > 0
-                        ? () {
-                          Navigator.pop(context);
-                          _pickImagesFromGallery();
-                        }
-                        : null,
+                subtitle: const Text('Select images from gallery'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _pickImagesFromGallery();
+                },
               ),
               ListTile(
                 leading: const Icon(Icons.picture_as_pdf),
                 title: const Text('Pick PDF File(s)'),
-                subtitle: Text(
-                  remaining > 0
-                      ? 'Select up to $remaining PDFs'
-                      : 'Limit reached',
-                ),
-                enabled: remaining > 0,
-                onTap:
-                    remaining > 0
-                        ? () {
-                          Navigator.pop(context);
-                          _pickPdfsFromFiles();
-                        }
-                        : null,
+                subtitle: const Text('Select PDF files'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _pickPdfsFromFiles();
+                },
               ),
             ],
           ),
@@ -2016,16 +1977,10 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 6),
                 child: Chip(
-                  label: Text('$validDocCount/$maxDocuments'),
-                  backgroundColor:
-                      _capturedDocuments.length >= maxDocuments
-                          ? Colors.orange.shade100
-                          : Colors.green.shade100,
+                  label: Text('$validDocCount documents'),
+                  backgroundColor: Colors.green.shade100,
                   labelStyle: TextStyle(
-                    color:
-                        _capturedDocuments.length >= maxDocuments
-                            ? Colors.orange.shade800
-                            : Colors.green.shade800,
+                    color: Colors.green.shade800,
                     fontWeight: FontWeight.bold,
                   ),
                 ),

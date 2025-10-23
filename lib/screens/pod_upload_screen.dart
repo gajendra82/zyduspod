@@ -144,7 +144,6 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
 
   final ImagePicker _imagePicker = ImagePicker();
   final ScrollController _scrollController = ScrollController();
-  final int maxDocuments = 25;
 
   @override
   void initState() {
@@ -468,17 +467,6 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
     });
     
     try {
-      final remaining = maxDocuments - _capturedDocuments.length;
-      if (remaining <= 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Maximum $maxDocuments documents reached'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-        return;
-      }
-
       final scanned = await FlutterDocScanner().getScanDocuments(page: 1);
       List<String> result = [];
       if (scanned != null && scanned is Map) {
@@ -531,20 +519,8 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
     });
     
     try {
-      final remaining = maxDocuments - _capturedDocuments.length;
-      if (remaining <= 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Maximum $maxDocuments documents reached'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-        return;
-      }
-      
       final imgs = await _imagePicker.pickMultiImage(
         imageQuality: 100,
-        limit: remaining,
       );
       for (int i = 0; i < imgs.length; i++) {
         await _processAndAddDocument(
@@ -586,17 +562,6 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
     });
     
     try {
-      final remaining = maxDocuments - _capturedDocuments.length;
-      if (remaining <= 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Maximum documents reached'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-        return;
-      }
-      
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf'],
@@ -605,7 +570,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
       
       if (result != null && result.files.isNotEmpty) {
         int added = 0;
-        for (final f in result.files.take(remaining)) {
+        for (final f in result.files) {
           if (f.path == null) continue;
           await _processAndAddDocument(File(f.path!), isFromScanner: true);
           added++;
@@ -1360,15 +1325,6 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                             padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Maximum $maxDocuments documents allowed',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade600,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
                       ],
                     ),
                   ),
@@ -1396,7 +1352,6 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                                 _buildStatItem('Valid', validDocCount, Colors.green),
                                 // COMMENTED OUT: QR processed stat removed
                                 // _buildStatItem('QR Processed', docsWithQR, Colors.orange),
-                                _buildStatItem('Remaining', maxDocuments - _capturedDocuments.length, Colors.grey),
                               ],
                             ),
                           ),

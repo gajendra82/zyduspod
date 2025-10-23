@@ -105,6 +105,7 @@ class SalesBloc extends Bloc<SalesEvent, SalesState> {
       final hospitalSummaries = await _service.getHospitalSalesSummaries(
         dateFrom: event.dateFrom,
         dateTo: event.dateTo,
+        hospitalId: event.hospitalId,
       );
 
       if (state is SalesLoaded) {

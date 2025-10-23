@@ -36,17 +36,17 @@ class PodDetailsService {
         headers: {'Content-Type': 'application/json'},
       );
       print('Response: ${response.body}');
-      if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+      if (response.statusCode == 200) {
         print('QR Extraction: $data');
         return data;
       } else {
         print('Error response: ${response.statusCode} - ${response.body}');
-        throw Exception('Failed to process QR extraction: ${response.statusCode}');
+        throw Exception('${data['message']}');
       }
     } catch (e) {
       print('Error: $e');
-      throw Exception('Error processing QR extraction: $e');
+      throw Exception('${e.toString()}');
     }
   }
-}
+} 

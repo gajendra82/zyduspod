@@ -835,7 +835,7 @@ class _EInvoiceDataScreenState extends State<EInvoiceDataScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error while auto-fetching QR from POD: $e'),
+            content: Text('${e.toString()}'),
             backgroundColor: Colors.red,
           ),
         );

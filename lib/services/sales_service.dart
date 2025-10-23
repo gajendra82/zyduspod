@@ -53,8 +53,12 @@ class SalesService {
   Future<List<HospitalSalesSummary>> getHospitalSalesSummaries({
     String? dateFrom,
     String? dateTo,
+    String? hospitalId,
   }) async {
     try {
+      // Return mock data for development
+      return _getMockHospitalSummaries();
+      
       final queryParams = <String, String>{};
       // Ensure dateFrom and dateTo are formatted as 'YYYY-MM-DD' (Y-m-d)
       print('dateFrom: $dateFrom');
@@ -65,6 +69,9 @@ class SalesService {
       }
       if (dateTo != null && dateTo.isNotEmpty) {
         queryParams['date_to'] = _formatToYMD(dateTo)!;
+      }
+      if (hospitalId != null && hospitalId.isNotEmpty) {
+        queryParams['hospital_id'] = hospitalId;
       }
       print('queryParams: $queryParams');
       final uri = Uri.parse(
@@ -235,29 +242,72 @@ class SalesService {
   }
 
   List<HospitalSalesSummary> _getMockHospitalSummaries() {
-    // return [
-    //   HospitalSalesSummary(
-    //     hospitalId: '1',
-    //     hospitalName: 'City Hospital',
-    //     totalTransactions: 45,
-    //     totalAmount: 125000.0,
-    //     averageTransactionValue: 2777.78,
-    //     topProduct: 'Medicine A',
-    //     lastTransactionDate: '2024-01-15',
-    //     recentTransactions: _getMockSalesData().take(2).toList(),
-    //   ),
-    //   HospitalSalesSummary(
-    //     hospitalId: '2',
-    //     hospitalName: 'General Hospital',
-    //     totalTransactions: 32,
-    //     totalAmount: 89000.0,
-    //     averageTransactionValue: 2781.25,
-    //     topProduct: 'Medicine B',
-    //     lastTransactionDate: '2024-01-14',
-    //     recentTransactions: _getMockSalesData().skip(1).take(2).toList(),
-    //   ),
-    // ];
-    return [];
+    return [
+      HospitalSalesSummary(
+        hospitalId: '1',
+        hospitalName: 'City Hospital',
+        hospitalCode: 'CH001',
+        location: 'Mumbai, Maharashtra',
+        totalTransactions: 45,
+        totalAmount: 125000.0,
+        averageTransactionValue: 2777.78,
+        topProduct: 'Medicine A',
+        lastTransactionDate: '2024-01-15',
+        recentTransactions: _getMockSalesData().take(2).toList(),
+        performanceScore: 85,
+        performanceGrade: 'A',
+        growthRate: 12.5,
+        isHighPerformer: true,
+      ),
+      HospitalSalesSummary(
+        hospitalId: '2',
+        hospitalName: 'General Hospital',
+        hospitalCode: 'GH002',
+        location: 'Delhi, NCR',
+        totalTransactions: 32,
+        totalAmount: 89000.0,
+        averageTransactionValue: 2781.25,
+        topProduct: 'Medicine B',
+        lastTransactionDate: '2024-01-14',
+        recentTransactions: _getMockSalesData().skip(1).take(2).toList(),
+        performanceScore: 72,
+        performanceGrade: 'B',
+        growthRate: 8.3,
+        isHighPerformer: false,
+      ),
+      HospitalSalesSummary(
+        hospitalId: '3',
+        hospitalName: 'Apollo Hospital',
+        hospitalCode: 'AH003',
+        location: 'Bangalore, Karnataka',
+        totalTransactions: 67,
+        totalAmount: 185000.0,
+        averageTransactionValue: 2761.19,
+        topProduct: 'Medicine C',
+        lastTransactionDate: '2024-01-16',
+        recentTransactions: _getMockSalesData().take(3).toList(),
+        performanceScore: 92,
+        performanceGrade: 'A+',
+        growthRate: 15.7,
+        isHighPerformer: true,
+      ),
+      HospitalSalesSummary(
+        hospitalId: '4',
+        hospitalName: 'Fortis Hospital',
+        hospitalCode: 'FH004',
+        location: 'Chennai, Tamil Nadu',
+        totalTransactions: 28,
+        totalAmount: 75000.0,
+        averageTransactionValue: 2678.57,
+        topProduct: 'Medicine D',
+        lastTransactionDate: '2024-01-13',
+        recentTransactions: _getMockSalesData().skip(2).take(2).toList(),
+        performanceScore: 68,
+        performanceGrade: 'B-',
+        growthRate: 5.2,
+        isHighPerformer: false,
+      ),
+    ];
   }
 
   List<StockistSalesSummary> _getMockStockistSummaries() {

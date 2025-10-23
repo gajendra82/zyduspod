@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "977771411365",
+    "project_id": "zyduspod",
+    "storage_bucket": "zyduspod.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:977771411365:android:1d83c33b4b826d7e9c5a4c",
+        "android_client_info": {
+          "package_name": "com.globalspace.zyduspod"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCg2QTei2oCkOm8m_jUwLn1ZDcB5XM5FLg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

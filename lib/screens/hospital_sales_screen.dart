@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'dart:async';
 import 'package:zyduspod/Bloc/sales_bloc.dart';
 import 'package:zyduspod/Bloc/sales_event.dart';
 import 'package:zyduspod/Bloc/sales_state.dart';
@@ -17,12 +18,18 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
   final List<String> _filterOptions = ['All', 'High Volume', 'Low Volume', 'Recent'];
   DateTime? _dateFrom;
   DateTime? _dateTo;
+  
 
   @override
   void initState() {
     super.initState();
     _initializeDefaultDates();
     _loadDataWithDefaultDates();
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
   }
 
   void _initializeDefaultDates() {
@@ -53,16 +60,17 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
     }
   }
 
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
-      // appBar: AppBar(
-      //   backgroundColor: Colors.white,
-      //   foregroundColor: const Color(0xFF2C3E50),
-      //   elevation: 0,
-      // ),
-      body: BlocBuilder<SalesBloc, SalesState>(
+        backgroundColor: Colors.grey.shade50,
+        // appBar: AppBar(
+        //   backgroundColor: Colors.white,
+        //   foregroundColor: const Color(0xFF2C3E50),
+        //   elevation: 0,
+        // ),
+        body: BlocBuilder<SalesBloc, SalesState>(
         builder: (context, state) {
           if (state is SalesLoading) {
             return const Center(
@@ -144,12 +152,14 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
   Widget _buildLoadedWidget(BuildContext context, SalesLoaded state) {
     final filteredSummaries = _filterHospitalSummaries(state.hospitalSummaries);
     
-    return Column(
-      children: [ 
-        const SizedBox(height: 8),
-        _buildMonthPeriodIndicator(),
-        Expanded(
-          child: filteredSummaries.isEmpty
+    return SingleChildScrollView(
+      child: Column(
+        children: [ 
+          const SizedBox(height: 8),
+          _buildMonthPeriodIndicator(),
+          SizedBox(
+            height: MediaQuery.of(context).size.height * 0.6, // Fixed height for the list
+            child: filteredSummaries.isEmpty
             ? RefreshIndicator(
                 onRefresh: () async {
                   // Refresh with current date filters
@@ -224,10 +234,12 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
                   },
                 ),
               ),
-        ),
-      ],
+          ),
+        ],
+      ),
     );
   }
+
 
   Widget _buildFilterChipsForBottomSheet(StateSetter setModalState) {
     return Wrap(
@@ -320,32 +332,36 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
               ],
             ),
           ),
-          Stack(
+          Row(
             children: [
-              IconButton(
-                onPressed: () {
-                  _showFilterBottomSheet(context);
-                },
-                icon: const Icon(
-                  Icons.filter_list,
-                  color: Color(0xFF00A0A8),
-                  size: 20,
-                ),
-                tooltip: 'Filter & Date Range',
-              ),
-              if (_selectedFilter != 'All')
-                Positioned(
-                  right: 6,
-                  top: 6,
-                  child: Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(
+              Stack(
+                children: [
+                  IconButton(
+                    onPressed: () {
+                      _showFilterBottomSheet(context);
+                    },
+                    icon: const Icon(
+                      Icons.filter_list,
                       color: Color(0xFF00A0A8),
-                      shape: BoxShape.circle,
+                      size: 20,
                     ),
+                    tooltip: 'Filter & Date Range',
                   ),
-                ),
+                  if (_selectedFilter != 'All')
+                    Positioned(
+                      right: 6,
+                      top: 6,
+                      child: Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF00A0A8),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ],
           ),
           IconButton(
@@ -763,7 +779,6 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
   Widget _buildHospitalCard(BuildContext context, HospitalSalesSummary summary) {
     // Calculate performance metrics
     final performanceScore = _calculatePerformanceScore(summary);
-    final growthRate = _calculateGrowthRate(summary);
     final isHighPerformer = performanceScore >= 80;
     
     return Container(
@@ -1207,16 +1222,6 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
     return score.clamp(0, 100);
   }
 
-  double _calculateGrowthRate(HospitalSalesSummary summary) {
-    // Use API growth rate if available, otherwise calculate locally
-    if (summary.growthRate != null) {
-      return summary.growthRate!;
-    }
-    
-    // Fallback calculation - in real app, this would compare with previous period
-    final random = DateTime.now().millisecondsSinceEpoch % 100;
-    return (random - 50) * 0.5; // Returns growth rate between -25% and +25%
-  }
 
   Widget _buildPodVsSalesComparison(HospitalSalesSummary summary) {
     // Use API POD vs Sales data if available, otherwise calculate locally
@@ -1721,91 +1726,25 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
     );
   }
 
-  Widget _buildTransactionItem(SalesData transaction) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: _getStatusColor(transaction.status).withOpacity(0.1),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Icon(
-              _getTypeIcon(transaction.documentType),
-              color: _getStatusColor(transaction.status),
-              size: 16,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  transaction.productName,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                Text(
-                  '${transaction.quantity} units × ₹${transaction.unitPrice}',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                '₹${_formatAmount(transaction.totalAmount)}',
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF00A0A8),
-                ),
-              ),
-              Text(
-                transaction.date,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey.shade500,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
 
   List<HospitalSalesSummary> _filterHospitalSummaries(List<HospitalSalesSummary> summaries) {
+    List<HospitalSalesSummary> filteredSummaries = summaries;
+    
+    // Apply volume filter
     switch (_selectedFilter) {
       case 'High Volume':
-        return summaries.where((s) => s.totalAmount > 100000).toList();
+        return filteredSummaries.where((s) => s.totalAmount > 100000).toList();
       case 'Low Volume':
-        return summaries.where((s) => s.totalAmount <= 100000).toList();
+        return filteredSummaries.where((s) => s.totalAmount <= 100000).toList();
       case 'Recent':
-        return summaries.where((s) {
+        return filteredSummaries.where((s) {
           final lastDate = DateTime.tryParse(s.lastTransactionDate);
           if (lastDate == null) return false;
           final daysSince = DateTime.now().difference(lastDate).inDays;
           return daysSince <= 7;
         }).toList();
       default:
-        return summaries;
+        return filteredSummaries;
     }
   }
 
@@ -1840,31 +1779,4 @@ class _HospitalSalesScreenState extends State<HospitalSalesScreen> {
     }
   }
 
-  Color _getStatusColor(String status) {
-    switch (status.toLowerCase()) {
-      case 'completed':
-        return Colors.green;
-      case 'pending':
-        return Colors.orange;
-      case 'processing':
-        return Colors.blue;
-      case 'rejected':
-        return Colors.red;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  IconData _getTypeIcon(String type) {
-    switch (type.toUpperCase()) {
-      case 'POD':
-        return Icons.receipt_long;
-      case 'GRN':
-        return Icons.inventory;
-      case 'E-INVOICE':
-        return Icons.qr_code;
-      default:
-        return Icons.description;
-    }
-  }
 }
