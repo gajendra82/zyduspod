@@ -5,6 +5,7 @@ import 'package:zyduspod/services/auth_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:zyduspod/widgets/modern_ui_components.dart';
 import 'package:zyduspod/widgets/notification_handler.dart';
+import 'package:zyduspod/screens/notifications_screen.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:zyduspod/config.dart';
@@ -107,6 +108,18 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
         icon: Icons.person_rounded,
         color: const Color(0xFF00A0A8),
         actions: [
+          IconButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const NotificationsScreen(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.notifications_rounded),
+            tooltip: 'Notifications',
+          ),
           IconButton(
             onPressed: () => _showChangePasswordDialog(context),
             icon: const Icon(Icons.lock_rounded),
@@ -370,6 +383,21 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
             Icons.lock_reset_rounded,
             const Color(0xFF00A0A8),
             () => _showChangePasswordDialog(context),
+          ),
+          _buildModernDivider(),
+          // All Notifications Button
+          _buildModernActionButton(
+            context,
+            'All Notifications',
+            'See all your notifications',
+            Icons.notifications_rounded,
+            const Color(0xFF1E88E5),
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const NotificationsScreen(),
+              ),
+            ),
           ),
           _buildModernDivider(),
           // Notification Settings Button

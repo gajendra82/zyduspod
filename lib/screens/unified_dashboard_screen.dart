@@ -10,6 +10,7 @@ import 'package:zyduspod/DocumentUploadScreen.dart';
 import 'package:zyduspod/screens/hospital_sales_screen.dart';
 import 'package:zyduspod/screens/documents_list_screen.dart';
 import 'package:zyduspod/screens/modern_document_upload_screen.dart';
+import 'package:zyduspod/screens/notifications_screen.dart';
 import 'package:zyduspod/services/hospital_dashboard_service.dart';
 import 'package:zyduspod/services/sales_service.dart';
 
@@ -64,11 +65,17 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
           elevation: 0,
           centerTitle: true,
           actions: [
-            // IconButton(
-            //   tooltip: 'Upload documents',
-            //   onPressed: () => _openUploader(context),
-            //   icon: const Icon(Icons.cloud_upload),
-            // ),
+            IconButton(
+              tooltip: 'Notifications',
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const NotificationsScreen(),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.notifications_rounded),
+            ),
           ],
           bottom: TabBar(
             controller: _tabController,

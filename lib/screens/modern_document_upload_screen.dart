@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:zyduspod/DocumentUploadScreen.dart';
+import 'package:zyduspod/screens/notifications_screen.dart';
 import 'package:zyduspod/screens/pod_upload_screen.dart';
 import 'package:zyduspod/screens/e_invoice_data_screen.dart';
+import 'package:zyduspod/screens/batches_list_screen.dart';
 import 'package:zyduspod/widgets/modern_ui_components.dart';
 
 class ModernDocumentUploadScreen extends StatefulWidget {
@@ -93,10 +95,17 @@ class _ModernDocumentUploadScreenState extends State<ModernDocumentUploadScreen>
           child: IconButton(
             onPressed: () {
               // Add notification or settings functionality
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => NotificationsScreen(),
+                ),
+              );
             },
-            icon: Stack(
+            icon: 
+            Stack(
               children: [
-                const Icon(Icons.notifications_outlined),
+                const Icon(Icons.notifications),
                 Positioned(
                   right: 0,
                   top: 0,
@@ -161,6 +170,21 @@ class _PODUploadPageState extends State<PODUploadPage> {
                 context,
                 MaterialPageRoute(
                   builder: (context) => const PODUploadScreen(),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 16),
+          ModernUIComponents.buildUploadCard(
+            title: 'View Uploaded Batches',
+            subtitle: 'See all your uploaded batch records',
+            icon: Icons.list_alt,
+            color: const Color(0xFF1E88E5),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const BatchesListScreen(),
                 ),
               );
             },
