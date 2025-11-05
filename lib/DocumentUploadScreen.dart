@@ -618,25 +618,26 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   Future<List<_SelectItem>> _searchStockists(String query) async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('authToken');
-    
+
     // Always hit the API, even for empty search to get default list
     final searchParam = query.trim().isEmpty ? '' : '?search=${query.trim()}';
     final uri = Uri.parse('$API_STOCKISTS_URL$searchParam');
-    
+
     final resp = await http.get(
       uri,
       headers: token != null ? {'Authorization': 'Bearer $token'} : null,
     );
-    
+
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       throw Exception('HTTP ${resp.statusCode}');
     }
-    
+
     final decoded = _safeDecode(resp.bodyBytes);
-    final rawList = decoded is Map && decoded['data'] is List
-        ? (decoded['data'] as List)
-        : (decoded is List ? decoded : <dynamic>[]);
-    
+    final rawList =
+        decoded is Map && decoded['data'] is List
+            ? (decoded['data'] as List)
+            : (decoded is List ? decoded : <dynamic>[]);
+
     return rawList
         .map((e) => _SelectItem.fromDynamic(e))
         .where((e) => e != null)
@@ -647,25 +648,26 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   Future<List<_SelectItem>> _searchHospitals(String query) async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('authToken');
-    
+
     // Always hit the API, even for empty search to get default list
     final searchParam = query.trim().isEmpty ? '' : '?search=${query.trim()}';
     final uri = Uri.parse('$API_HOSPITALS_URL$searchParam');
-    
+
     final resp = await http.get(
       uri,
       headers: token != null ? {'Authorization': 'Bearer $token'} : null,
     );
-    
+
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       throw Exception('HTTP ${resp.statusCode}');
     }
-    
+
     final decoded = _safeDecode(resp.bodyBytes);
-    final rawList = decoded is Map && decoded['data'] is List
-        ? (decoded['data'] as List)
-        : (decoded is List ? decoded : <dynamic>[]);
-    
+    final rawList =
+        decoded is Map && decoded['data'] is List
+            ? (decoded['data'] as List)
+            : (decoded is List ? decoded : <dynamic>[]);
+
     return rawList
         .map((e) => _SelectItem.fromDynamic(e))
         .where((e) => e != null)
@@ -1027,9 +1029,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         _isProcessingImage = true;
         _updateBusyState();
       });
-      final imgs = await _imagePicker.pickMultiImage(
-        imageQuality: 100,
-      );
+      final imgs = await _imagePicker.pickMultiImage(imageQuality: 100);
       if (imgs.isNotEmpty) {
         for (int i = 0; i < imgs.length; i++) {
           await _processAndAddDocument(
@@ -1449,7 +1449,6 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       return;
     }
 
-    // Add overall timeout for the entire upload process
     try {
       await _performUpload().timeout(
         const Duration(minutes: 10),
@@ -1518,7 +1517,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
 
     try {
       if (_isPodDoc()) {
-        // Show progress for QR processing
+        // POD — multi-file single request
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -1528,12 +1527,8 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
           );
         }
 
-        // for (int i = 0; i < validDocs.length; i++) {
-        //   if (!mounted) return;
-        //   await _ensureQrForDocument(validDocs[i], i);
-        // }
+        // (QR ensure loop commented by you – leaving as-is)
 
-        // Reset QR processing states but keep upload state active
         if (mounted) {
           setState(() {
             _isProcessingImage = false;
@@ -1542,7 +1537,6 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
           });
         }
 
-        // Show upload progress message
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -1555,17 +1549,34 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         final uri = Uri.parse(Multi_Api_POD_UPLOAD_URL);
         final req = http.MultipartRequest('POST', uri);
 
-        // Attach files
+        // Attach files (web: bytes, mobile/desktop: path)
         for (final d in validDocs) {
-          final filename = p.basename(d.file.path);
-          req.files.add(
-            await http.MultipartFile.fromPath(
-              'files[]',
-              d.file.path,
-              filename: filename,
-              contentType: _inferContentType(d.file),
-            ),
+          final filename = p.basename(
+            d.file.path ?? (d.displayName ?? 'upload.bin'),
           );
+
+          if (kIsWeb) {
+            // On web, read bytes from the picked object (XFile / Blob-backed)
+            // Ensure your d.file exposes readAsBytes(). Most pickers (image_picker/file_picker) support this.
+            final bytes = await d.file.readAsBytes();
+            req.files.add(
+              http.MultipartFile.fromBytes(
+                'files[]',
+                bytes,
+                filename: filename,
+                contentType: _inferContentType(d.file),
+              ),
+            );
+          } else {
+            req.files.add(
+              await http.MultipartFile.fromPath(
+                'files[]',
+                d.file.path,
+                filename: filename,
+                contentType: _inferContentType(d.file),
+              ),
+            );
+          }
         }
 
         // JSON array pairing each file (by filename) to its einvoice JSON string
@@ -1595,7 +1606,6 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
 
         if (token != null) req.headers['Authorization'] = 'Bearer $token';
 
-        // Show final upload progress
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -1619,8 +1629,10 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
               backgroundColor: Colors.green,
             ),
           );
-          // Clear uploaded docs
+
+          // Remove uploaded docs locally
           final uploadedPaths = validDocs.map((d) => d.file.path).toSet();
+
           setState(() {
             _capturedDocuments.removeWhere(
               (d) => uploadedPaths.contains(d.file.path),
@@ -1629,11 +1641,15 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
               _einvoiceData = null;
             }
           });
-          for (final pth in uploadedPaths) {
-            try {
-              final f = File(pth);
-              if (await f.exists()) await f.delete();
-            } catch (_) {}
+
+          // Delete only on non-web
+          if (!kIsWeb) {
+            for (final pth in uploadedPaths) {
+              try {
+                final f = File(pth);
+                if (await f.exists()) await f.delete();
+              } catch (_) {}
+            }
           }
         } else {
           debugPrint(
@@ -1649,16 +1665,24 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
           );
         }
       } else {
-        // E-INVOICE or other types: per-file uploads
+        // E-INVOICE or other types — per-file requests
         final successes = <int>[];
         final failures = <int>[];
-        print('Uploading ${validDocs.length} documents');
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Uploading documents to server...'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+
         for (int i = 0; i < validDocs.length; i++) {
           if (!mounted) return;
+
           final doc = validDocs[i];
-          print('Uploading document: ${doc.qrData}');
           if (_isEinvoiceDoc()) {
-            print('Ensuring QR for document: ${doc.qrData}');
             await _ensureQrForDocument(doc, i);
           }
 
@@ -1666,20 +1690,37 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
             (d) => d.file.path == doc.file.path,
             orElse: () => doc,
           );
+
           final perDocInvoice =
               _isEinvoiceDoc() ? _normalizeEinvoiceForDoc(currentDoc) : null;
 
           final uri = Uri.parse(API_DOC_UPLOAD_URL);
           final request = http.MultipartRequest('POST', uri);
 
-          request.files.add(
-            await http.MultipartFile.fromPath(
-              'file',
-              currentDoc.file.path,
-              filename: p.basename(currentDoc.file.path),
-              contentType: _inferContentType(currentDoc.file),
-            ),
+          final filename = p.basename(
+            currentDoc.file.path ?? (currentDoc.displayName ?? 'upload.bin'),
           );
+
+          if (kIsWeb) {
+            final bytes = await currentDoc.file.readAsBytes();
+            request.files.add(
+              http.MultipartFile.fromBytes(
+                'file',
+                bytes,
+                filename: filename,
+                contentType: _inferContentType(currentDoc.file),
+              ),
+            );
+          } else {
+            request.files.add(
+              await http.MultipartFile.fromPath(
+                'file',
+                currentDoc.file.path,
+                filename: filename,
+                contentType: _inferContentType(currentDoc.file),
+              ),
+            );
+          }
 
           request.fields['document_count'] = '1';
           request.fields['multi_page'] = 'false';
@@ -1709,18 +1750,9 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
             request.headers['Authorization'] = 'Bearer $token';
           }
 
-          // Show upload progress for each document
-          if (mounted && i == 0) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Sending documents to server...'),
-                duration: Duration(seconds: 1),
-              ),
-            );
-          }
-
           final streamed = await request.send();
           final resp = await http.Response.fromStream(streamed);
+
           if (resp.statusCode >= 200 && resp.statusCode < 300) {
             successes.add(i);
           } else {
@@ -1733,23 +1765,13 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
           }
         }
 
-        // Reset QR processing states but keep upload state active
+        // Reset QR processing states
         if (mounted) {
           setState(() {
             _isProcessingImage = false;
             _processingCount = 0;
             _updateBusyState();
           });
-        }
-
-        // Show upload progress message
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Uploading documents to server...'),
-              duration: Duration(seconds: 2),
-            ),
-          );
         }
 
         if (!mounted) return;
@@ -1776,6 +1798,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         if (successes.isNotEmpty) {
           final uploadedPaths =
               successes.map((i) => validDocs[i].file.path).toSet();
+
           setState(() {
             _capturedDocuments.removeWhere(
               (d) => uploadedPaths.contains(d.file.path),
@@ -1784,11 +1807,15 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
               _einvoiceData = null;
             }
           });
-          for (final pth in uploadedPaths) {
-            try {
-              final f = File(pth);
-              if (await f.exists()) await f.delete();
-            } catch (_) {}
+
+          // Delete only on non-web
+          if (!kIsWeb) {
+            for (final pth in uploadedPaths) {
+              try {
+                final f = File(pth);
+                if (await f.exists()) await f.delete();
+              } catch (_) {}
+            }
           }
         }
       }
@@ -2463,22 +2490,22 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       displayStringForOption: (o) => o.label,
       optionsBuilder: (TextEditingValue tv) async {
         final text = tv.text.trim();
-        
+
         // Cancel any existing timer
         if (label.contains('Stockist')) {
           _stockistSearchTimer?.cancel();
         } else if (label.contains('Hospital')) {
           _hospitalSearchTimer?.cancel();
         }
-        
+
         // If text is empty, return initial options
         if (text.isEmpty) {
           return initialOptions.take(50);
         }
-        
+
         // Create a completer for the debounced result
         final completer = Completer<Iterable<_SelectItem>>();
-        
+
         // Set up debounced timer
         final timer = Timer(const Duration(milliseconds: 500), () async {
           // Set loading state only when we actually start the API call
@@ -2491,7 +2518,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
               }
             });
           }
-          
+
           try {
             final searchResults = await searchFunction(text);
             if (mounted) {
@@ -2524,26 +2551,28 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
             completer.complete(fallbackResults);
           }
         });
-        
+
         // Store the timer
         if (label.contains('Stockist')) {
           _stockistSearchTimer = timer;
         } else if (label.contains('Hospital')) {
           _hospitalSearchTimer = timer;
         }
-        
+
         // Return initial filtered results immediately for better UX
-        final initialFiltered = initialOptions.where(
-          (o) =>
-              o.label.toLowerCase().contains(text.toLowerCase()) ||
-              o.id.toLowerCase().contains(text.toLowerCase()),
-        ).take(20);
-        
+        final initialFiltered = initialOptions
+            .where(
+              (o) =>
+                  o.label.toLowerCase().contains(text.toLowerCase()) ||
+                  o.id.toLowerCase().contains(text.toLowerCase()),
+            )
+            .take(20);
+
         // If we have good initial results, return them immediately
         if (initialFiltered.isNotEmpty) {
           return initialFiltered;
         }
-        
+
         // Otherwise, wait for the debounced search results
         return completer.future;
       },
@@ -2564,25 +2593,27 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
           onTapOutside: (_) => FocusScope.of(ctx).unfocus(),
           decoration: InputDecoration(
             labelText: label,
-            prefixIcon: isSearching 
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.search),
+            prefixIcon:
+                isSearching
+                    ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                    : const Icon(Icons.search),
             border: const OutlineInputBorder(),
             filled: true,
             fillColor: Colors.grey.shade50,
-            suffixIcon: controller.text.isEmpty
-                ? null
-                : IconButton(
-                    icon: const Icon(Icons.clear),
-                    onPressed: () {
-                      controller.clear();
-                      onClear();
-                    },
-                  ),
+            suffixIcon:
+                controller.text.isEmpty
+                    ? null
+                    : IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        controller.clear();
+                        onClear();
+                      },
+                    ),
           ),
         );
       },
@@ -2594,25 +2625,24 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
             borderRadius: BorderRadius.circular(8),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxHeight: 250),
-              child: isSearching
-                  ? const Padding(
-                      padding: EdgeInsets.all(16.0),
-                      child: Center(
-                        child: CircularProgressIndicator(),
+              child:
+                  isSearching
+                      ? const Padding(
+                        padding: EdgeInsets.all(16.0),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                      : ListView.builder(
+                        padding: EdgeInsets.zero,
+                        itemCount: iterable.length,
+                        itemBuilder: (_, i) {
+                          final opt = iterable.elementAt(i);
+                          return ListTile(
+                            dense: true,
+                            title: Text(opt.label),
+                            onTap: () => onSelectedOpt(opt),
+                          );
+                        },
                       ),
-                    )
-                  : ListView.builder(
-                      padding: EdgeInsets.zero,
-                      itemCount: iterable.length,
-                      itemBuilder: (_, i) {
-                        final opt = iterable.elementAt(i);
-                        return ListTile(
-                          dense: true,
-                          title: Text(opt.label),
-                          onTap: () => onSelectedOpt(opt),
-                        );
-                      },
-                    ),
             ),
           ),
         );

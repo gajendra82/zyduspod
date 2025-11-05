@@ -3,12 +3,12 @@
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+import 'dart:io' show File; // used only on mobile/desktop paths
 import 'dart:math' as math; // COMMENTED OUT: Used for QR processing
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_doc_scanner/flutter_doc_scanner.dart';
 import 'package:http/http.dart' as http;
@@ -17,34 +17,69 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 
 import 'package:zyduspod/config.dart';
 import 'package:zyduspod/GstInvoiceScanner.dart'; // COMMENTED OUT: Used for QR processing
 import 'package:zyduspod/Models/_SplitOut.dart';
 import 'package:zyduspod/services/PythonQRService.dart'; // COMMENTED OUT: Used for QR processing
 import 'package:zyduspod/widgets/EInvoiceQRExtractor.dart'; // COMMENTED OUT: Used for QR processing
-import 'package:zyduspod/widgets/PdfPreviewScreen.dart';
+import 'package:zyduspod/widgets/PdfPreviewScreen.dart'; // existing File-based preview
 import 'package:zyduspod/widgets/modern_ui_components.dart';
 import 'package:zyduspod/screens/upload_status_screen.dart';
 
 // PDF Splitting API
 const String _SPLIT_API_BASE = 'https://anujakkulkarni-splitpdffile.hf.space';
 
+/// Build MultipartFile from bytes (works on Web & mobile)
+Future<http.MultipartFile> _multipartFromBytes({
+  required String fieldName,
+  required String filename,
+  required List<int> bytes,
+  MediaType? contentType,
+}) async {
+  return http.MultipartFile.fromBytes(
+    fieldName,
+    bytes,
+    filename: filename,
+    contentType: contentType,
+  );
+}
+
+/// Build MultipartFile from File (mobile/desktop only)
+Future<http.MultipartFile> _multipartFromFile({
+  required String fieldName,
+  required File file,
+  MediaType? contentType,
+}) async {
+  final filename = p.basename(file.path);
+  final bytes = await file.readAsBytes();
+  return _multipartFromBytes(
+    fieldName: fieldName,
+    filename: filename,
+    bytes: bytes,
+    contentType: contentType,
+  );
+}
+
 Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
+  // On Web we handle splitting using bytes in a separate function
+  if (kIsWeb) return <SplitOut>[];
+
   try {
     final uri = Uri.parse('$_SPLIT_API_BASE/split-invoices');
 
-    final req = http.MultipartRequest('POST', uri)
-      ..files.add(
-        await http.MultipartFile.fromPath(
-          'file',
-          pdfFile.path,
-          filename: p.basename(pdfFile.path),
-          contentType: MediaType('application', 'pdf'),
-        ),
-      )
-      ..fields['include_pdf'] = 'true'
-      ..fields['initial_dpi'] = '300';
+    final req =
+        http.MultipartRequest('POST', uri)
+          ..files.add(
+            await _multipartFromFile(
+              fieldName: 'file',
+              file: pdfFile,
+              contentType: MediaType('application', 'pdf'),
+            ),
+          )
+          ..fields['include_pdf'] = 'true'
+          ..fields['initial_dpi'] = '300';
 
     final streamed = await req.send();
     final resp = await http.Response.fromStream(streamed);
@@ -55,8 +90,6 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
     }
 
     final decoded = jsonDecode(resp.body);
-    debugPrint('[SPLIT] Response: ${resp.body}'); 
-    debugPrint('[SPLIT] Decoded: $decoded');
     if (decoded is! Map || decoded['parts'] is! List) {
       debugPrint('[SPLIT] Unexpected response: ${resp.body}');
       return <SplitOut>[];
@@ -81,7 +114,8 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
         continue;
       }
 
-      final fileName = 'split_${i + 1}_${p.basenameWithoutExtension(pdfFile.path)}.pdf';
+      final fileName =
+          'split_${i + 1}_${p.basenameWithoutExtension(pdfFile.path)}.pdf';
       final file = File(p.join(tmp.path, fileName));
       await file.writeAsBytes(bytes);
 
@@ -90,12 +124,14 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
       final pages = pagesDynamic?.map((p) => p as int).toList();
       final sizeBytes = bytes.length;
 
-      out.add(SplitOut(
-        file: file,
-        invoiceNo: invoiceNo,
-        pages: pages,
-        sizeBytes: sizeBytes,
-      ));
+      out.add(
+        SplitOut(
+          file: file,
+          invoiceNo: invoiceNo,
+          pages: pages,
+          sizeBytes: sizeBytes,
+        ),
+      );
     }
 
     return out;
@@ -103,6 +139,71 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
     debugPrint('[SPLIT] Error: $e');
     return <SplitOut>[];
   }
+}
+
+/// In-memory split part for Web
+class _SplitMem {
+  final Uint8List bytes;
+  final String? invoiceNo;
+  final List<int>? pages;
+  _SplitMem({required this.bytes, this.invoiceNo, this.pages});
+}
+
+/// Server-side splitting for Web (bytes -> parts as bytes)
+Future<List<_SplitMem>> _splitPdfViaApiBytes(
+  Uint8List pdfBytes, {
+  String filename = 'upload.pdf',
+}) async {
+  final uri = Uri.parse('$_SPLIT_API_BASE/split-invoices');
+
+  final req =
+      http.MultipartRequest('POST', uri)
+        ..files.add(
+          await _multipartFromBytes(
+            fieldName: 'file',
+            filename: filename,
+            bytes: pdfBytes,
+            contentType: MediaType('application', 'pdf'),
+          ),
+        )
+        ..fields['include_pdf'] = 'true'
+        ..fields['initial_dpi'] = '300';
+
+  final streamed = await req.send();
+  final resp = await http.Response.fromStream(streamed);
+
+  if (resp.statusCode < 200 || resp.statusCode >= 300) {
+    debugPrint('[SPLIT] (web) HTTP ${resp.statusCode}: ${resp.body}');
+    throw Exception('Split API error ${resp.statusCode}');
+  }
+
+  final decoded = jsonDecode(resp.body);
+  if (decoded is! Map || decoded['parts'] is! List) {
+    debugPrint('[SPLIT] (web) Unexpected response: ${resp.body}');
+    return <_SplitMem>[];
+  }
+
+  final parts = decoded['parts'] as List;
+  final out = <_SplitMem>[];
+
+  for (final e in parts) {
+    if (e is! Map) continue;
+    final String? b64 = e['pdf_base64'] as String?;
+    if (b64 == null || b64.isEmpty) continue;
+
+    try {
+      final bytes = Uint8List.fromList(base64.decode(base64.normalize(b64)));
+      final invoiceNo = e['invoice_no'] as String?;
+      final pagesDynamic = e['pages'] as List<dynamic>?;
+      final pages = pagesDynamic?.map((p) => p as int).toList();
+      out.add(_SplitMem(bytes: bytes, invoiceNo: invoiceNo, pages: pages));
+    } catch (err) {
+      debugPrint('[SPLIT] (web) base64 decode failed: $err');
+      continue;
+    }
+  }
+
+  return out;
 }
 
 class PODUploadScreen extends StatefulWidget {
@@ -113,32 +214,25 @@ class PODUploadScreen extends StatefulWidget {
 }
 
 class _PODUploadScreenState extends State<PODUploadScreen> {
-  // Loading states
   bool _isLoadingLists = false;
-  // bool _isProcessingImage = false; // COMMENTED OUT: QR processing disabled
   bool _isUploading = false;
   bool _isRefreshing = false;
-  // int _processingCount = 0; // COMMENTED OUT: QR processing disabled
   bool _isBusy = false;
-  bool _isProcessingDocuments = false; // NEW: For document processing and splitting
-  String _currentProcessingMessage = ''; // NEW: Current processing message
+  bool _isProcessingDocuments = false;
+  String _currentProcessingMessage = '';
 
-  // Selection data
   List<_SelectItem> _allStockists = [];
   List<_SelectItem> _allChemists = [];
   _SelectItem? _selectedStockist;
-  
-  // Search functionality
+
   Timer? _stockistSearchTimer;
   Timer? _hospitalSearchTimer;
   bool _isSearchingStockists = false;
   bool _isSearchingHospitals = false;
   _SelectItem? _selectedChemist;
 
-  // Documents
   List<DocumentInfo> _capturedDocuments = [];
 
-  // Keys for Autocomplete
   Key _stockistKey = UniqueKey();
   Key _chemistKey = UniqueKey();
 
@@ -161,22 +255,23 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
 
   void _updateBusyState() {
     setState(() {
-      // COMMENTED OUT: QR processing disabled - _isProcessingImage and _processingCount removed
-      _isBusy = _isUploading || _isLoadingLists || _isRefreshing || _isProcessingDocuments;
-      // Original: _isBusy = _isUploading || _isLoadingLists || _isProcessingImage || _processingCount > 0 || _isRefreshing;
+      _isBusy =
+          _isUploading ||
+          _isLoadingLists ||
+          _isRefreshing ||
+          _isProcessingDocuments;
     });
   }
 
   Future<void> _onRefresh() async {
     if (_isBusy) return;
-    
+
     setState(() {
       _isRefreshing = true;
       _updateBusyState();
     });
 
     try {
-      // Clear current selections
       setState(() {
         _selectedStockist = null;
         _selectedChemist = null;
@@ -184,7 +279,6 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
         _chemistKey = UniqueKey();
       });
 
-      // Reload all lists
       await _loadLists();
 
       if (mounted) {
@@ -218,29 +312,29 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
 
   Future<void> _loadLists() async {
     if (_isLoadingLists) return;
-    
+
     setState(() {
       _isLoadingLists = true;
       _updateBusyState();
     });
-    
+
     try {
       final results = await Future.wait([
         _fetchSelectItems(API_STOCKISTS_URL),
         _fetchSelectItems(API_HOSPITALS_URL),
       ]);
-      
+
       if (!mounted) return;
       setState(() {
         _allStockists = results[0];
         _allChemists = results[1];
       });
     } catch (e) {
-      print('Failed to load lists: $e');
+      debugPrint('Failed to load lists: $e');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to load lists: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to load lists: $e')));
     } finally {
       if (mounted) {
         setState(() {
@@ -255,44 +349,44 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
     if (query.length < 3) {
       return _allStockists.take(50).toList();
     }
-    
+
     setState(() {
       _isSearchingStockists = true;
     });
-    
+
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('authToken');
       final searchUrl = '${API_STOCKISTS_URL}?search=$query';
-      
+
       final resp = await http.get(
         Uri.parse(searchUrl),
         headers: token != null ? {'Authorization': 'Bearer $token'} : null,
       );
-      
+
       if (resp.statusCode != 200) {
         throw Exception('HTTP ${resp.statusCode}: ${resp.body}');
       }
-      
+
       final decoded = _safeDecode(resp.bodyBytes);
       final rawList = _unwrapToList(decoded);
-      
-      debugPrint('=== Stockist Search Results for "$query" ===');
-      debugPrint('Found ${rawList.length} items');
-      debugPrint('=============================');
-      
-      final items = rawList
-          .map((e) => _SelectItem.fromDynamic(e))
-          .where((e) => e != null)
-          .cast<_SelectItem>()
-          .toList();
-      
+
+      final items =
+          rawList
+              .map((e) => _SelectItem.fromDynamic(e))
+              .where((e) => e != null)
+              .cast<_SelectItem>()
+              .toList();
+
       return items;
     } catch (e) {
       debugPrint('Stockist search error: $e');
-      return _allStockists.where((item) => 
-        item.label.toLowerCase().contains(query.toLowerCase())
-      ).take(50).toList();
+      return _allStockists
+          .where(
+            (item) => item.label.toLowerCase().contains(query.toLowerCase()),
+          )
+          .take(50)
+          .toList();
     } finally {
       if (mounted) {
         setState(() {
@@ -306,44 +400,44 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
     if (query.length < 3) {
       return _allChemists.take(50).toList();
     }
-    
+
     setState(() {
       _isSearchingHospitals = true;
     });
-    
+
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('authToken');
       final searchUrl = '${API_HOSPITALS_URL}?search=$query';
-      
+
       final resp = await http.get(
         Uri.parse(searchUrl),
         headers: token != null ? {'Authorization': 'Bearer $token'} : null,
       );
-      
+
       if (resp.statusCode != 200) {
         throw Exception('HTTP ${resp.statusCode}: ${resp.body}');
       }
-      
+
       final decoded = _safeDecode(resp.bodyBytes);
       final rawList = _unwrapToList(decoded);
-      
-      debugPrint('=== Hospital Search Results for "$query" ===');
-      debugPrint('Found ${rawList.length} items');
-      debugPrint('=============================');
-      
-      final items = rawList
-          .map((e) => _SelectItem.fromDynamic(e))
-          .where((e) => e != null)
-          .cast<_SelectItem>()
-          .toList();
-      
+
+      final items =
+          rawList
+              .map((e) => _SelectItem.fromDynamic(e))
+              .where((e) => e != null)
+              .cast<_SelectItem>()
+              .toList();
+
       return items;
     } catch (e) {
       debugPrint('Hospital search error: $e');
-      return _allChemists.where((item) => 
-        item.label.toLowerCase().contains(query.toLowerCase())
-      ).take(50).toList();
+      return _allChemists
+          .where(
+            (item) => item.label.toLowerCase().contains(query.toLowerCase()),
+          )
+          .take(50)
+          .toList();
     } finally {
       if (mounted) {
         setState(() {
@@ -365,28 +459,14 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
     }
     final decoded = _safeDecode(resp.bodyBytes);
     final rawList = _unwrapToList(decoded);
-    
-    // Debug the API response
-    debugPrint('=== API Response for $url ===');
-    debugPrint('Raw response: ${resp.body}');
-    debugPrint('Decoded: $decoded');
-    debugPrint('Raw list length: ${rawList.length}');
-    if (rawList.isNotEmpty) {
-      debugPrint('First item: ${rawList.first}');
-    }
-    debugPrint('=============================');
-    
-    final items = rawList
-        .map((e) => _SelectItem.fromDynamic(e))
-        .where((e) => e != null)
-        .cast<_SelectItem>()
-        .toList();
-    
-    debugPrint('Parsed items length: ${items.length}');
-    if (items.isNotEmpty) {
-      debugPrint('First parsed item: id=${items.first.id}, label=${items.first.label}');
-    }
-    
+
+    final items =
+        rawList
+            .map((e) => _SelectItem.fromDynamic(e))
+            .where((e) => e != null)
+            .cast<_SelectItem>()
+            .toList();
+
     return items;
   }
 
@@ -419,60 +499,63 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
 
   Future<void> _showDocumentSourceDialog() async {
     if (_isBusy) return;
-    
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add Documents'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.camera_alt),
-              title: const Text('Camera'),
-              onTap: () {
-                Navigator.pop(context);
-                _captureFromCamera();
-              },
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Add Documents'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.camera_alt),
+                  title: const Text('Camera'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _captureFromCamera();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.photo_library),
+                  title: const Text('Gallery'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _pickFromGallery();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.picture_as_pdf),
+                  title: const Text('PDF Files'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _pickPDFFiles();
+                  },
+                ),
+              ],
             ),
-            ListTile(
-              leading: const Icon(Icons.photo_library),
-              title: const Text('Gallery'),
-              onTap: () {
-                Navigator.pop(context);
-                _pickFromGallery();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.picture_as_pdf),
-              title: const Text('PDF Files'),
-              onTap: () {
-                Navigator.pop(context);
-                _pickPDFFiles();
-              },
-            ),
-          ],
-        ),
-      ),
+          ),
     );
   }
 
   Future<void> _captureFromCamera() async {
     if (_isBusy) return;
-    
+
     setState(() {
       _isProcessingDocuments = true;
       _currentProcessingMessage = 'Capturing from camera...';
       _updateBusyState();
     });
-    
+
     try {
+      // Mobile-first; not supported on web.
       final scanned = await FlutterDocScanner().getScanDocuments(page: 1);
       List<String> result = [];
       if (scanned != null && scanned is Map) {
-        String? filePath = scanned['pdfUri']?.toString() ?? 
-                          scanned['imageUri']?.toString() ?? 
-                          scanned['documentUri']?.toString();
+        String? filePath =
+            scanned['pdfUri']?.toString() ??
+            scanned['imageUri']?.toString() ??
+            scanned['documentUri']?.toString();
         if (filePath != null) {
           result = [filePath];
         }
@@ -480,24 +563,25 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
       if (result.isNotEmpty) {
         for (final filePath in result) {
           final local = filePath.replaceFirst('file://', '');
-          final original = File(local);
-          if (await original.exists()) {
-            await _processAndAddDocument(original, isFromScanner: true);
-          } else {
+          if (kIsWeb) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('Scanned file not found.'),
-                backgroundColor: Colors.red,
+                content: Text(
+                  'Camera capture is not supported on Web for this flow.',
+                ),
               ),
             );
+          } else {
+            final original = File(local);
+            await _processAndAddDocumentFile(original, isFromScanner: true);
           }
         }
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Scanner error: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Scanner error: $e')));
     } finally {
       if (mounted) {
         setState(() {
@@ -511,36 +595,40 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
 
   Future<void> _pickFromGallery() async {
     if (_isBusy) return;
-    
+
     setState(() {
       _isProcessingDocuments = true;
       _currentProcessingMessage = 'Selecting from gallery...';
       _updateBusyState();
     });
-    
+
     try {
-      final imgs = await _imagePicker.pickMultiImage(
-        imageQuality: 100,
-      );
-      for (int i = 0; i < imgs.length; i++) {
-        await _processAndAddDocument(
-          File(imgs[i].path),
-          isFromScanner: false,
+      if (kIsWeb) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Use "PDF Files" on Web for now.')),
         );
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Processing image ${i + 1}/${imgs.length}'),
-              duration: const Duration(milliseconds: 400),
-            ),
+      } else {
+        final imgs = await _imagePicker.pickMultiImage(imageQuality: 100);
+        for (int i = 0; i < imgs.length; i++) {
+          await _processAndAddDocumentFile(
+            File(imgs[i].path),
+            isFromScanner: false,
           );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Processing image ${i + 1}/${imgs.length}'),
+                duration: const Duration(milliseconds: 400),
+              ),
+            );
+          }
         }
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Gallery error: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Gallery error: $e')));
     } finally {
       if (mounted) {
         setState(() {
@@ -554,25 +642,37 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
 
   Future<void> _pickPDFFiles() async {
     if (_isBusy) return;
-    
+
     setState(() {
       _isProcessingDocuments = true;
       _currentProcessingMessage = 'Selecting PDF files...';
       _updateBusyState();
     });
-    
+
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf'],
         allowMultiple: true,
+        withData: true, // IMPORTANT for Web
       );
-      
+
       if (result != null && result.files.isNotEmpty) {
         int added = 0;
         for (final f in result.files) {
-          if (f.path == null) continue;
-          await _processAndAddDocument(File(f.path!), isFromScanner: true);
+          if (kIsWeb) {
+            if (f.bytes == null) continue;
+            await _processAndAddDocumentBytes(
+              f.bytes!,
+              displayName: f.name.isNotEmpty ? f.name : 'document.pdf',
+            );
+          } else {
+            if (f.path == null) continue;
+            await _processAndAddDocumentFile(
+              File(f.path!),
+              isFromScanner: true,
+            );
+          }
           added++;
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -586,9 +686,9 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Pick PDF error: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Pick PDF error: $e')));
     } finally {
       if (mounted) {
         setState(() {
@@ -600,107 +700,179 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
     }
   }
 
-  Future<void> _processAndAddDocument(File originalFile, {required bool isFromScanner}) async {
+  Future<void> _processAndAddDocumentFile(
+    File originalFile, {
+    required bool isFromScanner,
+  }) async {
     setState(() {
       _isProcessingDocuments = true;
-      _currentProcessingMessage = 'Processing ${p.basename(originalFile.path)}...';
+      _currentProcessingMessage =
+          'Processing ${p.basename(originalFile.path)}...';
       _updateBusyState();
     });
 
     try {
       final displayNameBase = p.basenameWithoutExtension(originalFile.path);
       final extension = p.extension(originalFile.path).toLowerCase();
-      
-      // Check if it's a PDF file for splitting
+
       if (extension == '.pdf') {
-        // Update processing message for splitting
         setState(() {
-          _currentProcessingMessage = 'Splitting ${p.basename(originalFile.path)} into invoices...';
+          _currentProcessingMessage =
+              'Splitting ${p.basename(originalFile.path)} into invoices...';
         });
 
         final splitParts = await _splitPdfViaApi(originalFile);
 
-        if (splitParts.isNotEmpty) {
-          // Update processing message for adding split parts
+        if (!kIsWeb && splitParts.isNotEmpty) {
           setState(() {
-            _currentProcessingMessage = 'Adding ${splitParts.length} split documents...';
+            _currentProcessingMessage =
+                'Adding ${splitParts.length} split documents...';
           });
 
           for (int i = 0; i < splitParts.length; i++) {
             final part = splitParts[i];
-            final displayName = (part.invoiceNo != null && part.invoiceNo!.isNotEmpty)
-                ? 'Invoice_${part.invoiceNo}.pdf'
-                : '${displayNameBase}_part${i + 1}.pdf';
-            
+            final displayName =
+                (part.invoiceNo != null && part.invoiceNo!.isNotEmpty)
+                    ? 'Invoice_${part.invoiceNo}.pdf'
+                    : '${displayNameBase}_part${i + 1}.pdf';
+
             final newDoc = DocumentInfo(
               file: part.file,
+              webBytes: null,
               displayName: displayName,
               isValid: true,
               qrData: null,
-              qrStatus: QRProcessingStatus.completed, // Skip QR extraction - mark as completed
+              qrStatus: QRProcessingStatus.completed,
             );
-            
+
             setState(() {
               _capturedDocuments.add(newDoc);
             });
-            
-            // COMMENTED OUT: QR extraction disabled - directly proceed to upload ready state
-            // Original: _enqueueExtraction(newDoc, idx); // This would trigger QR processing
           }
         } else {
-          // Fallback to original single PDF
           final newDoc = DocumentInfo(
             file: originalFile,
+            webBytes: null,
             displayName: '${displayNameBase}.pdf',
             isValid: true,
             qrData: null,
-            qrStatus: QRProcessingStatus.completed, // Skip QR extraction - mark as completed
+            qrStatus: QRProcessingStatus.completed,
           );
-          
+
           setState(() {
             _capturedDocuments.add(newDoc);
           });
-          
-          // COMMENTED OUT: QR extraction disabled - directly proceed to upload ready state
-          // Original: _enqueueExtraction(newDoc, idx); // This would trigger QR processing
-          
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('No splits returned. Using original ${p.basename(originalFile.path)}.'),
-                duration: const Duration(seconds: 3),
-              ),
-            );
-          }
         }
       } else {
-        // For non-PDF files, process directly
         setState(() {
-          _currentProcessingMessage = 'Adding ${p.basename(originalFile.path)}...';
+          _currentProcessingMessage =
+              'Adding ${p.basename(originalFile.path)}...';
         });
 
         final newDoc = DocumentInfo(
           file: originalFile,
+          webBytes: null,
           displayName: p.basename(originalFile.path),
           isValid: true,
           qrData: null,
-          qrStatus: QRProcessingStatus.completed, // Skip QR extraction - mark as completed
+          qrStatus: QRProcessingStatus.completed,
         );
-        
+
         setState(() {
           _capturedDocuments.add(newDoc);
         });
-        
-        // COMMENTED OUT: QR extraction disabled - directly proceed to upload ready state
-        // Original: _enqueueExtraction(newDoc, idx); // This would trigger QR processing
       }
-      
+
       _scheduleScrollToBottom();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } finally {
+      setState(() {
+        _isProcessingDocuments = false;
+        _currentProcessingMessage = '';
+        _updateBusyState();
+      });
+    }
+  }
+
+  Future<void> _processAndAddDocumentBytes(
+    Uint8List bytes, {
+    required String displayName,
+  }) async {
+    setState(() {
+      _isProcessingDocuments = true;
+      _currentProcessingMessage = 'Processing $displayName...';
+      _updateBusyState();
+    });
+
+    try {
+      final isPdf = p.extension(displayName).toLowerCase() == '.pdf';
+
+      if (isPdf) {
+        // Server-side split on Web via bytes
+        final parts = await _splitPdfViaApiBytes(bytes, filename: displayName);
+        if (parts.isNotEmpty) {
+          setState(() {
+            _currentProcessingMessage =
+                'Adding ${parts.length} split documents...';
+          });
+          for (int i = 0; i < parts.length; i++) {
+            final part = parts[i];
+            final name =
+                (part.invoiceNo != null && part.invoiceNo!.isNotEmpty)
+                    ? 'Invoice_${part.invoiceNo}.pdf'
+                    : '${p.basenameWithoutExtension(displayName)}_part${i + 1}.pdf';
+
+            final newDoc = DocumentInfo(
+              file: null,
+              webBytes: part.bytes,
+              displayName: name,
+              isValid: true,
+              qrData: null,
+              qrStatus: QRProcessingStatus.completed,
+            );
+
+            setState(() {
+              _capturedDocuments.add(newDoc);
+            });
+          }
+        } else {
+          final newDoc = DocumentInfo(
+            file: null,
+            webBytes: bytes,
+            displayName: displayName,
+            isValid: true,
+            qrData: null,
+            qrStatus: QRProcessingStatus.completed,
+          );
+          setState(() {
+            _capturedDocuments.add(newDoc);
+          });
+        }
+      } else {
+        // Non-PDF (rare for this button), just add as-is (you may choose to convert later)
+        final newDoc = DocumentInfo(
+          file: null,
+          webBytes: bytes,
+          displayName: displayName,
+          isValid: true,
+          qrData: null,
+          qrStatus: QRProcessingStatus.completed,
+        );
+        setState(() {
+          _capturedDocuments.add(newDoc);
+        });
+      }
+
+      _scheduleScrollToBottom();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
     } finally {
       setState(() {
         _isProcessingDocuments = false;
@@ -722,102 +894,11 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
     });
   }
 
-  /// ===================== QR EXTRACTION (COMMENTED OUT) =====================
-  // COMMENTED OUT: QR extraction disabled - can be restored by uncommenting
-
-  /*
-  void _enqueueExtraction(DocumentInfo doc, int index) {
-    _incProcessing();
-    _autoExtractQRFromDocument(doc, index);
-  }
-
-  void _incProcessing() {
-    setState(() {
-      _processingCount++;
-      _updateBusyState();
-    });
-  }
-
-  void _decProcessing() {
-    setState(() {
-      _processingCount = math.max(0, _processingCount - 1);
-      _updateBusyState();
-    });
-  }
-
-  Future<void> _autoExtractQRFromDocument(DocumentInfo doc, int index) async {
-    try {
-      // Update status to processing
-      if (mounted) {
-        setState(() {
-          if (index < _capturedDocuments.length) {
-            _capturedDocuments[index] = doc.copyWith(
-              qrStatus: QRProcessingStatus.processing,
-            );
-          }
-        });
-      }
-      
-      final qrMap = await _ensureQrForDocument(doc);
-      if (!mounted) return;
-      
-      setState(() {
-        if (index < _capturedDocuments.length) {
-          _capturedDocuments[index] = doc.copyWith(
-            qrData: qrMap,
-            qrStatus: qrMap != null ? QRProcessingStatus.completed : QRProcessingStatus.failed,
-            errorMessage: qrMap == null ? 'No QR code found' : null,
-          );
-        }
-      });
-    } catch (e) {
-      print('QR extraction failed for ${doc.displayName}: $e');
-      if (mounted) {
-        setState(() {
-          if (index < _capturedDocuments.length) {
-            _capturedDocuments[index] = doc.copyWith(
-              qrStatus: QRProcessingStatus.failed,
-              errorMessage: e.toString(),
-            );
-          }
-        });
-      }
-    } finally {
-      _decProcessing();
-      setState(() {
-        _isProcessingImage = false;
-        _updateBusyState();
-      });
-    }
-  }
-
-  Future<Map<String, dynamic>?> _ensureQrForDocument(DocumentInfo doc) async {
-    try {
-      // Try Hugging Face API first
-      final qrMap = await PythonQRService.extractQRFromPDF(doc.file);
-      if (qrMap != null) {
-        return qrMap;
-      }
-      
-      // Fallback to Flutter QR extraction
-      final qrData = await EInvoiceQRExtractor.extractQRFromPDF(doc.file);
-      if (qrData != null) {
-        return qrData;
-      }
-      
-      return null;
-    } catch (e) {
-      print('QR extraction error: $e');
-      return null;
-    }
-  }
-  */
-
   /// ===================== UPLOAD =====================
 
   Future<void> _uploadCaptured() async {
     if (_isBusy) return;
-    
+
     final validDocs = _capturedDocuments.where((d) => d.isValid).toList();
     if (validDocs.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -826,7 +907,6 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
       return;
     }
 
-    // Validate selections
     if (_selectedStockist == null || _selectedChemist == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Select Stockist & Hospital for POD.')),
@@ -834,33 +914,22 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
       return;
     }
 
-    // Validate that both IDs are valid integers
     final stockistIdStr = _selectedStockist!.id.trim();
     final hospitalIdStr = _selectedChemist!.id.trim();
-    
-    if (stockistIdStr.isEmpty) {
+
+    if (stockistIdStr.isEmpty || hospitalIdStr.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Stockist ID is empty'),
+          content: Text('Stockist or Hospital ID is empty'),
           backgroundColor: Colors.red,
         ),
       );
       return;
     }
-    
-    if (hospitalIdStr.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Hospital ID is empty'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-    
+
     final stockistId = int.tryParse(stockistIdStr);
     final hospitalId = int.tryParse(hospitalIdStr);
-    
+
     if (stockistId == null || stockistId <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -870,7 +939,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
       );
       return;
     }
-    
+
     if (hospitalId == null || hospitalId <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -891,52 +960,43 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
     });
 
     try {
-      // COMMENTED OUT: QR processing disabled - directly proceed to upload
-      // Original: Show progress for QR processing, then await _processAllQRCodes(validDocs);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Uploading documents to server...'),
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
-
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('authToken');
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Sending data to server...'),
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
 
       final uri = Uri.parse(Multi_Api_POD_UPLOAD_URL);
       final req = http.MultipartRequest('POST', uri);
 
-      // Attach files
       for (final d in validDocs) {
-        final filename = p.basename(d.file.path);
-        final contentType = _inferContentType(d.file);
-        req.files.add(
-          await http.MultipartFile.fromPath(
-            'files[]',
-            d.file.path,
-            filename: filename,
-            contentType: contentType,
-          ),
+        final filename = d.displayName.isNotEmpty ? d.displayName : 'document';
+        final contentType = _inferContentTypeByName(
+          filename,
+          fallbackFromFile: d.file,
         );
+
+        if (d.webBytes != null) {
+          req.files.add(
+            await _multipartFromBytes(
+              fieldName: 'files[]',
+              filename: filename,
+              bytes: d.webBytes!,
+              contentType: contentType,
+            ),
+          );
+        } else if (d.file != null) {
+          req.files.add(
+            await _multipartFromFile(
+              fieldName: 'files[]',
+              file: d.file!,
+              contentType: contentType,
+            ),
+          );
+        }
       }
 
-      // Add headers
       if (token != null) {
         req.headers['Authorization'] = 'Bearer $token';
       }
 
-      // Add form fields
       final phpStyleJson = _buildPhpStyleJson(validDocs);
       req.fields['file_einvoice_sequence'] = phpStyleJson;
       req.fields['doc_type'] = 'POD';
@@ -944,35 +1004,22 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
       req.fields['multi_page'] = (validDocs.length > 1).toString();
       req.fields['ocr_enhanced'] = 'true';
       req.fields['dpi'] = '300';
-      
-      // Debug all fields being sent
-      debugPrint('=== Upload Fields ===');
-      req.fields.forEach((key, value) {
-        debugPrint('$key: $value (${value.runtimeType})');
-      });
-      debugPrint('===================');
-      debugPrint('stockist: ${_selectedStockist?.id} (${_selectedStockist?.id.runtimeType})');
-      debugPrint('hospital: ${_selectedChemist?.id} (${_selectedChemist?.id.runtimeType})');
+
       if (_selectedStockist != null) {
-        // Use the already validated and trimmed ID
         final stockistId = int.parse(_selectedStockist!.id.trim());
         req.fields['stockist_id'] = stockistId.toString();
         req.fields['stockistId'] = stockistId.toString();
-        debugPrint('stockist_id (converted): $stockistId');
       }
       if (_selectedChemist != null) {
-        // Use the already validated and trimmed ID
         final hospitalId = int.parse(_selectedChemist!.id.trim());
         req.fields['hospital_id'] = hospitalId.toString();
         req.fields['hospitalId'] = hospitalId.toString();
-        debugPrint('hospital_id (converted): $hospitalId');
       }
 
       final resp = await req.send();
       final responseBody = await resp.stream.bytesToString();
 
       if (resp.statusCode == 201) {
-        // Status 201: Data generated immediately
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -984,29 +1031,26 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
           );
         }
 
-        // Clear documents after successful upload
         setState(() {
           _capturedDocuments.clear();
         });
 
-        // Navigate back or show success
         if (mounted) {
           Navigator.pop(context);
         }
       } else if (resp.statusCode == 202) {
-        // Status 202: Background processing initiated
         try {
           final responseData = jsonDecode(responseBody);
-          
+
           if (mounted) {
-            // Navigate to upload status screen
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(
-                builder: (context) => UploadStatusScreen(
-                  uploadData: responseData,
-                  totalFiles: validDocs.length,
-                ),
+                builder:
+                    (context) => UploadStatusScreen(
+                      uploadData: responseData,
+                      totalFiles: validDocs.length,
+                    ),
               ),
             );
           }
@@ -1016,25 +1060,23 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
-                  '✅ Uploaded ${validDocs.length} POD document(s) successfully. Background processing initiated.',
+                  '✅ Uploaded ${validDocs.length} POD document(s). Background processing initiated.',
                 ),
                 backgroundColor: Colors.green,
               ),
             );
           }
-          
-          // Clear documents after successful upload
           setState(() {
             _capturedDocuments.clear();
           });
-
-          // Navigate back
           if (mounted) {
             Navigator.pop(context);
           }
         }
       } else {
-        debugPrint('POD upload failed: ${resp.statusCode} ${responseBody.isNotEmpty ? "- $responseBody" : ""}');
+        debugPrint(
+          'POD upload failed: ${resp.statusCode} ${responseBody.isNotEmpty ? "- $responseBody" : ""}',
+        );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -1066,28 +1108,24 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
     }
   }
 
-  // COMMENTED OUT: QR processing method - can be restored by uncommenting
-  /*
-  Future<void> _processAllQRCodes(List<DocumentInfo> docs) async {
-    // Process QR codes for all documents
-    for (int i = 0; i < docs.length; i++) {
-      final doc = docs[i];
-      if (doc.qrData == null) {
-        final qrData = await _ensureQrForDocument(doc);
-        if (qrData != null) {
-          docs[i] = DocumentInfo(
-            file: doc.file,
-            displayName: doc.displayName,
-            isValid: doc.isValid,
-            qrData: qrData,
-          );
-        }
-      }
+  MediaType _inferContentTypeByName(String filename, {File? fallbackFromFile}) {
+    final ext = p.extension(filename).toLowerCase();
+    switch (ext) {
+      case '.pdf':
+        return MediaType('application', 'pdf');
+      case '.jpg':
+      case '.jpeg':
+        return MediaType('image', 'jpeg');
+      case '.png':
+        return MediaType('image', 'png');
+      default:
+        if (fallbackFromFile != null)
+          return _inferContentTypeFile(fallbackFromFile);
+        return MediaType('application', 'octet-stream');
     }
   }
-  */
 
-  MediaType _inferContentType(File file) {
+  MediaType _inferContentTypeFile(File file) {
     final ext = p.extension(file.path).toLowerCase();
     switch (ext) {
       case '.pdf':
@@ -1106,9 +1144,10 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
     final entries = <Map<String, dynamic>>[];
     for (int i = 0; i < docs.length; i++) {
       final doc = docs[i];
+      final name = doc.displayName;
       entries.add({
         'index': i,
-        'filename': p.basename(doc.file.path),
+        'filename': name,
         'qr_data': doc.qrData,
         'is_valid': doc.isValid,
       });
@@ -1118,7 +1157,6 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
 
   void _clearAllDocuments() {
     if (_isBusy) return;
-    
     setState(() {
       _capturedDocuments.clear();
     });
@@ -1126,32 +1164,38 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
 
   void _showClearAllDialog() {
     if (_isBusy) return;
-    
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Clear All Documents'),
-        content: Text('Are you sure you want to remove all ${_capturedDocuments.length} documents?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _clearAllDocuments();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('All documents cleared'),
-                  backgroundColor: Colors.orange,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Clear All Documents'),
+            content: Text(
+              'Are you sure you want to remove all ${_capturedDocuments.length} documents?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _clearAllDocuments();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('All documents cleared'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                },
+                child: const Text(
+                  'Clear All',
+                  style: TextStyle(color: Colors.red),
                 ),
-              );
-            },
-            child: const Text('Clear All', style: TextStyle(color: Colors.red)),
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 
@@ -1160,9 +1204,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
   @override
   Widget build(BuildContext context) {
     final validDocCount = _capturedDocuments.where((d) => d.isValid).length;
-    // final docsWithQR = _capturedDocuments.where((d) => d.qrData != null).length; // COMMENTED OUT: QR processing disabled
-    final showTopLoader = _isLoadingLists || _isProcessingDocuments; // UPDATED: Include document processing
-    // Original: _isLoadingLists || _isProcessingImage || _processingCount > 0
+    final showTopLoader = _isLoadingLists || _isProcessingDocuments;
 
     return Scaffold(
       appBar: ModernUIComponents.buildModernAppBar(
@@ -1170,45 +1212,6 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
         subtitle: 'Upload Proof of Delivery documents',
         icon: Icons.description,
         color: const Color(0xFF00A0A8),
-        // actions: [
-        //   if (_capturedDocuments.isNotEmpty) ...[
-        //     // Valid documents counter
-        //     Center(
-        //       child: Padding(
-        //         padding: const EdgeInsets.symmetric(horizontal: 4),
-        //         child: Chip(
-        //           label: Text('Valid: $validDocCount'),
-        //           backgroundColor: _capturedDocuments.length >= maxDocuments
-        //               ? Colors.orange.shade100
-        //               : Colors.green.shade100,
-        //           labelStyle: TextStyle(
-        //             color: _capturedDocuments.length >= maxDocuments
-        //                 ? Colors.orange.shade800
-        //                 : Colors.green.shade800,
-        //             fontWeight: FontWeight.bold,
-        //             fontSize: 11,
-        //           ),
-        //         ),
-        //       ),
-        //     ),
-        //     // QR processed counter
-        //     Center(
-        //       child: Padding(
-        //         padding: const EdgeInsets.symmetric(horizontal: 4),
-        //         child: Chip(
-        //           avatar: const Icon(Icons.qr_code, size: 14),
-        //           label: Text('QR: $docsWithQR'),
-        //           backgroundColor: docsWithQR > 0 ? Colors.green.shade100 : Colors.grey.shade100,
-        //           labelStyle: TextStyle(
-        //             color: docsWithQR > 0 ? Colors.green.shade800 : Colors.grey.shade800,
-        //             fontWeight: FontWeight.bold,
-        //             fontSize: 11,
-        //           ),
-        //         ),
-        //       ),
-        //     ),
-        //   ],
-        // ],
       ),
       body: RefreshIndicator(
         onRefresh: _onRefresh,
@@ -1244,9 +1247,8 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                             _isRefreshing
                                 ? 'Refreshing page...'
                                 : _isProcessingDocuments
-                                    ? _currentProcessingMessage
-                                    : 'Loading lists...', // UPDATED: Show current processing message
-                            // Original: (_processingCount > 0 || _isProcessingImage) ? 'Processing documents...' : 'Loading lists...'
+                                ? _currentProcessingMessage
+                                : 'Loading lists...',
                             style: TextStyle(
                               color: Colors.grey.shade600,
                               fontSize: 12,
@@ -1264,7 +1266,8 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                       options: _allStockists,
                       selected: _selectedStockist,
                       label: 'Search Stockist',
-                      onSelected: (opt) => setState(() => _selectedStockist = opt),
+                      onSelected:
+                          (opt) => setState(() => _selectedStockist = opt),
                       onClear: () {
                         setState(() {
                           _selectedStockist = null;
@@ -1290,7 +1293,8 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                       options: _allChemists,
                       selected: _selectedChemist,
                       label: 'Search Hospital',
-                      onSelected: (opt) => setState(() => _selectedChemist = opt),
+                      onSelected:
+                          (opt) => setState(() => _selectedChemist = opt),
                       onClear: () {
                         setState(() {
                           _selectedChemist = null;
@@ -1310,8 +1314,8 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                   _buildSectionCard(
                     icon: Icons.add_a_photo,
                     title: 'Add Documents',
-                    subtitle: 'Images converted to PDF. POD documents ready for upload.', // COMMENTED OUT: QR extraction disabled
-                    // Original: 'Images converted to PDF. POD documents auto-extract QR.'
+                    subtitle:
+                        'Images converted to PDF. POD documents ready for upload.',
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -1331,13 +1335,12 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                   if (_capturedDocuments.isNotEmpty)
                     _buildSectionCard(
                       icon: Icons.collections,
-                      title: 'Uploaded Documents (${_capturedDocuments.length} total, $validDocCount valid)', // COMMENTED OUT: QR count removed
-                      // Original: 'Uploaded Documents (${_capturedDocuments.length} total, $validDocCount valid, $docsWithQR with QR)'
-                      subtitle: 'Tap to preview, swipe to remove. Documents ready for upload.', // COMMENTED OUT: QR status removed
-                      // Original: 'Tap to preview, swipe to remove. Green = QR extracted, Yellow = Processing, Red = Failed.'
+                      title:
+                          'Uploaded Documents (${_capturedDocuments.length} total, $validDocCount valid)',
+                      subtitle:
+                          'Tap to preview, swipe to remove. Documents ready for upload.',
                       child: Column(
                         children: [
-                          // Summary stats
                           Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
@@ -1348,15 +1351,20 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceAround,
                               children: [
-                                _buildStatItem('Total', _capturedDocuments.length, Colors.blue),
-                                _buildStatItem('Valid', validDocCount, Colors.green),
-                                // COMMENTED OUT: QR processed stat removed
-                                // _buildStatItem('QR Processed', docsWithQR, Colors.orange),
+                                _buildStatItem(
+                                  'Total',
+                                  _capturedDocuments.length,
+                                  Colors.blue,
+                                ),
+                                _buildStatItem(
+                                  'Valid',
+                                  validDocCount,
+                                  Colors.green,
+                                ),
                               ],
                             ),
                           ),
                           const SizedBox(height: 12),
-                          // Clear all button
                           SizedBox(
                             width: double.infinity,
                             child: OutlinedButton.icon(
@@ -1366,17 +1374,19 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: Colors.red.shade600,
                                 side: BorderSide(color: Colors.red.shade300),
-                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 8,
+                                ),
                               ),
                             ),
                           ),
                           const SizedBox(height: 12),
-                          // Document list
                           ListView.separated(
                             shrinkWrap: true,
                             physics: const NeverScrollableScrollPhysics(),
                             itemCount: _capturedDocuments.length,
-                            separatorBuilder: (context, index) => const SizedBox(height: 8),
+                            separatorBuilder:
+                                (context, index) => const SizedBox(height: 8),
                             itemBuilder: (context, index) {
                               final doc = _capturedDocuments[index];
                               return _buildDocumentCard(doc, index);
@@ -1390,28 +1400,31 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                     width: double.infinity,
                     child: ElevatedButton.icon(
                       onPressed: _isBusy ? null : _uploadCaptured,
-                      icon: _isBusy
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                              ),
-                            )
-                          : const Icon(Icons.cloud_upload),
+                      icon:
+                          _isBusy
+                              ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.white,
+                                  ),
+                                ),
+                              )
+                              : const Icon(Icons.cloud_upload),
                       label: Text(
                         _isBusy
                             ? (_isUploading
                                 ? 'Uploading...'
                                 : _isProcessingDocuments
-                                    ? 'Processing Documents...'
-                                    : 'Loading...') // UPDATED: Show document processing status
-                            // Original: (_isProcessingImage || _processingCount > 0) ? 'Processing QR Codes...' : (_isUploading ? 'Uploading...' : 'Loading...')
+                                ? 'Processing Documents...'
+                                : 'Loading...')
                             : 'Upload $validDocCount POD Documents',
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: _isBusy ? Colors.grey : const Color(0xFF00A0A8),
+                        backgroundColor:
+                            _isBusy ? Colors.grey : const Color(0xFF00A0A8),
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(
@@ -1497,26 +1510,26 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
       displayStringForOption: (o) => o.label,
       optionsBuilder: (TextEditingValue tv) async {
         final text = tv.text.trim();
-        
-        // If text is empty, show first 50 items from loaded list
+
         if (text.isEmpty) {
           return options.take(50);
         }
-        
-        // If less than 3 characters, filter locally
         if (text.length < 3) {
-          return options.where((o) => o.label.toLowerCase().contains(text.toLowerCase())).take(50);
+          return options
+              .where((o) => o.label.toLowerCase().contains(text.toLowerCase()))
+              .take(50);
         }
-        
-        // For 3+ characters, search via API with debouncing
+
         if (isStockist) {
           _stockistSearchTimer?.cancel();
         } else {
           _hospitalSearchTimer?.cancel();
         }
-        
-        // Return current options while waiting for search
-        return options.where((o) => o.label.toLowerCase().contains(text.toLowerCase())).take(50);
+
+        // Return current options while waiting
+        return options
+            .where((o) => o.label.toLowerCase().contains(text.toLowerCase()))
+            .take(50);
       },
       onSelected: onSelected,
       fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
@@ -1556,39 +1569,42 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                   ),
               ],
             ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
               borderSide: const BorderSide(color: Color(0xFF00A0A8)),
             ),
           ),
           onFieldSubmitted: (value) => onFieldSubmitted(),
-          readOnly: selected != null, // Make read-only when selected to show name
-          onChanged: (value) {
-            // Trigger search when user types
+          readOnly: selected != null,
+          onChanged: (value) async {
             if (value.length >= 3) {
               if (isStockist) {
                 _stockistSearchTimer?.cancel();
-                _stockistSearchTimer = Timer(const Duration(milliseconds: 300), () async {
-                  final results = await _searchStockists(value);
-                  if (mounted) {
-                    setState(() {
-                      _allStockists = results;
-                    });
-                  }
-                });
+                _stockistSearchTimer = Timer(
+                  const Duration(milliseconds: 300),
+                  () async {
+                    final results = await _searchStockists(value);
+                    if (mounted) {
+                      setState(() {
+                        _allStockists = results;
+                      });
+                    }
+                  },
+                );
               } else {
                 _hospitalSearchTimer?.cancel();
-                _hospitalSearchTimer = Timer(const Duration(milliseconds: 300), () async {
-                  final results = await _searchHospitals(value);
-                  if (mounted) {
-                    setState(() {
-                      _allChemists = results;
-                    });
-                  }
-                });
+                _hospitalSearchTimer = Timer(
+                  const Duration(milliseconds: 300),
+                  () async {
+                    final results = await _searchHospitals(value);
+                    if (mounted) {
+                      setState(() {
+                        _allChemists = results;
+                      });
+                    }
+                  },
+                );
               }
             }
           },
@@ -1610,23 +1626,18 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
         ),
         Text(
           label,
-          style: TextStyle(
-            fontSize: 10,
-            color: Colors.grey.shade600,
-          ),
+          style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
         ),
       ],
     );
   }
 
   Widget _buildDocumentCard(DocumentInfo doc, int index) {
-    final fileSize = _getFileSize(doc.file);
-    
-    // COMMENTED OUT: QR status-based border colors - now using simple validity-based colors
-    // Original: Complex border colors based on QR processing status (green=completed, orange=processing, red=failed)
+    final fileSize = _getDocSizeString(doc);
+
     Color borderColor = doc.isValid ? Colors.green : Colors.red;
     double borderWidth = 2;
-    
+
     return Dismissible(
       key: Key('doc_$index'),
       direction: DismissDirection.endToStart,
@@ -1637,11 +1648,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
           color: Colors.red.shade100,
           borderRadius: BorderRadius.circular(8),
         ),
-        child: const Icon(
-          Icons.delete,
-          color: Colors.red,
-          size: 24,
-        ),
+        child: const Icon(Icons.delete, color: Colors.red, size: 24),
       ),
       confirmDismiss: (direction) async {
         return await _showRemoveDialog(doc.displayName);
@@ -1653,10 +1660,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
         elevation: 2,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(8),
-          side: BorderSide(
-            color: borderColor,
-            width: borderWidth,
-          ),
+          side: BorderSide(color: borderColor, width: borderWidth),
         ),
         child: InkWell(
           onTap: () => _previewDocument(doc),
@@ -1668,11 +1672,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
               children: [
                 Row(
                   children: [
-                    Icon(
-                      Icons.description,
-                      color: borderColor,
-                      size: 20,
-                    ),
+                    Icon(Icons.description, color: borderColor, size: 20),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -1685,14 +1685,15 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    // COMMENTED OUT: QR status indicator removed
-                    // _buildQRStatusIndicator(doc, index),
                     const SizedBox(width: 8),
                     IconButton(
                       onPressed: () => _removeDocument(index),
                       icon: const Icon(Icons.close, size: 18),
                       color: Colors.red.shade600,
-                      constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                      constraints: const BoxConstraints(
+                        minWidth: 24,
+                        minHeight: 24,
+                      ),
                       padding: EdgeInsets.zero,
                     ),
                   ],
@@ -1730,15 +1731,6 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                     ),
                   ],
                 ),
-                // COMMENTED OUT: QR info section removed
-                // if (hasQR && doc.qrData != null) ...[
-                //   const SizedBox(height: 8),
-                //   _buildQRInfo(doc.qrData!),
-                // ],
-                // if (doc.qrStatus == QRProcessingStatus.failed && doc.errorMessage != null) ...[
-                //   const SizedBox(height: 8),
-                //   Container(...), // Error message container
-                // ],
               ],
             ),
           ),
@@ -1747,270 +1739,77 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
     );
   }
 
-  // COMMENTED OUT: QR-related UI methods - can be restored by uncommenting
-  /*
-  Widget _buildQRStatusIndicator(DocumentInfo doc, int index) {
-    switch (doc.qrStatus) {
-      case QRProcessingStatus.completed:
-        return GestureDetector(
-          onTap: () => _openGSTEinvoicePage(doc),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
-              color: Colors.green.shade100,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.qr_code,
-                  size: 12,
-                  color: Colors.green.shade700,
-                ),
-                const SizedBox(width: 2),
-                Text(
-                  'QR',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.green.shade700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      case QRProcessingStatus.processing:
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-          decoration: BoxDecoration(
-            color: Colors.orange.shade100,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                width: 12,
-                height: 12,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.orange.shade700),
-                ),
-              ),
-              const SizedBox(width: 2),
-              Text(
-                'QR',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.orange.shade700,
-                ),
-              ),
-            ],
-          ),
-        );
-      case QRProcessingStatus.failed:
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-          decoration: BoxDecoration(
-            color: Colors.red.shade100,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.error,
-                size: 12,
-                color: Colors.red.shade700,
-              ),
-              const SizedBox(width: 2),
-              Text(
-                'QR',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.red.shade700,
-                ),
-              ),
-            ],
-          ),
-        );
-      default:
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-          decoration: BoxDecoration(
-            color: Colors.grey.shade100,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.qr_code,
-                size: 12,
-                color: Colors.grey.shade600,
-              ),
-              const SizedBox(width: 2),
-              Text(
-                'QR',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.grey.shade600,
-                ),
-              ),
-            ],
-          ),
-        );
-    }
-  }
-
-  void _openGSTEinvoicePage(DocumentInfo doc) {
-    if (doc.qrData == null) return;
-    
-    // Navigate to GST E-invoice page with QR data using existing InvoiceResultScreen
-    _openInvoiceDetails(doc.qrData!);
-  }
-
-  Future<void> _openInvoiceDetails(Map<String, dynamic> data) async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => InvoiceResultScreen(
-          invoiceData: data,
-          podId: '0', // POD ID not needed for display purposes
-        ),
-      ),
-    );
-  }
-
-  Widget _buildQRInfo(Map<String, dynamic> qrData) {
-    return Container(
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: Colors.green.shade50,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.green.shade200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                Icons.qr_code_scanner,
-                size: 14,
-                color: Colors.green.shade700,
-              ),
-              const SizedBox(width: 4),
-              Text(
-                'QR Code Data',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.green.shade700,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          if (qrData['DocNo'] != null)
-            _buildQRField('Invoice No', qrData['DocNo'].toString()),
-          if (qrData['DocDt'] != null)
-            _buildQRField('Invoice Date', qrData['DocDt'].toString()),
-          if (qrData['Irn'] != null)
-            _buildQRField('IRN', qrData['Irn'].toString()),
-          if (qrData['TotInvVal'] != null)
-            _buildQRField('Total Value', qrData['TotInvVal'].toString()),
-          if (qrData['BuyerName'] != null)
-            _buildQRField('Buyer', qrData['BuyerName'].toString()),
-          if (qrData['SellerName'] != null)
-            _buildQRField('Seller', qrData['SellerName'].toString()),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildQRField(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 2),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 80,
-            child: Text(
-              '$label:',
-              style: TextStyle(
-                fontSize: 10,
-                color: Colors.grey.shade600,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: TextStyle(
-                fontSize: 10,
-                color: Colors.grey.shade800,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-  */
-
-  String _getFileSize(File file) {
+  String _getDocSizeString(DocumentInfo doc) {
     try {
-      final bytes = file.lengthSync();
+      int bytes = 0;
+      if (doc.webBytes != null) {
+        bytes = doc.webBytes!.lengthInBytes;
+      } else if (doc.file != null) {
+        bytes = doc.file!.lengthSync();
+      }
+      if (bytes == 0) return 'Unknown';
       if (bytes < 1024) return '${bytes}B';
       if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)}KB';
       return '${(bytes / (1024 * 1024)).toStringAsFixed(1)}MB';
-    } catch (e) {
+    } catch (_) {
       return 'Unknown';
     }
   }
 
   Future<bool> _showRemoveDialog(String fileName) async {
     return await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Remove Document'),
-        content: Text('Are you sure you want to remove "$fileName"?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Remove', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    ) ?? false;
+          context: context,
+          builder:
+              (context) => AlertDialog(
+                title: const Text('Remove Document'),
+                content: Text('Are you sure you want to remove "$fileName"?'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Cancel'),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text(
+                      'Remove',
+                      style: TextStyle(color: Colors.red),
+                    ),
+                  ),
+                ],
+              ),
+        ) ??
+        false;
   }
 
   void _previewDocument(DocumentInfo doc) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => PdfPreviewScreen(
-          pdfFile: doc.file,
+    if (doc.file != null && !kIsWeb) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => PdfPreviewScreen(pdfFile: doc.file!),
         ),
-      ),
-    );
+      );
+    } else if (doc.webBytes != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder:
+              (context) => PdfPreviewBytesScreen(
+                pdfBytes: doc.webBytes!,
+                title: doc.displayName,
+              ),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('No previewable content.')));
+    }
   }
 
   void _removeDocument(int index) {
     if (_isBusy) return;
-    
+
     setState(() {
       _capturedDocuments.removeAt(index);
     });
@@ -2019,15 +1818,11 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
 
 /// ===================== DATA MODELS =====================
 
-enum QRProcessingStatus {
-  notStarted,
-  processing,
-  completed,
-  failed,
-}
+enum QRProcessingStatus { notStarted, processing, completed, failed }
 
 class DocumentInfo {
-  final File file;
+  final File? file; // mobile/desktop
+  final Uint8List? webBytes; // web
   final String displayName;
   final bool isValid;
   final Map<String, dynamic>? qrData;
@@ -2036,6 +1831,7 @@ class DocumentInfo {
 
   DocumentInfo({
     required this.file,
+    required this.webBytes,
     required this.displayName,
     required this.isValid,
     this.qrData,
@@ -2045,6 +1841,7 @@ class DocumentInfo {
 
   DocumentInfo copyWith({
     File? file,
+    Uint8List? webBytes,
     String? displayName,
     bool? isValid,
     Map<String, dynamic>? qrData,
@@ -2053,6 +1850,7 @@ class DocumentInfo {
   }) {
     return DocumentInfo(
       file: file ?? this.file,
+      webBytes: webBytes ?? this.webBytes,
       displayName: displayName ?? this.displayName,
       isValid: isValid ?? this.isValid,
       qrData: qrData ?? this.qrData,
@@ -2071,7 +1869,6 @@ class _SelectItem {
     if (value == null) return null;
     if (value is String) return _SelectItem(id: value, label: value);
     if (value is Map) {
-      // Handle both string and integer IDs
       final id = _pickId(value, const [
         'id',
         'ID',
@@ -2109,5 +1906,31 @@ class _SelectItem {
       if (v is int) return v.toString();
     }
     return null;
+  }
+}
+
+/// ===================== PDF PREVIEW (BYTES) =====================
+/// Uses Syncfusion PDF Viewer which supports Web and memory bytes.
+class PdfPreviewBytesScreen extends StatelessWidget {
+  final Uint8List pdfBytes;
+  final String title;
+
+  const PdfPreviewBytesScreen({
+    super.key,
+    required this.pdfBytes,
+    this.title = 'Preview',
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: ModernUIComponents.buildModernAppBar(
+        title: title,
+        subtitle: 'PDF preview',
+        icon: Icons.picture_as_pdf,
+        color: const Color(0xFF00A0A8),
+      ),
+      body: SfPdfViewer.memory(pdfBytes),
+    );
   }
 }

@@ -45,6 +45,8 @@ dependencies:
   
   # Local notifications
   flutter_local_notifications: ^17.2.3
+  dio: ^5.9.0
+  syncfusion_flutter_pdfviewer: ^31.1.19
 
 dev_dependencies:
   flutter_test:

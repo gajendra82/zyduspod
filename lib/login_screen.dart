@@ -13,13 +13,14 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin {
+class _LoginScreenState extends State<LoginScreen>
+    with TickerProviderStateMixin {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   bool _isLoading = false;
   bool _obscure = true;
-  
+
   late AnimationController _fadeController;
   late AnimationController _slideController;
   late AnimationController _scaleController;
@@ -40,9 +41,10 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       duration: const Duration(milliseconds: 1200),
       vsync: this,
     );
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _fadeController, curve: Curves.easeIn),
-    );
+    _fadeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _fadeController, curve: Curves.easeIn));
 
     // Slide animation
     _slideController = AnimationController(
@@ -52,7 +54,9 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     _slideAnimation = Tween<Offset>(
       begin: const Offset(0, 0.3),
       end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _slideController, curve: Curves.easeOutCubic));
+    ).animate(
+      CurvedAnimation(parent: _slideController, curve: Curves.easeOutCubic),
+    );
 
     // Scale animation
     _scaleController = AnimationController(
@@ -83,7 +87,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     _scaleController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
-    super.dispose();  
+    super.dispose();
   }
 
   Future<void> _login() async {
@@ -91,11 +95,11 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
-    
+
     try {
       // Get FCM token for notifications
       final fcmToken = FirebaseService().fcmToken;
-      
+
       final response = await http.post(
         Uri.parse(API_LOGIN_URL),
         headers: {'Content-Type': 'application/json'},
@@ -110,17 +114,33 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
         final body = jsonDecode(response.body);
         final token = _extractToken(body);
         if (token == null || token.isEmpty) {
-          _showErrorDialog('Authentication Error', 'Login successful but authentication token is missing. Please contact support.');
+          _showErrorDialog(
+            'Authentication Error',
+            'Login successful but authentication token is missing. Please contact support.',
+          );
           return;
         }
-        
+
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('authToken', token);
         await prefs.setString('userEmail', _emailController.text.trim());
-        await prefs.setString('userName', _emailController.text.split('@')[0].replaceAll('.', ' ').split(' ').map((word) => word.isNotEmpty ? word[0].toUpperCase() + word.substring(1) : '').join(' '));
+        await prefs.setString(
+          'userName',
+          _emailController.text
+              .split('@')[0]
+              .replaceAll('.', ' ')
+              .split(' ')
+              .map(
+                (word) =>
+                    word.isNotEmpty
+                        ? word[0].toUpperCase() + word.substring(1)
+                        : '',
+              )
+              .join(' '),
+        );
 
         if (!mounted) return;
-        
+
         // Show success message
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -129,7 +149,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
             duration: Duration(seconds: 2),
           ),
         );
-        
+
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const MainNavigation()),
           (route) => false,
@@ -140,10 +160,16 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       }
     } on http.ClientException {
       if (!mounted) return;
-      _showErrorDialog('Network Error', 'Unable to connect to server. Please check your internet connection and try again.');
+      _showErrorDialog(
+        'Network Error',
+        'Unable to connect to server. Please check your internet connection and try again.',
+      );
     } on FormatException {
       if (!mounted) return;
-      _showErrorDialog('Invalid Response', 'Received invalid response from server. Please try again later.');
+      _showErrorDialog(
+        'Invalid Response',
+        'Received invalid response from server. Please try again later.',
+      );
     } catch (e) {
       if (!mounted) return;
       _showErrorDialog('Error', e.toString().replaceAll('Exception: ', ''));
@@ -158,7 +184,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
 
     try {
       final body = jsonDecode(response.body);
-      
+
       // Try to extract error message from response
       if (body is Map) {
         message = body['message'] ?? body['error'] ?? body['detail'] ?? message;
@@ -171,19 +197,23 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     switch (response.statusCode) {
       case 401:
         title = 'Invalid Credentials';
-        if (message.contains('password') || message.toLowerCase().contains('credential')) {
-          message = 'Incorrect email or password. Please check your credentials and try again.';
+        if (message.contains('password') ||
+            message.toLowerCase().contains('credential')) {
+          message =
+              'Incorrect email or password. Please check your credentials and try again.';
         } else {
           message = 'Your email or password is incorrect. Please try again.';
         }
         break;
       case 403:
         title = 'Access Denied';
-        message = 'Your account does not have permission to access this application.';
+        message =
+            'Your account does not have permission to access this application.';
         break;
       case 404:
         title = 'Service Not Found';
-        message = 'Unable to reach authentication service. Please try again later.';
+        message =
+            'Unable to reach authentication service. Please try again later.';
         break;
       case 422:
         title = 'Invalid Input';
@@ -191,7 +221,8 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
         break;
       case 429:
         title = 'Too Many Attempts';
-        message = 'Too many login attempts. Please wait a few minutes before trying again.';
+        message =
+            'Too many login attempts. Please wait a few minutes before trying again.';
         break;
       case 500:
       case 502:
@@ -209,54 +240,48 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
 
   void _showErrorDialog(String title, String message) {
     if (!mounted) return;
-    
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        title: Row(
-          children: [
-            Icon(
-              Icons.error_outline,
-              color: Colors.red.shade600,
-              size: 28,
+      builder:
+          (context) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                title,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF2C3E50),
-                  fontSize: 18,
+            title: Row(
+              children: [
+                Icon(Icons.error_outline, color: Colors.red.shade600, size: 28),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF2C3E50),
+                      fontSize: 18,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            content: Text(
+              message,
+              style: const TextStyle(color: Color(0xFF7F8C8D), fontSize: 16),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text(
+                  'OK',
+                  style: TextStyle(
+                    color: Color(0xFF00A0A8),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
+                  ),
                 ),
               ),
-            ),
-          ],
-        ),
-        content: Text(
-          message,
-          style: const TextStyle(
-            color: Color(0xFF7F8C8D),
-            fontSize: 16,
+            ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text(
-              'OK',
-              style: TextStyle(
-                color: Color(0xFF00A0A8),
-                fontWeight: FontWeight.w600,
-                fontSize: 16,
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -300,7 +325,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const SizedBox(height: 20),
-                    
+
                     // Animated Logo and Welcome Section
                     FadeTransition(
                       opacity: _fadeAnimation,
@@ -312,9 +337,9 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                         ),
                       ),
                     ),
-                    
+
                     const SizedBox(height: 40),
-                    
+
                     // Animated Login Form
                     FadeTransition(
                       opacity: _fadeAnimation,
@@ -323,9 +348,9 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                         child: _buildLoginForm(),
                       ),
                     ),
-                    
+
                     const SizedBox(height: 32),
-                    
+
                     // Animated Footer
                     FadeTransition(
                       opacity: _fadeAnimation,
@@ -346,10 +371,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       padding: const EdgeInsets.all(32),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            const Color(0xFF00A0A8),
-            const Color(0xFF00858C),
-          ],
+          colors: [const Color(0xFF00A0A8), const Color(0xFF00858C)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -393,9 +415,10 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
           ),
           const SizedBox(height: 24),
           ShaderMask(
-            shaderCallback: (bounds) => const LinearGradient(
-              colors: [Colors.white, Colors.white70],
-            ).createShader(bounds),
+            shaderCallback:
+                (bounds) => const LinearGradient(
+                  colors: [Colors.white, Colors.white70],
+                ).createShader(bounds),
             child: const Text(
               'Welcome',
               style: TextStyle(
@@ -456,7 +479,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
               },
             ),
             const SizedBox(height: 20),
-            
+
             _buildModernTextField(
               controller: _passwordController,
               label: 'Password',
@@ -465,7 +488,9 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
               obscureText: _obscure,
               suffixIcon: IconButton(
                 icon: Icon(
-                  _obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                  _obscure
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
                   color: const Color(0xFF00A0A8),
                 ),
                 onPressed: () => setState(() => _obscure = !_obscure),
@@ -475,9 +500,9 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                 return null;
               },
             ),
-            
+
             const SizedBox(height: 32),
-            
+
             // Modern animated login button
             _buildLoginButton(),
           ],
@@ -514,10 +539,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
           keyboardType: keyboardType,
           obscureText: obscureText,
           validator: validator,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w500,
-          ),
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: TextStyle(
@@ -531,11 +553,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                 color: const Color(0xFF00A0A8).withOpacity(0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Icon(
-                icon,
-                color: const Color(0xFF00A0A8),
-                size: 20,
-              ),
+              child: Icon(icon, color: const Color(0xFF00A0A8), size: 20),
             ),
             suffixIcon: suffixIcon,
             filled: true,
@@ -560,7 +578,10 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
               borderRadius: BorderRadius.circular(16),
               borderSide: const BorderSide(color: Colors.red, width: 2),
             ),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 20,
+              vertical: 18,
+            ),
           ),
         ),
       ],
@@ -579,66 +600,68 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
             height: 56,
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: _isLoading
-                    ? [Colors.grey.shade400, Colors.grey.shade500]
-                    : [
-                        const Color(0xFF00A0A8),
-                        const Color(0xFF00858C),
-                      ],
+                colors:
+                    _isLoading
+                        ? [Colors.grey.shade400, Colors.grey.shade500]
+                        : [const Color(0xFF00A0A8), const Color(0xFF00858C)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
               borderRadius: BorderRadius.circular(16),
-              boxShadow: _isLoading
-                  ? []
-                  : [
-                      BoxShadow(
-                        color: const Color(0xFF00A0A8).withOpacity(0.4),
-                        blurRadius: 20,
-                        offset: const Offset(0, 10),
-                        spreadRadius: -5,
-                      ),
-                    ],
-            ),
-            child: Center(
-              child: _isLoading
-                  ? const SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.5,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
-                  : Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Text(
-                          'Sign In',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        TweenAnimationBuilder<double>(
-                          tween: Tween(begin: 0.0, end: 1.0),
-                          duration: const Duration(milliseconds: 800),
-                          builder: (context, value, child) {
-                            return Transform.translate(
-                              offset: Offset(4 * value, 0),
-                              child: const Icon(
-                                Icons.arrow_forward_rounded,
-                                color: Colors.white,
-                                size: 24,
-                              ),
-                            );
-                          },
+              boxShadow:
+                  _isLoading
+                      ? []
+                      : [
+                        BoxShadow(
+                          color: const Color(0xFF00A0A8).withOpacity(0.4),
+                          blurRadius: 20,
+                          offset: const Offset(0, 10),
+                          spreadRadius: -5,
                         ),
                       ],
-                    ),
+            ),
+            child: Center(
+              child:
+                  _isLoading
+                      ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Colors.white,
+                          ),
+                        ),
+                      )
+                      : Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Text(
+                            'Sign In',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          TweenAnimationBuilder<double>(
+                            tween: Tween(begin: 0.0, end: 1.0),
+                            duration: const Duration(milliseconds: 800),
+                            builder: (context, value, child) {
+                              return Transform.translate(
+                                offset: Offset(4 * value, 0),
+                                child: const Icon(
+                                  Icons.arrow_forward_rounded,
+                                  color: Colors.white,
+                                  size: 24,
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
             ),
           ),
         ),
