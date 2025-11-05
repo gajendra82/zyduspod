@@ -51,10 +51,10 @@ class _BatchesListScreenState extends State<BatchesListScreen> {
         _hasMore = response.nextPageUrl != null;
       });
     } catch (e) {
-      print('Error loading batches: $e');
+      print('Error loading batches at _loadBatches: $e');
       setState(() {
         _hasError = true;
-        _errorMessage = e.toString();
+        _errorMessage = 'Exception at _loadBatches: $e';
       });
     } finally {
       if (mounted) setState(() => _isLoading = false);
