@@ -42,32 +42,81 @@ class Batch {
   });
 
   factory Batch.fromJson(Map<String, dynamic> json) {
+    // Helper to safely convert to String
+    String? _safeString(dynamic value) {
+      if (value == null) return null;
+      if (value is String) return value;
+      if (value is List && value.isNotEmpty) {
+        // If it's a list, take the first element and convert to string
+        return value.first.toString();
+      }
+      return value.toString();
+    }
+
+    // Helper to safely convert to int
+    int _safeInt(dynamic value, int defaultValue) {
+      if (value == null) return defaultValue;
+      if (value is int) return value;
+      if (value is String) return int.tryParse(value) ?? defaultValue;
+      return defaultValue;
+    }
+
+    // Helper to safely convert to Map
+    Map<String, dynamic>? _safeMap(dynamic value) {
+      if (value == null) return null;
+      if (value is Map<String, dynamic>) return value;
+      if (value is Map) {
+        return Map<String, dynamic>.from(value);
+      }
+      return null;
+    }
+
     return Batch(
-      id: json['id'] as int,
-      userId: json['user_id'] as int,
-      hospitalId: json['hospital_id'] as int,
-      stockistId: json['stockist_id'] as int,
-      totalFiles: json['total_files'] as int? ?? 0,
-      successfulFiles: json['successful_files'] as int? ?? 0,
-      failedFiles: json['failed_files'] as int? ?? 0,
-      cancelledFiles: json['cancelled_files'] as int? ?? 0,
-      status: json['status'] as String? ?? 'unknown',
-      startedAt: json['started_at'] as String?,
-      completedAt: json['completed_at'] as String?,
-      steps: json['steps'] as Map<String, dynamic>? ?? {},
-      failureReasons: json['failure_reasons'] as String?,
-      metadata: json['metadata'] as Map<String, dynamic>? ?? {},
-      createdAt: json['created_at'] as String? ?? '',
-      updatedAt: json['updated_at'] as String? ?? '',
-      user: json['user'] as Map<String, dynamic>?,
-      hospital: json['hospital'] as Map<String, dynamic>?,
-      stockist: json['stockist'] as Map<String, dynamic>?,
+      id: _safeInt(json['id'], 0),
+      userId: _safeInt(json['user_id'], 0),
+      hospitalId: _safeInt(json['hospital_id'], 0),
+      stockistId: _safeInt(json['stockist_id'], 0),
+      totalFiles: _safeInt(json['total_files'], 0),
+      successfulFiles: _safeInt(json['successful_files'], 0),
+      failedFiles: _safeInt(json['failed_files'], 0),
+      cancelledFiles: _safeInt(json['cancelled_files'], 0),
+      status: _safeString(json['status']) ?? 'unknown',
+      startedAt: _safeString(json['started_at']),
+      completedAt: _safeString(json['completed_at']),
+      steps: _safeMap(json['steps']) ?? {},
+      failureReasons: _safeString(json['failure_reasons']),
+      metadata: _safeMap(json['metadata']) ?? {},
+      createdAt: _safeString(json['created_at']) ?? '',
+      updatedAt: _safeString(json['updated_at']) ?? '',
+      user: _safeMap(json['user']),
+      hospital: _safeMap(json['hospital']),
+      stockist: _safeMap(json['stockist']),
     );
   }
 
-  String get hospitalName => hospital?['name'] as String? ?? 'Unknown Hospital';
-  String get stockistName => stockist?['name'] as String? ?? 'Unknown Stockist';
-  String get userName => user?['name'] as String? ?? 'Unknown User';
+  String get hospitalName {
+    final name = hospital?['name'];
+    if (name == null) return 'Unknown Hospital';
+    if (name is String) return name;
+    if (name is List && name.isNotEmpty) return name.first.toString();
+    return name.toString();
+  }
+  
+  String get stockistName {
+    final name = stockist?['name'];
+    if (name == null) return 'Unknown Stockist';
+    if (name is String) return name;
+    if (name is List && name.isNotEmpty) return name.first.toString();
+    return name.toString();
+  }
+  
+  String get userName {
+    final name = user?['name'];
+    if (name == null) return 'Unknown User';
+    if (name is String) return name;
+    if (name is List && name.isNotEmpty) return name.first.toString();
+    return name.toString();
+  }
 }
 
 class BatchListResponse {
@@ -90,15 +139,64 @@ class BatchListResponse {
   });
 
   factory BatchListResponse.fromJson(Map<String, dynamic> json) {
-    final List<dynamic> dataList = json['data'] as List<dynamic>? ?? [];
+    // Helper to safely convert to String
+    String? _safeString(dynamic value) {
+      if (value == null) return null;
+      if (value is String) return value;
+      if (value is List && value.isNotEmpty) {
+        return value.first.toString();
+      }
+      return value.toString();
+    }
+
+    // Helper to safely convert to int
+    int _safeInt(dynamic value, int defaultValue) {
+      if (value == null) return defaultValue;
+      if (value is int) return value;
+      if (value is String) return int.tryParse(value) ?? defaultValue;
+      return defaultValue;
+    }
+
+    // Helper to safely convert to nullable int
+    int? _safeIntNullable(dynamic value) {
+      if (value == null) return null;
+      if (value is int) return value;
+      if (value is String) return int.tryParse(value);
+      return null;
+    }
+
+    final List<dynamic> dataList = json['data'] is List ? json['data'] as List<dynamic> : [];
     return BatchListResponse(
-      currentPage: json['current_page'] as int? ?? 1,
-      data: dataList.map((e) => Batch.fromJson(e as Map<String, dynamic>)).toList(),
-      lastPage: json['last_page'] as int?,
-      total: json['total'] as int? ?? 0,
-      perPage: json['per_page'] as int? ?? 25,
-      nextPageUrl: json['next_page_url'] as String?,
-      prevPageUrl: json['prev_page_url'] as String?,
+      currentPage: _safeInt(json['current_page'], 1),
+      data: dataList
+          .map((e) {
+            try {
+              if (e == null) return null;
+              Map<String, dynamic>? batchMap;
+              if (e is Map<String, dynamic>) {
+                batchMap = e;
+              } else if (e is Map) {
+                try {
+                  batchMap = Map<String, dynamic>.from(e);
+                } catch (_) {
+                  return null;
+                }
+              } else {
+                return null;
+              }
+              return Batch.fromJson(batchMap);
+            } catch (err) {
+              print('Error parsing batch item: $err');
+              return null;
+            }
+          })
+          .whereType<Batch>()
+          .toList(),
+      lastPage: _safeIntNullable(json['last_page']),
+      total: _safeInt(json['total'], 0),
+      perPage: _safeInt(json['per_page'], 25),
+      nextPageUrl: _safeString(json['next_page_url']),
+      prevPageUrl: _safeString(json['prev_page_url']),
     );
   }
 }

@@ -638,6 +638,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
               isValid: true,
               qrData: null,
               qrStatus: QRProcessingStatus.completed, // Skip QR extraction - mark as completed
+              originalRawFile: originalFile, // Store reference to original raw file
             );
             
             setState(() {
@@ -929,6 +930,31 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
             contentType: contentType,
           ),
         );
+      }
+
+      // Attach original raw files if documents were split
+      // Collect unique original raw files
+      final Set<String> rawFilePaths = {};
+      for (final d in validDocs) {
+        if (d.originalRawFile != null && await d.originalRawFile!.exists()) {
+          rawFilePaths.add(d.originalRawFile!.path);
+        }
+      }
+      
+      // Attach each unique raw file with key 'raw_file'
+      for (final rawFilePath in rawFilePaths) {
+        final rawFile = File(rawFilePath);
+        final filename = p.basename(rawFile.path);
+        final contentType = _inferContentType(rawFile);
+        req.files.add(
+          await http.MultipartFile.fromPath(
+            'raw_file',
+            rawFile.path,
+            filename: filename,
+            contentType: contentType,
+          ),
+        );
+        debugPrint('[UPLOAD] Attached original raw file: $filename');
       }
 
       // Add headers
@@ -2033,6 +2059,7 @@ class DocumentInfo {
   final Map<String, dynamic>? qrData;
   final QRProcessingStatus qrStatus;
   final String? errorMessage;
+  final File? originalRawFile; // Original file if this was split from a PDF
 
   DocumentInfo({
     required this.file,
@@ -2041,6 +2068,7 @@ class DocumentInfo {
     this.qrData,
     this.qrStatus = QRProcessingStatus.notStarted,
     this.errorMessage,
+    this.originalRawFile,
   });
 
   DocumentInfo copyWith({
@@ -2050,6 +2078,7 @@ class DocumentInfo {
     Map<String, dynamic>? qrData,
     QRProcessingStatus? qrStatus,
     String? errorMessage,
+    File? originalRawFile,
   }) {
     return DocumentInfo(
       file: file ?? this.file,
@@ -2058,6 +2087,7 @@ class DocumentInfo {
       qrData: qrData ?? this.qrData,
       qrStatus: qrStatus ?? this.qrStatus,
       errorMessage: errorMessage ?? this.errorMessage,
+      originalRawFile: originalRawFile ?? this.originalRawFile,
     );
   }
 }
