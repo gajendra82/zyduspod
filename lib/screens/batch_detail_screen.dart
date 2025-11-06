@@ -405,90 +405,207 @@ class _BatchDetailScreenState extends State<BatchDetailScreen> {
   Widget _buildStepCard(String stepName, dynamic stepData) {
     if (stepData is! Map) return const SizedBox.shrink();
 
-    final stepMap = Map<String, dynamic>.from(stepData);
-    final status = stepMap['status'] as String? ?? 'unknown';
-    final statusColor = _getStatusColor(status);
-    final stepTitle = _formatStepName(stepName);
-    final isCompleted = status.toLowerCase() == 'completed';
+    try {
+      final stepMap = Map<String, dynamic>.from(stepData);
+      final status = _safeString(stepMap['status']) ?? 'unknown';
+      final statusColor = _getStatusColor(status);
+      final stepTitle = _formatStepName(stepName);
+      final isCompleted = status.toLowerCase() == 'completed';
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isCompleted ? statusColor.withOpacity(0.3) : Colors.grey.shade300,
-          width: isCompleted ? 2 : 1,
-        ),
-        boxShadow: isCompleted
-            ? [
-                BoxShadow(
-                  color: statusColor.withOpacity(0.1),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ]
-            : null,
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: statusColor.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(
-              _getStatusIcon(status),
-              color: statusColor,
-              size: 24,
-            ),
+      // Extract errors from result if they exist
+      final result = stepMap['result'];
+      List<dynamic> errors = [];
+      if (result is Map) {
+        try {
+          final resultMap = Map<String, dynamic>.from(result);
+          if (resultMap['errors'] is List) {
+            errors = resultMap['errors'] as List<dynamic>;
+          }
+        } catch (_) {
+          // Ignore parsing errors
+        }
+      }
+
+      return Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isCompleted ? statusColor.withOpacity(0.3) : Colors.grey.shade300,
+            width: isCompleted ? 2 : 1,
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          boxShadow: isCompleted
+              ? [
+                  BoxShadow(
+                    color: statusColor.withOpacity(0.1),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ]
+              : null,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                Text(
-                  stepTitle,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF2C3E50),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: statusColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    _getStatusIcon(status),
+                    color: statusColor,
+                    size: 24,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  isCompleted ? 'Completed successfully' : 'In progress',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.grey.shade600,
-                    fontWeight: FontWeight.w500,
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        stepTitle,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF2C3E50),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        isCompleted ? 'Completed successfully' : 'In progress',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey.shade600,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: statusColor.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    status.toUpperCase(),
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: statusColor,
+                      letterSpacing: 0.5,
+                    ),
                   ),
                 ),
               ],
             ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: statusColor.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(
-              status.toUpperCase(),
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
-                color: statusColor,
-                letterSpacing: 0.5,
+            // Show errors only if they exist
+            if (errors.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.shade200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.error_outline, size: 16, color: Colors.red.shade700),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Errors (${errors.length})',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.red.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    ...errors.take(5).map((error) {
+                      String errorText = '';
+                      if (error is Map) {
+                        try {
+                          final errorMap = Map<String, dynamic>.from(error);
+                          if (errorMap['error'] != null) {
+                            errorText = errorMap['error'].toString();
+                          } else {
+                            errorText = error.toString();
+                          }
+                        } catch (_) {
+                          errorText = error.toString();
+                        }
+                      } else {
+                        errorText = error.toString();
+                      }
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              margin: const EdgeInsets.only(top: 4, right: 8),
+                              width: 4,
+                              height: 4,
+                              decoration: BoxDecoration(
+                                color: Colors.red.shade700,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            Expanded(
+                              child: Text(
+                                errorText,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.red.shade800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                    if (errors.length > 5)
+                      Text(
+                        '... and ${errors.length - 5} more error(s)',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontStyle: FontStyle.italic,
+                          color: Colors.red.shade600,
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            ),
-          ),
-        ],
-      ),
-    );
+            ],
+          ],
+        ),
+      );
+    } catch (e) {
+      print('Error building step card for $stepName: $e');
+      return const SizedBox.shrink();
+    }
+  }
+
+  String? _safeString(dynamic value) {
+    if (value == null) return null;
+    if (value is String) return value;
+    if (value is List && value.isNotEmpty) {
+      return value.first.toString();
+    }
+    return value.toString();
   }
 
   String _formatStepName(String stepName) {

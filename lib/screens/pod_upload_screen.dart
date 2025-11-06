@@ -508,22 +508,22 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                ListTile(
-                  leading: const Icon(Icons.camera_alt),
-                  title: const Text('Camera'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _captureFromCamera();
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.photo_library),
-                  title: const Text('Gallery'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _pickFromGallery();
-                  },
-                ),
+                // ListTile(
+                //   leading: const Icon(Icons.camera_alt),
+                //   title: const Text('Camera'),
+                //   onTap: () {
+                //     Navigator.pop(context);
+                //     _captureFromCamera();
+                //   },
+                // ),
+                // ListTile(
+                //   leading: const Icon(Icons.photo_library),
+                //   title: const Text('Gallery'),
+                //   onTap: () {
+                //     Navigator.pop(context);
+                //     _pickFromGallery();
+                //   },
+                // ),
                 ListTile(
                   leading: const Icon(Icons.picture_as_pdf),
                   title: const Text('PDF Files'),
