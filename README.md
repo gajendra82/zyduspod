@@ -1,16 +1,63 @@
-# zyduspod
+# Zydus Pod
 
-A new Flutter project.
+Zydus Pod is a powerful platform for managing and tracking the status of your shipments.
+
+## Features
+
+- **Manage Shipments:** Add, update, and track your shipments with ease.
+- **Standalone App:** Run as a progressive web app (PWA) on mobile or desktop.
+- **Modern UI:** Designed for accessibility and usability.
+- **Cross-Platform:** Works on Web, Windows, and Linux.
 
 ## Getting Started
 
-This project is a starting point for a Flutter application.
+### Web
 
-A few resources to get you started if this is your first Flutter project:
+To run the app on web:
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+1. Open a terminal in the project directory.
+2. Run:
+   ```
+   flutter run -d chrome
+   ```
+3. For production build:
+   ```
+   flutter build web
+   ```
+   The output will be in the `build/web` directory.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+### Desktop
+
+#### Windows
+
+1. Ensure you have [Flutter](https://flutter.dev/desktop) set up for Windows.
+2. Run:
+   ```
+   flutter run -d windows
+   ```
+
+#### Linux
+
+1. Ensure you have Flutter set up for Linux.
+2. Run:
+   ```
+   flutter run -d linux
+   ```
+
+## App Manifest
+
+- App name: **zyduspod**
+- Theme color: `#0175C2`
+- Description: Zydus Pod is a platform for managing and tracking the status of your shipments.
+
+## Development
+
+To contribute or modify, check out the respective platform folders and Flutter code base.
+
+## License
+
+This project is licensed under the MIT License.
+
+---
+
+*Made with Flutter*
