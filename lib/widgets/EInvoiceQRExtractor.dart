@@ -154,14 +154,16 @@ class EInvoiceQRExtractor {
     _DecodeTask task,
   ) {
     try {
-      final Int32List data = task.transform == _Transform.none
-          ? argb
-          : _toBWArgb(width, height, argb);
+      final Int32List data =
+          task.transform == _Transform.none
+              ? argb
+              : _toBWArgb(width, height, argb);
 
       final src = zxing.RGBLuminanceSource(width, height, data);
-      final bin = task.mode == _Mode.hybrid
-          ? zxing.HybridBinarizer(src)
-          : zxing.GlobalHistogramBinarizer(src);
+      final bin =
+          task.mode == _Mode.hybrid
+              ? zxing.HybridBinarizer(src)
+              : zxing.GlobalHistogramBinarizer(src);
       final bitmap = zxing.BinaryBitmap(bin);
 
       final reader = zxing_qr.QRCodeReader();

@@ -1,6 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:zyduspod/login_screen.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:zyduspod/services/auth_service.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:zyduspod/widgets/modern_ui_components.dart';
+import 'package:zyduspod/widgets/notification_handler.dart';
+import 'package:zyduspod/screens/notifications_screen.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:zyduspod/config.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -9,16 +17,50 @@ class ProfileScreen extends StatefulWidget {
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen> {
+class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateMixin {
   String? _userEmail;
   String? _userName;
   String? _userToken;
   bool _isLoading = true;
+  String _appVersion = '';
+  
+  late AnimationController _fadeController;
+  late AnimationController _slideController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
 
   @override
   void initState() {
     super.initState();
+    _setupAnimations();
     _loadUserData();
+    _loadAppVersion();
+  }
+
+  void _setupAnimations() {
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _fadeController, curve: Curves.easeIn),
+    );
+
+    _slideController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.3),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _slideController, curve: Curves.easeOutCubic));
+  }
+
+  @override
+  void dispose() {
+    _fadeController.dispose();
+    _slideController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadUserData() async {
@@ -30,9 +72,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _userToken = prefs.getString('authToken') ?? '';
         _isLoading = false;
       });
+      
+      // Start animations after data is loaded
+      _fadeController.forward();
+      Future.delayed(const Duration(milliseconds: 200), () {
+        _slideController.forward();
+      });
     } catch (e) {
       setState(() {
         _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _loadAppVersion() async {
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      setState(() {
+        _appVersion = packageInfo.version;
+      });
+    } catch (e) {
+      setState(() {
+        _appVersion = '1.0.0';
       });
     }
   }
@@ -41,120 +102,98 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        title: const Text('Profile'),
-        backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF2C3E50),
-        elevation: 0,
-        centerTitle: true,
+      appBar: ModernUIComponents.buildModernAppBar(
+        title: 'Profile',
+        subtitle: 'Account Settings',
+        icon: Icons.person_rounded,
+        color: const Color(0xFF00A0A8),
+        actions: [
+          IconButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const NotificationsScreen(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.notifications_rounded),
+            tooltip: 'Notifications',
+          ),
+          IconButton(
+            onPressed: () => _showChangePasswordDialog(context),
+            icon: const Icon(Icons.lock_rounded),
+            tooltip: 'Change Password',
+          ),
+        ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Header Section
-                  _buildHeader(context),
-                  const SizedBox(height: 24),
-                  
-                  // User Info Card
-                  _buildUserInfoCard(context),
-                  const SizedBox(height: 24),
-                  
-                  // Account Actions
-                  _buildAccountActions(context),
-                ],
+          ? const Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00A0A8)),
+              ),
+            )
+          : FadeTransition(
+              opacity: _fadeAnimation,
+              child: SlideTransition(
+                position: _slideAnimation,
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Header Section
+                      _buildModernHeader(context),
+                      const SizedBox(height: 24),
+                      
+                      // User Info Card
+                      _buildModernUserInfoCard(context),
+                      const SizedBox(height: 24),
+                      
+                      // Account Actions
+                      _buildModernAccountActions(context),
+                      const SizedBox(height: 32),
+                      
+                      // App Version at Bottom
+                      _buildVersionInfo(),
+                      const SizedBox(height: 20),
+                    ],
+                  ),
+                ),
               ),
             ),
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            const Color(0xFF00A0A8),
-            const Color(0xFF6EC1C7),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF00A0A8).withOpacity(0.3),
-            blurRadius: 15,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: const Icon(
-              Icons.person_rounded,
-              color: Colors.white,
-              size: 32,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Profile',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Manage your account',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.8),
-                    fontSize: 14,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+  Widget _buildModernHeader(BuildContext context) {
+    return ModernUIComponents.buildPageHeader(
+      title: 'Account Profile',
+      subtitle: 'Manage your account settings and preferences',
+      icon: Icons.account_circle_rounded,
+      color: const Color(0xFF00A0A8),
     );
   }
 
-  Widget _buildUserInfoCard(BuildContext context) {
+  Widget _buildModernUserInfoCard(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
       child: Column(
         children: [
-          // Profile Avatar
+          // Profile Avatar with enhanced design
           Container(
-            width: 80,
-            height: 80,
+            width: 100,
+            height: 100,
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [
@@ -164,87 +203,156 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
-              borderRadius: BorderRadius.circular(40),
+              borderRadius: BorderRadius.circular(50),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF00A0A8).withOpacity(0.3),
+                  blurRadius: 15,
+                  offset: const Offset(0, 5),
+                ),
+              ],
             ),
             child: const Icon(
               Icons.person_rounded,
               color: Colors.white,
-              size: 40,
+              size: 50,
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           
-          // User Info
+          // User Info with better typography
           Text(
             _userName ?? 'User Name',
             style: const TextStyle(
-              fontSize: 20,
+              fontSize: 24,
               fontWeight: FontWeight.bold,
               color: Color(0xFF2C3E50),
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            _userEmail ?? 'user@example.com',
-            style: const TextStyle(
-              fontSize: 14,
-              color: Color(0xFF7F8C8D),
-            ),
-          ),
           const SizedBox(height: 8),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
-              color: const Color(0xFF4CAF50).withOpacity(0.1),
+              color: Colors.grey.shade100,
               borderRadius: BorderRadius.circular(20),
             ),
-            child: const Text(
-              'Active',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF4CAF50),
+            child: Text(
+              _userEmail ?? 'user@example.com',
+              style: const TextStyle(
+                fontSize: 16,
+                color: Color(0xFF7F8C8D),
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),
           const SizedBox(height: 16),
           
-          // Token Info (for debugging)
-          if (_userToken != null && _userToken!.isNotEmpty) ...[
-            const Divider(),
-            const SizedBox(height: 12),
-            Row(
+          // Status badge with modern design
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  const Color(0xFF4CAF50),
+                  const Color(0xFF66BB6A),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(25),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF4CAF50).withOpacity(0.3),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 const Icon(
-                  Icons.security_rounded,
-                  color: Color(0xFF7F8C8D),
-                  size: 20,
+                  Icons.check_circle_rounded,
+                  color: Colors.white,
+                  size: 18,
                 ),
                 const SizedBox(width: 8),
                 const Text(
-                  'Authentication Status:',
+                  'Account Active',
                   style: TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF7F8C8D),
-                  ),
-                ),
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF4CAF50).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Text(
-                    'Authenticated',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF4CAF50),
-                    ),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
                   ),
                 ),
               ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          
+          // Security status with modern design
+          if (_userToken != null && _userToken!.isNotEmpty) ...[
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade100,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      Icons.security_rounded,
+                      color: Colors.blue.shade600,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Security Status',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF2C3E50),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Authenticated & Secure',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.blue.shade600,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade100,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      'Verified',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF4CAF50),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ],
@@ -252,35 +360,88 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildAccountActions(BuildContext context) {
+  Widget _buildModernAccountActions(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
       child: Column(
         children: [
+          // Change Password Button
+          _buildModernActionButton(
+            context,
+            'Change Password',
+            'Update your account password',
+            Icons.lock_reset_rounded,
+            const Color(0xFF00A0A8),
+            () => _showChangePasswordDialog(context),
+          ),
+          _buildModernDivider(),
+          // All Notifications Button
+          _buildModernActionButton(
+            context,
+            'All Notifications',
+            'See all your notifications',
+            Icons.notifications_rounded,
+            const Color(0xFF1E88E5),
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const NotificationsScreen(),
+              ),
+            ),
+          ),
+          _buildModernDivider(),
+          // Notification Settings Button
+          _buildModernActionButton(
+            context,
+            'Notification Settings',
+            'Manage app notifications and updates',
+            Icons.notifications_rounded,
+            const Color(0xFF9C27B0),
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const NotificationSettings(),
+              ),
+            ),
+          ),
+          _buildModernDivider(),
+          // Contact Support Button
+          _buildModernActionButton(
+            context,
+            'Contact Support',
+            'Get help and support',
+            Icons.support_agent_rounded,
+            const Color(0xFF2196F3),
+            () {
+              launchUrl(Uri.parse('https://crm.globalspace.in/forms/ticket?styled=1'));
+            },
+          ),
+          _buildModernDivider(),
           // Logout Button
-          _buildActionButton(
+          _buildModernActionButton(
             context,
             'Logout',
+            'Sign out of your account',
             Icons.logout_rounded,
             const Color(0xFFFF9800),
             () => _showLogoutDialog(context),
           ),
-          _buildDivider(),
-          
+          _buildModernDivider(),
           // Delete Account Button
-          _buildActionButton(
+          _buildModernActionButton(
             context,
             'Delete Account',
+            'Permanently delete your account',
             Icons.delete_forever_rounded,
             Colors.red.shade600,
             () => _showDeleteAccountDialog(context),
@@ -290,47 +451,78 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildActionButton(
+  Widget _buildModernActionButton(
     BuildContext context,
     String title,
+    String subtitle,
     IconData icon,
     Color color,
     VoidCallback onTap,
   ) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(16),
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Row(
           children: [
             Container(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
+                gradient: LinearGradient(
+                  colors: [
+                    color.withOpacity(0.1),
+                    color.withOpacity(0.05),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: color.withOpacity(0.2),
+                  width: 1,
+                ),
               ),
               child: Icon(
                 icon,
                 color: color,
-                size: 20,
+                size: 24,
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 16),
             Expanded(
-              child: Text(
-                title,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: color,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: color,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ],
               ),
             ),
-            Icon(
-              Icons.arrow_forward_ios_rounded,
-              color: Colors.grey.shade400,
-              size: 16,
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                Icons.arrow_forward_ios_rounded,
+                color: Colors.grey.shade600,
+                size: 16,
+              ),
             ),
           ],
         ),
@@ -338,13 +530,72 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildDivider() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Divider(
-        height: 1,
-        color: Colors.grey.shade200,
+  Widget _buildModernDivider() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      height: 1,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.transparent,
+            Colors.grey.shade300,
+            Colors.transparent,
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildVersionInfo() {
+    return Center(
+      child: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                Text(
+                  'Version $_appVersion',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey.shade600,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '© ${DateTime.now().year} Globalspace Technologies Pvt. Ltd. All rights reserved.',
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey.shade500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showChangePasswordDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return ChangePasswordDialog(
+          userEmail: _userEmail ?? '',
+          onPasswordChanged: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Password changed successfully!'),
+                backgroundColor: Color(0xFF4CAF50),
+                duration: Duration(seconds: 3),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -517,20 +768,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _logout(BuildContext context) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('authToken');
-      await prefs.remove('userEmail');
-      await prefs.remove('userName');
-      
-      if (!context.mounted) return;
-      
       Navigator.of(context).pop(); // Close dialog
       
-      // Navigate to login screen
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-        (route) => false,
-      );
+      // Use AuthService for logout
+      await AuthService.logout(context);
+      
+      if (!context.mounted) return;
       
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -568,22 +811,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       // Simulate API call delay
       await Future.delayed(const Duration(seconds: 2));
-
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('authToken');
-      await prefs.remove('userEmail');
-      await prefs.remove('userName');
       
       if (!context.mounted) return;
       
       Navigator.of(context).pop(); // Close processing dialog
       Navigator.of(context).pop(); // Close delete dialog
       
-      // Navigate to login screen
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-        (route) => false,
-      );
+      // Use AuthService for logout
+      await AuthService.logout(context);
+      
+      if (!context.mounted) return;
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -606,5 +843,427 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
       );
     }
+  }
+}
+
+class ChangePasswordDialog extends StatefulWidget {
+  final String userEmail;
+  final VoidCallback onPasswordChanged;
+
+  const ChangePasswordDialog({
+    super.key,
+    required this.userEmail,
+    required this.onPasswordChanged,
+  });
+
+  @override
+  State<ChangePasswordDialog> createState() => _ChangePasswordDialogState();
+}
+
+class _ChangePasswordDialogState extends State<ChangePasswordDialog> with TickerProviderStateMixin {
+  final _formKey = GlobalKey<FormState>();
+  final _currentPasswordController = TextEditingController();
+  final _newPasswordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
+  
+  bool _isLoading = false;
+  bool _obscureCurrentPassword = true;
+  bool _obscureNewPassword = true;
+  bool _obscureConfirmPassword = true;
+  
+  late AnimationController _fadeController;
+  late AnimationController _scaleController;
+  late Animation<double> _fadeAnimation;
+  late Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _setupAnimations();
+  }
+
+  void _setupAnimations() {
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _fadeController, curve: Curves.easeIn),
+    );
+
+    _scaleController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
+      CurvedAnimation(parent: _scaleController, curve: Curves.easeOutBack),
+    );
+
+    _fadeController.forward();
+    _scaleController.forward();
+  }
+
+  @override
+  void dispose() {
+    _fadeController.dispose();
+    _scaleController.dispose();
+    _currentPasswordController.dispose();
+    _newPasswordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _changePassword() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      final response = await http.post(
+        Uri.parse('${API_BASE_URL}user/change-password'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${await _getAuthToken()}',
+        },
+        body: jsonEncode({
+          'current_password': _currentPasswordController.text,
+          'new_password': _newPasswordController.text,
+          'new_password_confirmation': _confirmPasswordController.text,
+        }),
+      );
+      debugPrint('Response: ${response.body}');
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        if (!mounted) return;
+        
+        Navigator.of(context).pop();
+        widget.onPasswordChanged();
+      } else {
+        if (!mounted) return;
+        
+        // Parse error response for better user feedback
+        String errorMessage = 'Failed to change password. Please try again.';
+        try {
+          final errorBody = jsonDecode(response.body);
+          if (errorBody['message'] != null) {
+            errorMessage = errorBody['message'];
+          } else if (errorBody['errors'] != null) {
+            // Handle validation errors
+            final errors = errorBody['errors'];
+            if (errors['current_password'] != null) {
+              errorMessage = 'Current password is incorrect.';
+            } else if (errors['new_password'] != null) {
+              errorMessage = 'New password does not meet requirements.';
+            } else if (errors['new_password_confirmation'] != null) {
+              errorMessage = 'Password confirmation does not match.';
+            }
+          }
+        } catch (e) {
+          debugPrint('Error parsing error response: $e');
+          // Use default error message if parsing fails
+        }
+        
+        _showErrorDialog('Password Change Failed', errorMessage);
+      }
+    } catch (e) {
+      debugPrint('Error: $e');
+      if (!mounted) return;
+      _showErrorDialog('Error', 'An error occurred while changing password. Please try again.');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<String> _getAuthToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('authToken') ?? '';
+  }
+
+  void _showErrorDialog(String title, String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _fadeAnimation,
+      child: ScaleTransition(
+        scale: _scaleAnimation,
+        child: Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              gradient: LinearGradient(
+                colors: [
+                  Colors.white,
+                  Colors.grey.shade50,
+                ],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+              ),
+            ),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              const Color(0xFF00A0A8),
+                              const Color(0xFF6EC1C7),
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.lock_reset_rounded,
+                          color: Colors.white,
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Change Password',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF2C3E50),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Update your account password',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Current Password Field
+                  _buildPasswordField(
+                    controller: _currentPasswordController,
+                    label: 'Current Password',
+                    hint: 'Enter your current password',
+                    obscureText: _obscureCurrentPassword,
+                    onToggleVisibility: () {
+                      setState(() {
+                        _obscureCurrentPassword = !_obscureCurrentPassword;
+                      });
+                    },
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Please enter your current password';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+
+                  // New Password Field
+                  _buildPasswordField(
+                    controller: _newPasswordController,
+                    label: 'New Password',
+                    hint: 'Enter your new password',
+                    obscureText: _obscureNewPassword,
+                    onToggleVisibility: () {
+                      setState(() {
+                        _obscureNewPassword = !_obscureNewPassword;
+                      });
+                    },
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Please enter a new password';
+                      }
+                      if (value.length < 6) {
+                        return 'Password must be at least 6 characters';
+                      }
+                      if (value == _currentPasswordController.text) {
+                        return 'New password must be different from current password';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Confirm Password Field
+                  _buildPasswordField(
+                    controller: _confirmPasswordController,
+                    label: 'Confirm New Password',
+                    hint: 'Confirm your new password',
+                    obscureText: _obscureConfirmPassword,
+                    onToggleVisibility: () {
+                      setState(() {
+                        _obscureConfirmPassword = !_obscureConfirmPassword;
+                      });
+                    },
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Please confirm your new password';
+                      }
+                      if (value != _newPasswordController.text) {
+                        return 'Passwords do not match';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Action Buttons
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextButton(
+                          onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text(
+                            'Cancel',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF7F8C8D),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: _isLoading ? null : _changePassword,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF00A0A8),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: _isLoading
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                  ),
+                                )
+                              : const Text(
+                                  'Change Password',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPasswordField({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    required bool obscureText,
+    required VoidCallback onToggleVisibility,
+    required String? Function(String?) validator,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF2C3E50),
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: controller,
+          obscureText: obscureText,
+          validator: validator,
+          style: const TextStyle(fontSize: 16),
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: TextStyle(color: Colors.grey.shade500),
+            filled: true,
+            fillColor: Colors.grey.shade50,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFF00A0A8), width: 2),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.red.shade300),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.red.shade400, width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            suffixIcon: IconButton(
+              onPressed: onToggleVisibility,
+              icon: Icon(
+                obscureText ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }

@@ -1,24 +1,15 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zyduspod/config.dart';
+import 'package:zyduspod/services/api_client.dart';
 
 class HospitalDashboardService {
-
+  final ApiClient _apiClient = ApiClient();
 
   Future<Map<String, dynamic>> getDashboardStats() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('authToken');
-
-      if (token == null) {
-        throw Exception('No authentication token found');
-      }
-
-      final response = await http.get(
+      final response = await _apiClient.get(
         Uri.parse('${API_BASE_URL}dashboard/overview'),
         headers: {
-          'Authorization': 'Bearer $token',
           'Accept': 'application/json',
         },
       );
@@ -42,17 +33,9 @@ class HospitalDashboardService {
 
   Future<List<Map<String, dynamic>>> getRecentDocuments() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('authToken');
-
-      if (token == null) {
-        throw Exception('No authentication token found');
-      }
-
-      final response = await http.get(
+      final response = await _apiClient.get(
         Uri.parse('${API_BASE_URL}dashboard/documents/all?limit=10'),
         headers: {
-          'Authorization': 'Bearer $token',
           'Accept': 'application/json',
         },
       );
@@ -79,13 +62,6 @@ class HospitalDashboardService {
     String? searchQuery,
   }) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('authToken');
-
-      if (token == null) {
-        throw Exception('No authentication token found');
-      }
-
       final queryParams = <String, String>{};
       if (filter != null && filter != 'All') {
         queryParams['type'] = filter;
@@ -94,14 +70,13 @@ class HospitalDashboardService {
         queryParams['search'] = searchQuery;
       }
 
-      final uri = Uri.parse('${API_BASE_URL}/dashboard/documents/all').replace(
+      final uri = Uri.parse('${API_BASE_URL}dashboard/documents/all').replace(
         queryParameters: queryParams,
       );
 
-      final response = await http.get(
+      final response = await _apiClient.get(
         uri,
         headers: {
-          'Authorization': 'Bearer $token',
           'Accept': 'application/json',
         },
       );

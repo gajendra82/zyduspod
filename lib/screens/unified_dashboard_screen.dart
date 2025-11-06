@@ -9,6 +9,8 @@ import 'package:zyduspod/Bloc/sales_state.dart';
 import 'package:zyduspod/DocumentUploadScreen.dart';
 import 'package:zyduspod/screens/hospital_sales_screen.dart';
 import 'package:zyduspod/screens/documents_list_screen.dart';
+import 'package:zyduspod/screens/modern_document_upload_screen.dart';
+import 'package:zyduspod/screens/notifications_screen.dart';
 import 'package:zyduspod/services/hospital_dashboard_service.dart';
 import 'package:zyduspod/services/sales_service.dart';
 
@@ -37,7 +39,8 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
 
   void _openUploader(BuildContext context) {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const DocumentUploadScreen()),
+      // MaterialPageRoute(builder: (_) => const Docume ntUploadScreen()),
+      MaterialPageRoute(builder: (_) =>  ModernDocumentUploadScreen()),
     );
   }
 
@@ -54,31 +57,36 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
         ),
       ],
       child: Scaffold(
-        backgroundColor: Colors.grey.shade50,
+        backgroundColor: Colors.white,
         appBar: AppBar(
-          title: const Text('Dashboard'),
+          title: const Text('Vistaar'),
           backgroundColor: Colors.white,
           foregroundColor: const Color(0xFF2C3E50),
           elevation: 0,
           centerTitle: true,
           actions: [
             IconButton(
-              tooltip: 'Upload documents',
-              onPressed: () => _openUploader(context),
-              icon: const Icon(Icons.cloud_upload),
+              tooltip: 'Notifications',
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const NotificationsScreen(),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.notifications_rounded),
             ),
           ],
           bottom: TabBar(
             controller: _tabController,
-            isScrollable: true,
+            // isScrollable: true,
             labelColor: const Color(0xFF00A0A8),
             unselectedLabelColor: Colors.grey,
             indicatorColor: const Color(0xFF00A0A8),
             tabs: const [
               Tab(icon: Icon(Icons.dashboard), text: 'Overview'),
-              // Tab(icon: Icon(Icons.analytics), text: 'Analytics'),
               Tab(icon: Icon(Icons.local_hospital), text: 'Hospital Sales'),
-              Tab(icon: Icon(Icons.description), text: 'Documents'),
+              Tab(icon: Icon(Icons.description), text: 'All Documents'),
             ],
           ),
         ),
@@ -431,14 +439,16 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
 
   Widget _buildStatsGrid(BuildContext context, Map<String, dynamic> dashboardData) {
     // print('dashboardData: $dashboardData');
-    return GridView.count(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisCount: 2,
-      crossAxisSpacing: 16,
-      mainAxisSpacing: 16,
-      childAspectRatio: 1.5,
-      children: [
+    return Container(
+      color: Colors.white,
+      child: GridView.count(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        crossAxisCount: 2,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 10,
+        childAspectRatio: 1.5,
+        children: [
         _buildStatCard(
           'Total Documents',
           (dashboardData['total_documents'] ?? 0).toString(),
@@ -470,12 +480,13 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
           const Color(0xFFFF9800),
         ),
         _buildStatCard(
-          'Approved',
+          'Verified',
           (dashboardData['approved_count'] ?? 0).toString(),
           Icons.check_circle,
           const Color(0xFF4CAF50),
         ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -487,9 +498,9 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -578,7 +589,7 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
               ),
               const Spacer(),
               TextButton(
-                onPressed: () => _tabController.animateTo(3),
+                onPressed: () => _tabController.animateTo(2),
                 child: const Text(
                   'View All',
                   style: TextStyle(
@@ -618,7 +629,7 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: recentDocuments.length,
-              separatorBuilder: (context, index) => const Divider(height: 1),
+              separatorBuilder: (context, index) => const SizedBox(height: 8),
               itemBuilder: (context, index) {
                 final doc = recentDocuments[index];
                 print('doc: $doc');
@@ -719,7 +730,7 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
         ],
       ),
       onTap: () {
-        // Navigate to document details
+        _showTransactionDetails(doc);
       },
     );
   }
@@ -764,13 +775,13 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
                     'View Documents',
                     Icons.description,
                     const Color(0xFF4CAF50),
-                    () => _tabController.animateTo(3),
+                    () => _tabController.animateTo(2),
                   ),
                   _buildActionButton(
                     'Hospital Sales',
                     Icons.local_hospital,
                     const Color(0xFF2196F3),
-                    () => _tabController.animateTo(2),
+                    () => _tabController.animateTo(1),
                   ),
                   _buildActionButton(
                     'Analytics',
@@ -802,7 +813,6 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
         decoration: BoxDecoration(
           color: color.withOpacity(0.1),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.3)),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -1004,7 +1014,7 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
               ),
               const Spacer(),
               TextButton(
-                onPressed: () => _tabController.animateTo(2),
+                onPressed: () => _tabController.animateTo(1),
                 child: const Text(
                   'View All',
                   style: TextStyle(
@@ -1206,11 +1216,11 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
   Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
       case 'completed':
-      case 'approved':
+      case 'verified':
         return Colors.green;
       case 'pending':
         return Colors.orange;
-      case 'processing':
+      case 'processed':
         return Colors.blue;
       case 'rejected':
         return Colors.red;
@@ -1229,6 +1239,254 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
         return Icons.qr_code;
       default:
         return Icons.description;
+    }
+  }
+
+  void _showTransactionDetails(Map<String, dynamic> doc) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.5,
+        maxChildSize: 0.9,
+        builder: (context, scrollController) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(
+              top: Radius.circular(20),
+            ),
+          ),
+          child: Column(
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: _getStatusColor(
+                                doc['status'] ?? '',
+                              ).withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Icon(
+                              _getTypeIcon(doc['type'] ?? ''),
+                              color: _getStatusColor(
+                                doc['status'] ?? '',
+                              ),
+                              size: 24,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  doc['name'] ?? 'Unknown Document',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: _getStatusColor(
+                                      doc['status'] ?? '',
+                                    ).withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    doc['status'] ?? 'Unknown',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: _getStatusColor(
+                                        doc['status'] ?? '',
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+                      _buildTransactionDetailSection('Transaction Information', [
+                        _buildTransactionDetailRow(
+                          'Type',
+                          doc['type'] ?? 'Unknown',
+                        ),
+                        _buildTransactionDetailRow(
+                          'Status',
+                          doc['status'] ?? 'Unknown',
+                        ),
+                        _buildTransactionDetailRow(
+                          'Size',
+                          doc['size'] ?? '0 MB',
+                        ),
+                        _buildTransactionDetailRow(
+                          'Upload Date',
+                          _formatDetailedDate(doc['uploaded_at'] ?? ''),
+                        ),
+                      ]),
+                      const SizedBox(height: 20),
+                      _buildTransactionDetailSection('Business Information', [
+                        _buildTransactionDetailRow(
+                          'Stockist',
+                          doc['stockist_name'] ?? 'Unknown',
+                        ),
+                        _buildTransactionDetailRow(
+                          'Hospital',
+                          doc['hospital_name'] ?? 'Unknown',
+                        ),
+                        _buildTransactionDetailRow(
+                          'Invoice Number',
+                          doc['invoice_number'] ?? 'N/A',
+                        ),
+                        _buildTransactionDetailRow(
+                          'Amount',
+                          doc['total_amount'] ?? 'N/A',
+                        ),
+                      ]),
+                      // const SizedBox(height: 20),
+                      // _buildActionButtons(doc),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTransactionDetailSection(String title, List<Widget> children) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF2C3E50),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade50,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(children: children),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTransactionDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey.shade600,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionButtons(Map<String, dynamic> doc) {
+    return Row(
+      children: [
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              // Navigate to full document view
+              _tabController.animateTo(2);
+            },
+            icon: const Icon(Icons.visibility),
+            label: const Text('View Full Details'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF00A0A8),
+              side: const BorderSide(color: Color(0xFF00A0A8)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              // Add any additional action here
+            },
+            icon: const Icon(Icons.download),
+            label: const Text('Download'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF00A0A8),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatDetailedDate(String dateString) {
+    try {
+      final date = DateTime.parse(dateString);
+      return '${date.day}/${date.month}/${date.year} at ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+    } catch (e) {
+      return 'Unknown';
     }
   }
 }

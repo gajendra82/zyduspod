@@ -26,6 +26,7 @@ class SalesBloc extends Bloc<SalesEvent, SalesState> {
 
     try {
       final salesData = await _service.getSalesData();
+      
       final hospitalSummaries = await _service.getHospitalSalesSummaries();
       final stockistSummaries = await _service.getStockistSalesSummaries();
       final summaryStats = await _service.getSalesSummaryStats();
@@ -98,18 +99,31 @@ class SalesBloc extends Bloc<SalesEvent, SalesState> {
     HospitalSalesLoadRequested event,
     Emitter<SalesState> emit,
   ) async {
-    if (state is SalesLoaded) {
-      final currentState = state as SalesLoaded;
+    try {
+      print('event.dateFrom: ${event.dateFrom}');
+      print('event.dateTo: ${event.dateTo}');
+      final hospitalSummaries = await _service.getHospitalSalesSummaries(
+        dateFrom: event.dateFrom,
+        dateTo: event.dateTo,
+        hospitalId: event.hospitalId,
+      );
 
-      try {
-        final hospitalSummaries = await _service.getHospitalSalesSummaries();
-
+      if (state is SalesLoaded) {
+        final currentState = state as SalesLoaded;
         emit(currentState.copyWith(
           hospitalSummaries: hospitalSummaries,
         ));
-      } catch (e) {
-        emit(SalesError(message: e.toString()));
+      } else {
+        // If not loaded yet, create a new loaded state
+        emit(SalesLoaded(
+          salesData: [],
+          hospitalSummaries: hospitalSummaries,
+          stockistSummaries: [],
+          summaryStats: {},
+        ));
       }
+    } catch (e) {
+      emit(SalesError(message: e.toString()));
     }
   }
 

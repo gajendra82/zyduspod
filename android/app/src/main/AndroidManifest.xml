@@ -10,8 +10,6 @@
 
 <!-- For Android 13+ (API 33) -->
 <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-<uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-<uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 
 <!-- For Android 12 and below (compatibility) -->
 <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />

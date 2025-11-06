@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
@@ -18,13 +19,14 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:zyduspod/GstInvoiceScanner.dart';
+import 'package:zyduspod/Models/_SplitOut.dart';
 import 'package:zyduspod/Models/pod.dart';
 import 'package:zyduspod/config.dart';
+import 'package:zyduspod/services/PythonQRService.dart';
 import 'package:zyduspod/widgets/EInvoiceQRExtractor.dart';
 import 'package:zyduspod/widgets/PdfPreviewScreen.dart';
 
 /// ===================== IMAGE COMPRESSION / ENHANCE (Isolate Workers) =====================
-
 
 Map<String, dynamic> _enhanceImageForOCRWorker(Map<String, dynamic> args) {
   final Uint8List imgBytes = args['imageBytes'] as Uint8List;
@@ -75,6 +77,157 @@ Map<String, dynamic> _enhanceImageForOCRWorker(Map<String, dynamic> args) {
   } catch (e) {
     return {'success': false, 'bytes': imgBytes, 'error': e.toString()};
   }
+}
+
+// Put near other imports
+// already have: import 'package:http_parser/http_parser.dart';
+const String _SPLIT_API_BASE = 'https://anujakkulkarni-splitpdffile.hf.space';
+
+Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
+  try {
+    final uri = Uri.parse('$_SPLIT_API_BASE/split-invoices');
+
+    final req =
+        http.MultipartRequest('POST', uri)
+          ..files.add(
+            await http.MultipartFile.fromPath(
+              'file',
+              pdfFile.path,
+              filename: p.basename(pdfFile.path),
+              contentType: MediaType('application', 'pdf'),
+            ),
+          )
+          ..fields['include_pdf'] = 'true'
+          ..fields['initial_dpi'] = '300';
+
+    final streamed = await req.send();
+    final resp = await http.Response.fromStream(streamed);
+
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      debugPrint('[SPLIT] HTTP ${resp.statusCode}: ${resp.body}');
+      throw Exception('Split API error ${resp.statusCode}');
+    }
+
+    final decoded = jsonDecode(resp.body);
+    if (decoded is! Map || decoded['parts'] is! List) {
+      debugPrint('[SPLIT] Unexpected response: ${resp.body}');
+      return <SplitOut>[];
+    }
+
+    final parts = decoded['parts'] as List;
+    final tmp = await getTemporaryDirectory();
+    final out = <SplitOut>[];
+
+    for (int i = 0; i < parts.length; i++) {
+      final e = parts[i];
+      if (e is! Map) continue;
+
+      final String? b64 = e['pdf_base64'] as String?;
+      if (b64 == null || b64.isEmpty) continue;
+
+      Uint8List? bytes;
+      try {
+        bytes = Uint8List.fromList(base64.decode(base64.normalize(b64)));
+      } catch (err) {
+        debugPrint('[SPLIT] base64 decode failed: $err');
+        continue;
+      }
+
+      final invoiceNo = (e['invoice_no'] as String?)?.trim();
+      final List<int>? pages =
+          (e['pages'] is List)
+              ? (e['pages'] as List).whereType<int>().toList()
+              : null;
+      final int? sizeBytes =
+          (e['size_bytes'] is int) ? e['size_bytes'] as int : null;
+
+      // Prefer invoice number in file name if available
+      final baseName =
+          invoiceNo?.isNotEmpty == true
+              ? 'invoice_${invoiceNo!.replaceAll(RegExp(r"[^A-Za-z0-9_-]"), "_")}'
+              : 'split_part_${i + 1}';
+      final outPath =
+          '${tmp.path}/$baseName${DateTime.now().millisecondsSinceEpoch}.pdf';
+
+      final f = File(outPath);
+      await f.writeAsBytes(bytes, flush: true);
+
+      out.add(
+        SplitOut(
+          file: f,
+          invoiceNo: invoiceNo,
+          pages: pages,
+          sizeBytes: sizeBytes,
+        ),
+      );
+    }
+
+    debugPrint('[SPLIT] Created ${out.length} split PDFs.');
+    return out;
+  } catch (e, st) {
+    debugPrint('[SPLIT] Exception: $e');
+    debugPrint('$st');
+    return <SplitOut>[]; // soft-fail; caller can fallback to original
+  }
+}
+
+List<Uint8List> _extractBase64PdfBytes(dynamic decoded) {
+  List<Uint8List> out = [];
+
+  Uint8List? _tryDecode(dynamic v) {
+    try {
+      if (v is String && v.isNotEmpty) {
+        final norm = base64.normalize(v);
+        return Uint8List.fromList(base64.decode(norm));
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  if (decoded is Map<String, dynamic>) {
+    // files: [{ filename, content_base64 }]
+    if (decoded['files'] is List) {
+      for (final e in (decoded['files'] as List)) {
+        if (e is Map && (e['content_base64'] is String)) {
+          final b = _tryDecode(e['content_base64']);
+          if (b != null) out.add(b);
+        } else if (e is Map && (e['content'] is String)) {
+          final b = _tryDecode(e['content']);
+          if (b != null) out.add(b);
+        }
+      }
+    }
+    // parts: [{ filename, content }]
+    if (decoded['parts'] is List) {
+      for (final e in (decoded['parts'] as List)) {
+        if (e is Map && (e['content'] is String)) {
+          final b = _tryDecode(e['content']);
+          if (b != null) out.add(b);
+        }
+      }
+    }
+    // pdfs: ["base64", ...]
+    if (decoded['pdfs'] is List) {
+      for (final s in (decoded['pdfs'] as List)) {
+        final b = _tryDecode(s);
+        if (b != null) out.add(b);
+      }
+    }
+    // data: ["base64", ...]
+    if (decoded['data'] is List) {
+      for (final s in (decoded['data'] as List)) {
+        final b = _tryDecode(s);
+        if (b != null) out.add(b);
+      }
+    }
+  } else if (decoded is List) {
+    for (final s in decoded) {
+      final b = _tryDecode(s);
+      if (b != null) out.add(b);
+    }
+  }
+
+  return out;
 }
 
 /// ===================== DATA MODEL =====================
@@ -131,27 +284,54 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   bool _isUploading = false;
   bool _isLoadingLists = false;
   bool _isProcessingImage = false;
+  bool _isRefreshing = false;
   final bool _debugEinvoice = true;
+  bool _isCancelled = false;
+  int? _currentProcessingIndex;
 
   // Processing counter and unified busy flag
   int _processingCount = 0;
+  bool _isBusy = false;
   void _incProcessing() {
     if (!mounted) return;
-    setState(() => _processingCount++);
+    setState(() {
+      _processingCount++;
+      _updateBusyState();
+    });
   }
 
   void _decProcessing() {
     if (!mounted) return;
     setState(() {
       if (_processingCount > 0) _processingCount--;
+      _updateBusyState();
     });
   }
 
-  bool get _isBusy =>
-      _isUploading ||
-      _isLoadingLists ||
-      _isProcessingImage ||
-      _processingCount > 0;
+  void _updateBusyState() {
+    _isBusy =
+        _isUploading ||
+        _isLoadingLists ||
+        _isProcessingImage ||
+        _processingCount > 0 ||
+        _isRefreshing;
+    debugPrint('isBusy: $_isBusy');
+  }
+
+  // Method to manually reset all processing flags
+  void resetAllProcessingFlags() {
+    if (mounted) {
+      setState(() {
+        _isProcessingImage = false;
+        _processingCount = 0;
+        _currentProcessingIndex = null;
+        _qrQueueRunning = false;
+        _isCancelled = false;
+        _updateBusyState();
+      });
+      debugPrint('[QR] All processing flags reset - isBusy: $_isBusy');
+    }
+  }
 
   // Simple sequential queue for QR extraction (prevents parallel heavy work)
   final List<_QrQueueItem> _qrQueue = [];
@@ -168,11 +348,37 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
     _qrQueueRunning = true;
     while (_qrQueue.isNotEmpty && mounted) {
       final item = _qrQueue.removeAt(0);
+
+      // Reset cancellation for new item
+      _isCancelled = false;
+
       await _autoExtractQRFromDocument(item.doc, item.index);
+
       // Small yield to UI
       await Future.delayed(const Duration(milliseconds: 30));
+
+      // If cancelled, clear remaining queue
+      if (_isCancelled && _qrQueue.isNotEmpty) {
+        if (_debugEinvoice) {
+          debugPrint(
+            '[QR] Clearing ${_qrQueue.length} items from queue due to cancellation',
+          );
+        }
+        // Don't clear - let user decide per document
+        // _qrQueue.clear();
+      }
     }
-    _qrQueueRunning = false;
+
+    // Reset all processing flags when queue is complete
+    if (mounted) {
+      setState(() {
+        _qrQueueRunning = false;
+        _isProcessingImage = false;
+        _processingCount = 0;
+        _currentProcessingIndex = null;
+        _updateBusyState();
+      });
+    }
   }
 
   // Selected doc type
@@ -196,8 +402,13 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   Key _chemistKey = UniqueKey();
   Key _podKey = UniqueKey();
 
+  // Debouncing variables for search
+  Timer? _stockistSearchTimer;
+  Timer? _hospitalSearchTimer;
+  bool _isSearchingStockists = false;
+  bool _isSearchingHospitals = false;
+
   final ImagePicker _imagePicker = ImagePicker();
-  static const int maxDocuments = 25;
   final ScrollController _scrollController = ScrollController();
 
   @override
@@ -210,6 +421,8 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   @override
   void dispose() {
     _scrollController.dispose();
+    _stockistSearchTimer?.cancel();
+    _hospitalSearchTimer?.cancel();
     super.dispose();
   }
 
@@ -241,6 +454,60 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
     );
   }
 
+  /// ===================== REFRESH FUNCTIONALITY =====================
+
+  Future<void> _onRefresh() async {
+    if (_isRefreshing) return;
+
+    setState(() {
+      _isRefreshing = true;
+      _updateBusyState();
+    });
+
+    try {
+      // Clear current selections and data
+      setState(() {
+        _selectedStockist = null;
+        _selectedChemist = null;
+        _selectedPod = null;
+        _einvoiceData = null;
+        _stockistKey = UniqueKey();
+        _chemistKey = UniqueKey();
+        _podKey = UniqueKey();
+      });
+
+      // Reload all lists
+      await _loadLists();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Page refreshed successfully'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Refresh failed: $e'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRefreshing = false;
+          _updateBusyState();
+        });
+      }
+    }
+  }
+
   /// ===================== NORMALIZATION HELPERS =====================
 
   bool _isPodDoc() => (_selectedDocType ?? '').toUpperCase() == 'POD';
@@ -258,7 +525,10 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   /// ===================== LIST LOADING =====================
 
   Future<void> _loadLists() async {
-    setState(() => _isLoadingLists = true);
+    setState(() {
+      _isLoadingLists = true;
+      _updateBusyState();
+    });
     try {
       final results = await Future.wait([
         _fetchSelectItems(API_STOCKISTS_URL),
@@ -270,20 +540,28 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         _allStockists = results[0] as List<_SelectItem>;
         _allChemists = results[1] as List<_SelectItem>;
         _pods = results[2] as List<Pod>;
-        _allPods = _pods
-            .map(
-              (p) =>
-                  _SelectItem(id: p.id.toString(), label: _formatPodLabel(p)),
-            )
-            .toList();
+        _allPods =
+            _pods
+                .map(
+                  (p) => _SelectItem(
+                    id: p.id.toString(),
+                    label: _formatPodLabel(p),
+                  ),
+                )
+                .toList();
       });
     } catch (e) {
+      print('Failed to load lists: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Failed to load lists: $e')));
     } finally {
-      if (mounted) setState(() => _isLoadingLists = false);
+      if (mounted)
+        setState(() {
+          _isLoadingLists = false;
+          _updateBusyState();
+        });
     }
   }
 
@@ -294,8 +572,9 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       Uri.parse(url),
       headers: token != null ? {'Authorization': 'Bearer $token'} : null,
     );
+    print('select items Response: ${resp.body}');
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw Exception('HTTP ${resp.statusCode}');
+      throw Exception('HTTP ${resp.body}');
     }
     final decoded = _safeDecode(resp.bodyBytes);
     final rawList = _unwrapToList(decoded);
@@ -325,12 +604,74 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       throw Exception('HTTP ${resp.statusCode}');
     }
     final decoded = _safeDecode(resp.bodyBytes);
-    final list = decoded is Map && decoded['data'] is List
-        ? (decoded['data'] as List)
-        : (decoded is List ? decoded : <dynamic>[]);
+    final list =
+        decoded is Map && decoded['data'] is List
+            ? (decoded['data'] as List)
+            : (decoded is List ? decoded : <dynamic>[]);
     return list
         .whereType<Map<String, dynamic>>()
         .map((m) => Pod.fromJson(m))
+        .toList();
+  }
+
+  // Search methods with debouncing
+  Future<List<_SelectItem>> _searchStockists(String query) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('authToken');
+
+    // Always hit the API, even for empty search to get default list
+    final searchParam = query.trim().isEmpty ? '' : '?search=${query.trim()}';
+    final uri = Uri.parse('$API_STOCKISTS_URL$searchParam');
+
+    final resp = await http.get(
+      uri,
+      headers: token != null ? {'Authorization': 'Bearer $token'} : null,
+    );
+
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw Exception('HTTP ${resp.statusCode}');
+    }
+
+    final decoded = _safeDecode(resp.bodyBytes);
+    final rawList =
+        decoded is Map && decoded['data'] is List
+            ? (decoded['data'] as List)
+            : (decoded is List ? decoded : <dynamic>[]);
+
+    return rawList
+        .map((e) => _SelectItem.fromDynamic(e))
+        .where((e) => e != null)
+        .cast<_SelectItem>()
+        .toList();
+  }
+
+  Future<List<_SelectItem>> _searchHospitals(String query) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('authToken');
+
+    // Always hit the API, even for empty search to get default list
+    final searchParam = query.trim().isEmpty ? '' : '?search=${query.trim()}';
+    final uri = Uri.parse('$API_HOSPITALS_URL$searchParam');
+
+    final resp = await http.get(
+      uri,
+      headers: token != null ? {'Authorization': 'Bearer $token'} : null,
+    );
+
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw Exception('HTTP ${resp.statusCode}');
+    }
+
+    final decoded = _safeDecode(resp.bodyBytes);
+    final rawList =
+        decoded is Map && decoded['data'] is List
+            ? (decoded['data'] as List)
+            : (decoded is List ? decoded : <dynamic>[]);
+
+    return rawList
+        .map((e) => _SelectItem.fromDynamic(e))
+        .where((e) => e != null)
+        .cast<_SelectItem>()
         .toList();
   }
 
@@ -428,13 +769,62 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   Future<void> _ensureQrForDocument(DocumentInfo doc, int overallIndex) async {
     if (doc.type != DocumentType.pdf) return;
     if (doc.qrData != null) return;
+
+    if (_debugEinvoice) {
+      debugPrint('[QR] Pre-upload check: ${doc.file.path}');
+    }
+
     try {
-      // Timeout to avoid hangs during pre-upload checks
-      final qrMap = await EInvoiceQRExtractor.extractQRFromPDF(
-        doc.file,
-        dpi: 260,
-        maxPages: 3,
-      ).timeout(const Duration(seconds: 12), onTimeout: () => null);
+      Map<String, dynamic>? qrMap;
+
+      // Try with Hugging Face API first with timeout
+      try {
+        qrMap = await PythonQRService.extractQRFromPDF(
+          doc.file,
+          maxPages: 3,
+          dpi: 400,
+        ).timeout(
+          const Duration(seconds: 90),
+          onTimeout: () {
+            if (_debugEinvoice) {
+              debugPrint('[QR] HF API timeout for ${doc.displayName}');
+            }
+            return null;
+          },
+        );
+      } catch (e) {
+        if (_debugEinvoice) {
+          debugPrint('[QR] HF API error for ${doc.displayName}: $e');
+        }
+        qrMap = null;
+      }
+
+      if (qrMap == null) {
+        try {
+          qrMap = await EInvoiceQRExtractor.extractQRFromPDF(
+            doc.file,
+            dpi: 600,
+            maxPages: 2,
+          ).timeout(
+            const Duration(seconds: 30),
+            onTimeout: () {
+              if (_debugEinvoice) {
+                debugPrint(
+                  '[QR] Flutter extraction timeout for ${doc.displayName}',
+                );
+              }
+              return null;
+            },
+          );
+        } catch (e) {
+          if (_debugEinvoice) {
+            debugPrint(
+              '[QR] Flutter extraction error for ${doc.displayName}: $e',
+            );
+          }
+          qrMap = null;
+        }
+      }
 
       if (qrMap != null) {
         final normalized = _decodeGstQrFlexible(
@@ -446,18 +836,22 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         final idxInCaptured = _capturedDocuments.indexWhere(
           (d) => d.file.path == doc.file.path,
         );
-        if (idxInCaptured >= 0) {
-          _capturedDocuments[idxInCaptured] = updated;
+        if (idxInCaptured >= 0 && mounted) {
+          setState(() {
+            _capturedDocuments[idxInCaptured] = updated;
+          });
         }
         _einvoiceData ??= merged;
+
         if (_isEinvoiceDoc()) _autoMarkEinvoiceSelectedForEinvoiceFlow();
+
         if (_debugEinvoice) {
-          debugPrint('[EINVOICE AUTO EXTRACT @UPLOAD] ${doc.displayName}');
+          debugPrint('[QR] ✓ Pre-upload extraction: ${doc.displayName}');
         }
       }
     } catch (e) {
       if (_debugEinvoice) {
-        debugPrint('[EINVOICE AUTO EXTRACT ERROR] ${doc.displayName}: $e');
+        debugPrint('[QR] Pre-upload extraction error: ${doc.displayName}: $e');
       }
     }
   }
@@ -590,7 +984,10 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
 
   Future<void> _takePhotoWithScanner() async {
     try {
-      setState(() => _isProcessingImage = true);
+      setState(() {
+        _isProcessingImage = true;
+        _updateBusyState();
+      });
       final scanned = await FlutterDocScanner().getScanDocuments(page: 1);
       if (scanned != null && scanned is Map) {
         String? filePath =
@@ -618,27 +1015,21 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text('Scanner error: $e')));
     } finally {
-      if (mounted) setState(() => _isProcessingImage = false);
+      if (mounted)
+        setState(() {
+          _isProcessingImage = false;
+          _updateBusyState();
+        });
     }
   }
 
   Future<void> _pickImagesFromGallery() async {
     try {
-      setState(() => _isProcessingImage = true);
-      final remaining = maxDocuments - _capturedDocuments.length;
-      if (remaining <= 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Maximum $maxDocuments documents reached'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-        return;
-      }
-      final imgs = await _imagePicker.pickMultiImage(
-        imageQuality: 100,
-        limit: remaining,
-      );
+      setState(() {
+        _isProcessingImage = true;
+        _updateBusyState();
+      });
+      final imgs = await _imagePicker.pickMultiImage(imageQuality: 100);
       if (imgs.isNotEmpty) {
         for (int i = 0; i < imgs.length; i++) {
           await _processAndAddDocument(
@@ -661,23 +1052,20 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text('Gallery error: $e')));
     } finally {
-      if (mounted) setState(() => _isProcessingImage = false);
+      if (mounted)
+        setState(() {
+          _isProcessingImage = false;
+          _updateBusyState();
+        });
     }
   }
 
   Future<void> _pickPdfsFromFiles() async {
     try {
-      setState(() => _isProcessingImage = true);
-      final remaining = maxDocuments - _capturedDocuments.length;
-      if (remaining <= 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Maximum documents reached'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-        return;
-      }
+      setState(() {
+        _isProcessingImage = true;
+        _updateBusyState();
+      });
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf'],
@@ -685,7 +1073,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       );
       if (result != null && result.files.isNotEmpty) {
         int added = 0;
-        for (final f in result.files.take(remaining)) {
+        for (final f in result.files) {
           if (f.path == null) continue;
           await _processAndAddDocument(File(f.path!), isFromScanner: true);
           added++;
@@ -705,7 +1093,11 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text('Pick PDF error: $e')));
     } finally {
-      if (mounted) setState(() => _isProcessingImage = false);
+      if (mounted)
+        setState(() {
+          _isProcessingImage = false;
+          _updateBusyState();
+        });
     }
   }
 
@@ -721,40 +1113,86 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         return;
       }
 
-      File finalFile;
-      String displayName = info.displayName;
-      if (info.type == DocumentType.image) {
-        final enhanced = isFromScanner
-            ? null
-            : await _enhanceImageForOCR(originalFile);
-        finalFile = await _convertSingleImageToPDF(enhanced ?? originalFile);
-        displayName = '${p.basenameWithoutExtension(info.displayName)}.pdf';
-      } else {
-        finalFile = originalFile;
-      }
-
-      final tmp = await getTemporaryDirectory();
-      final savedPath =
-          '${tmp.path}/doc_${DateTime.now().millisecondsSinceEpoch}_${_capturedDocuments.length}.pdf';
-      final saved = await finalFile.copy(savedPath);
-
-      if (!mounted) return;
-      final newDoc = DocumentInfo(
-        file: saved,
-        isValid: true,
-        type: DocumentType.pdf,
-        displayName: displayName,
+      final List<File> finalPdfFiles = [];
+      final List<String?> finalDisplayNames = [];
+      final String displayNameBase = p.basenameWithoutExtension(
+        info.displayName,
       );
-      setState(() {
-        _capturedDocuments.add(newDoc);
-      });
-      _scheduleScrollToBottom();
 
-      // Enqueue extraction (sequential) to keep UI responsive
-      final idx = _capturedDocuments.length - 1;
-      if (_isPodDoc() || _isEinvoiceDoc()) {
-        _enqueueExtraction(newDoc, idx);
+      if (info.type == DocumentType.image) {
+        final enhanced =
+            isFromScanner ? null : await _enhanceImageForOCR(originalFile);
+        final converted = await _convertSingleImageToPDF(
+          enhanced ?? originalFile,
+        );
+        finalPdfFiles.add(converted);
+        finalDisplayNames.add('$displayNameBase.pdf');
+      } else {
+        // ========= NEW: Split first =========
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Splitting ${info.displayName} into invoices...'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+
+        final splitParts = await _splitPdfViaApi(originalFile);
+
+        if (splitParts.isNotEmpty) {
+          for (int i = 0; i < splitParts.length; i++) {
+            final part = splitParts[i];
+            finalPdfFiles.add(part.file);
+            // Prefer invoice number in display if available
+            final disp =
+                (part.invoiceNo != null && part.invoiceNo!.isNotEmpty)
+                    ? 'Invoice_${part.invoiceNo}.pdf'
+                    : '${displayNameBase}_part${i + 1}.pdf';
+            finalDisplayNames.add(disp);
+          }
+        } else {
+          // Fallback to original single PDF
+          finalPdfFiles.add(originalFile);
+          finalDisplayNames.add('$displayNameBase.pdf');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'No splits returned. Using original ${info.displayName}.',
+              ),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
       }
+
+      // Persist each final PDF into temp (copy) and enqueue QR
+      final tmp = await getTemporaryDirectory();
+      for (int i = 0; i < finalPdfFiles.length; i++) {
+        final f = finalPdfFiles[i];
+        final savedPath =
+            '${tmp.path}/doc_${DateTime.now().millisecondsSinceEpoch}_${_capturedDocuments.length}_$i.pdf';
+        final saved = await f.copy(savedPath);
+
+        final dispName = finalDisplayNames[i] ?? '${displayNameBase}.pdf';
+
+        if (!mounted) return;
+        final newDoc = DocumentInfo(
+          file: saved,
+          isValid: true,
+          type: DocumentType.pdf,
+          displayName: dispName,
+        );
+
+        setState(() {
+          _capturedDocuments.add(newDoc);
+        });
+
+        if (_isPodDoc() || _isEinvoiceDoc()) {
+          final idx = _capturedDocuments.length - 1;
+          _enqueueExtraction(newDoc, idx); // ← your existing QR pipeline
+        }
+      }
+
+      _scheduleScrollToBottom();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -772,45 +1210,118 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } finally {
+      setState(() {
+        _updateBusyState();
+      });
     }
   }
 
   /// Run QR extraction on main isolate (plugins often can't run in background isolates)
   /// with a timeout and a processing counter. Shows a SnackBar if no QR is found.
+  /// ===================== QR EXTRACTION WITH ZOOM/CROP =====================
+
+  /// ===================== QR EXTRACTION WITH PROGRESSIVE DPI ZOOM =====================
+
+  /// ===================== QR EXTRACTION WITH PROGRESSIVE DPI ZOOM =====================
+
   Future<void> _autoExtractQRFromDocument(
     DocumentInfo docInfo,
     int index,
   ) async {
+    // Basic guards
     if (!docInfo.isValid || docInfo.type != DocumentType.pdf) return;
     if (index < 0 || index >= _capturedDocuments.length) return;
     if (_capturedDocuments[index].qrData != null) return;
 
     _incProcessing();
-    try {
-      // Yield a frame so the progress bar can render
-      await Future.delayed(const Duration(milliseconds: 16));
+    _isCancelled = false;
+    _currentProcessingIndex = index;
 
-      final qrMap = await EInvoiceQRExtractor.extractQRFromPDF(
-        docInfo.file,
-        dpi: 300, // a bit higher for reliability
-        maxPages: 4,
-      ).timeout(const Duration(seconds: 15), onTimeout: () => null);
+    try {
+      // Single, simple progress message
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: const [
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Extracting QR (single API call)...',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+            duration: Duration(seconds: 60),
+            backgroundColor: Colors.blue,
+          ),
+        );
+      }
+
+      // Single API attempt — no DPI retries, no local fallback
+      Map<String, dynamic>? qrMap;
+      try {
+        qrMap = await PythonQRService.extractQRFromPDF(
+          docInfo.file,
+          maxPages: 5,
+        );
+      } catch (e, st) {
+        if (_debugEinvoice) {
+          debugPrint('[QR] API call threw: $e');
+          debugPrint('$st');
+        }
+        qrMap = null;
+      } finally {
+        if (mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        }
+      }
 
       if (qrMap == null) {
-        if (mounted) {
+        if (mounted && !_isCancelled) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('No QR found in ${docInfo.displayName}'),
-              duration: const Duration(seconds: 2),
+              content: Row(
+                children: [
+                  const Icon(
+                    Icons.warning_amber,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'No QR found in ${docInfo.displayName}.',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+              duration: const Duration(seconds: 3),
+              backgroundColor: Colors.orange.shade700,
             ),
           );
         }
         if (_debugEinvoice) {
-          debugPrint('[QR] No QR/timeout in ${docInfo.displayName}');
+          debugPrint(
+            '[QR] ❌ No QR from single API attempt for ${docInfo.displayName}',
+          );
         }
         return;
       }
 
+      // Merge/normalize like before
       final normalized = _decodeGstQrFlexible(
         jsonEncode(qrMap['raw'] ?? qrMap),
       );
@@ -822,20 +1333,81 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         _einvoiceData ??= merged;
       });
 
-      if (_debugEinvoice) {
-        debugPrint('[QR] Extracted from ${docInfo.displayName}');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: const [
+                Icon(Icons.check_circle, color: Colors.white, size: 20),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '✅ QR extracted via API',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            duration: const Duration(seconds: 2),
+            backgroundColor: Colors.green.shade700,
+          ),
+        );
       }
-    } catch (e) {
+    } catch (e, st) {
       if (_debugEinvoice) {
-        debugPrint('[QR] Extraction error: ${docInfo.displayName} -> $e');
+        debugPrint('[QR] Unexpected error during extraction: $e');
+        debugPrint('$st');
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: const [
+                Icon(Icons.error_outline, color: Colors.white, size: 20),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Something went wrong during QR extraction',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+            duration: const Duration(seconds: 3),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
       }
     } finally {
+      _currentProcessingIndex = null;
       _decProcessing();
     }
   }
 
-  /// ===================== PERMISSIONS =====================
+  /// Extract QR with focus on common QR regions (top-right, bottom-right)
+  Future<Map<String, dynamic>?> _extractQRWithRegionFocus(File pdfFile) async {
+    try {
+      // This would require modifying EInvoiceQRExtractor to support region extraction
+      // For now, we'll try with very high DPI on specific regions
+      // You'll need to add this capability to EInvoiceQRExtractor.dart
 
+      // Placeholder: Try extracting with focus on top-right quadrant
+      // Most e-invoices have QR in top-right corner
+      return await EInvoiceQRExtractor.extractQRFromPDF(
+        pdfFile,
+        dpi: 800,
+        maxPages: 3,
+      );
+    } catch (e) {
+      if (_debugEinvoice) {
+        debugPrint('[QR] Region-based extraction error: $e');
+      }
+      return null;
+    }
+  }
+
+  /// ===================== PERMISSIONS =====================
 
   /// ===================== JSON BUILDER (Laravel PHP-style) =====================
 
@@ -877,6 +1449,29 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       return;
     }
 
+    try {
+      await _performUpload().timeout(
+        const Duration(minutes: 10),
+        onTimeout: () {
+          throw TimeoutException('Upload process timed out after 10 minutes');
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isUploading = false;
+        _updateBusyState();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Upload failed: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _performUpload() async {
     final validDocs = _capturedDocuments.where((d) => d.isValid).toList();
     if (validDocs.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -912,32 +1507,76 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       }
     }
 
-    setState(() => _isUploading = true);
+    setState(() {
+      _isUploading = true;
+      _updateBusyState();
+    });
 
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('authToken');
 
     try {
       if (_isPodDoc()) {
-        // SINGLE COMBINED UPLOAD FOR POD
-        for (int i = 0; i < validDocs.length; i++) {
-          await _ensureQrForDocument(validDocs[i], i);
+        // POD — multi-file single request
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Processing QR codes...'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+
+        // (QR ensure loop commented by you – leaving as-is)
+
+        if (mounted) {
+          setState(() {
+            _isProcessingImage = false;
+            _processingCount = 0;
+            _updateBusyState();
+          });
+        }
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Uploading documents to server...'),
+              duration: Duration(seconds: 2),
+            ),
+          );
         }
 
         final uri = Uri.parse(Multi_Api_POD_UPLOAD_URL);
         final req = http.MultipartRequest('POST', uri);
 
-        // Attach files
+        // Attach files (web: bytes, mobile/desktop: path)
         for (final d in validDocs) {
-          final filename = p.basename(d.file.path);
-          req.files.add(
-            await http.MultipartFile.fromPath(
-              'files[]',
-              d.file.path,
-              filename: filename,
-              contentType: _inferContentType(d.file),
-            ),
+          final filename = p.basename(
+            d.file.path ?? (d.displayName ?? 'upload.bin'),
           );
+
+          if (kIsWeb) {
+            // On web, read bytes from the picked object (XFile / Blob-backed)
+            // Ensure your d.file exposes readAsBytes(). Most pickers (image_picker/file_picker) support this.
+            final bytes = await d.file.readAsBytes();
+            req.files.add(
+              http.MultipartFile.fromBytes(
+                'files[]',
+                bytes,
+                filename: filename,
+                contentType: _inferContentType(d.file),
+              ),
+            );
+          } else {
+            req.files.add(
+              await http.MultipartFile.fromPath(
+                'files[]',
+                d.file.path,
+                filename: filename,
+                contentType: _inferContentType(d.file),
+              ),
+            );
+          }
         }
 
         // JSON array pairing each file (by filename) to its einvoice JSON string
@@ -967,6 +1606,15 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
 
         if (token != null) req.headers['Authorization'] = 'Bearer $token';
 
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Sending data to server...'),
+              duration: Duration(seconds: 1),
+            ),
+          );
+        }
+
         final streamed = await req.send();
         final resp = await http.Response.fromStream(streamed);
 
@@ -981,8 +1629,10 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
               backgroundColor: Colors.green,
             ),
           );
-          // Clear uploaded docs
+
+          // Remove uploaded docs locally
           final uploadedPaths = validDocs.map((d) => d.file.path).toSet();
+
           setState(() {
             _capturedDocuments.removeWhere(
               (d) => uploadedPaths.contains(d.file.path),
@@ -991,13 +1641,20 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
               _einvoiceData = null;
             }
           });
-          for (final pth in uploadedPaths) {
-            try {
-              final f = File(pth);
-              if (await f.exists()) await f.delete();
-            } catch (_) {}
+
+          // Delete only on non-web
+          if (!kIsWeb) {
+            for (final pth in uploadedPaths) {
+              try {
+                final f = File(pth);
+                if (await f.exists()) await f.delete();
+              } catch (_) {}
+            }
           }
         } else {
+          debugPrint(
+            'POD upload failed: ${resp.statusCode} ${resp.body.isNotEmpty ? "- ${resp.body}" : ""}',
+          );
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
@@ -1008,13 +1665,23 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
           );
         }
       } else {
-        // E-INVOICE or other types: per-file uploads
+        // E-INVOICE or other types — per-file requests
         final successes = <int>[];
         final failures = <int>[];
 
-        for (int i = 0; i < validDocs.length; i++) {
-          final doc = validDocs[i];
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Uploading documents to server...'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
 
+        for (int i = 0; i < validDocs.length; i++) {
+          if (!mounted) return;
+
+          final doc = validDocs[i];
           if (_isEinvoiceDoc()) {
             await _ensureQrForDocument(doc, i);
           }
@@ -1023,21 +1690,37 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
             (d) => d.file.path == doc.file.path,
             orElse: () => doc,
           );
-          final perDocInvoice = _isEinvoiceDoc()
-              ? _normalizeEinvoiceForDoc(currentDoc)
-              : null;
+
+          final perDocInvoice =
+              _isEinvoiceDoc() ? _normalizeEinvoiceForDoc(currentDoc) : null;
 
           final uri = Uri.parse(API_DOC_UPLOAD_URL);
           final request = http.MultipartRequest('POST', uri);
 
-          request.files.add(
-            await http.MultipartFile.fromPath(
-              'file',
-              currentDoc.file.path,
-              filename: p.basename(currentDoc.file.path),
-              contentType: _inferContentType(currentDoc.file),
-            ),
+          final filename = p.basename(
+            currentDoc.file.path ?? (currentDoc.displayName ?? 'upload.bin'),
           );
+
+          if (kIsWeb) {
+            final bytes = await currentDoc.file.readAsBytes();
+            request.files.add(
+              http.MultipartFile.fromBytes(
+                'file',
+                bytes,
+                filename: filename,
+                contentType: _inferContentType(currentDoc.file),
+              ),
+            );
+          } else {
+            request.files.add(
+              await http.MultipartFile.fromPath(
+                'file',
+                currentDoc.file.path,
+                filename: filename,
+                contentType: _inferContentType(currentDoc.file),
+              ),
+            );
+          }
 
           request.fields['document_count'] = '1';
           request.fields['multi_page'] = 'false';
@@ -1069,6 +1752,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
 
           final streamed = await request.send();
           final resp = await http.Response.fromStream(streamed);
+
           if (resp.statusCode >= 200 && resp.statusCode < 300) {
             successes.add(i);
           } else {
@@ -1079,6 +1763,15 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
               );
             }
           }
+        }
+
+        // Reset QR processing states
+        if (mounted) {
+          setState(() {
+            _isProcessingImage = false;
+            _processingCount = 0;
+            _updateBusyState();
+          });
         }
 
         if (!mounted) return;
@@ -1103,9 +1796,9 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         }
 
         if (successes.isNotEmpty) {
-          final uploadedPaths = successes
-              .map((i) => validDocs[i].file.path)
-              .toSet();
+          final uploadedPaths =
+              successes.map((i) => validDocs[i].file.path).toSet();
+
           setState(() {
             _capturedDocuments.removeWhere(
               (d) => uploadedPaths.contains(d.file.path),
@@ -1114,11 +1807,15 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
               _einvoiceData = null;
             }
           });
-          for (final pth in uploadedPaths) {
-            try {
-              final f = File(pth);
-              if (await f.exists()) await f.delete();
-            } catch (_) {}
+
+          // Delete only on non-web
+          if (!kIsWeb) {
+            for (final pth in uploadedPaths) {
+              try {
+                final f = File(pth);
+                if (await f.exists()) await f.delete();
+              } catch (_) {}
+            }
           }
         }
       }
@@ -1128,7 +1825,46 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text('Upload error: $e')));
     } finally {
-      if (mounted) setState(() => _isUploading = false);
+      if (mounted) {
+        setState(() {
+          _isUploading = false;
+          _updateBusyState();
+        });
+        debugPrint('[UPLOAD] Upload process completed - isBusy: $_isBusy');
+      }
+    }
+  }
+
+  /// ===================== QR PROCESSING =====================
+
+  Future<void> _processAllQRCodes() async {
+    if (_capturedDocuments.isEmpty) return;
+
+    final validDocs =
+        _capturedDocuments
+            .where((d) => d.isValid && d.type == DocumentType.pdf)
+            .toList();
+    if (validDocs.isEmpty) return;
+
+    setState(() {
+      _isProcessingImage = true;
+      _processingCount = validDocs.length;
+    });
+
+    try {
+      for (int i = 0; i < validDocs.length; i++) {
+        if (!mounted) return;
+        await _ensureQrForDocument(validDocs[i], i);
+        _decProcessing();
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessingImage = false;
+          _updateBusyState();
+          _processingCount = 0;
+        });
+      }
     }
   }
 
@@ -1149,41 +1885,42 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   void _clearAllDocuments() {
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Clear All Documents'),
-        content: Text('Remove all ${_capturedDocuments.length} documents?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () {
-              Navigator.pop(context);
-              setState(() {
-                for (final d in _capturedDocuments) {
-                  try {
-                    d.file.delete();
-                  } catch (_) {}
-                }
-                _capturedDocuments.clear();
-                _einvoiceData = null;
-              });
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('All documents cleared'),
-                  backgroundColor: Colors.orange,
+      builder:
+          (_) => AlertDialog(
+            title: const Text('Clear All Documents'),
+            content: Text('Remove all ${_capturedDocuments.length} documents?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  foregroundColor: Colors.white,
                 ),
-              );
-            },
-            child: const Text('Clear All'),
+                onPressed: () {
+                  Navigator.pop(context);
+                  setState(() {
+                    for (final d in _capturedDocuments) {
+                      try {
+                        d.file.delete();
+                      } catch (_) {}
+                    }
+                    _capturedDocuments.clear();
+                    _einvoiceData = null;
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('All documents cleared'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                },
+                child: const Text('Clear All'),
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 
@@ -1191,7 +1928,6 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
     showDialog(
       context: context,
       builder: (_) {
-        final remaining = maxDocuments - _capturedDocuments.length;
         return AlertDialog(
           title: const Text('Select Document Source'),
           content: Column(
@@ -1208,34 +1944,20 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
               ListTile(
                 leading: const Icon(Icons.photo_library),
                 title: const Text('Gallery (Images)'),
-                subtitle: Text(
-                  remaining > 0
-                      ? 'Select up to $remaining images'
-                      : 'Limit reached',
-                ),
-                enabled: remaining > 0,
-                onTap: remaining > 0
-                    ? () {
-                        Navigator.pop(context);
-                        _pickImagesFromGallery();
-                      }
-                    : null,
+                subtitle: const Text('Select images from gallery'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _pickImagesFromGallery();
+                },
               ),
               ListTile(
                 leading: const Icon(Icons.picture_as_pdf),
                 title: const Text('Pick PDF File(s)'),
-                subtitle: Text(
-                  remaining > 0
-                      ? 'Select up to $remaining PDFs'
-                      : 'Limit reached',
-                ),
-                enabled: remaining > 0,
-                onTap: remaining > 0
-                    ? () {
-                        Navigator.pop(context);
-                        _pickPdfsFromFiles();
-                      }
-                    : null,
+                subtitle: const Text('Select PDF files'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _pickPdfsFromFiles();
+                },
               ),
             ],
           ),
@@ -1276,20 +1998,16 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       appBar: AppBar(
         title: const Text('Upload Document'),
         actions: [
-          IconButton(onPressed: (){}, icon: Icon(Icons.person)),
+          // IconButton(onPressed: (){}, icon: Icon(Icons.person)),
           if (_capturedDocuments.isNotEmpty) ...[
             Center(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 6),
                 child: Chip(
-                  label: Text('$validDocCount/$maxDocuments'),
-                  backgroundColor: _capturedDocuments.length >= maxDocuments
-                      ? Colors.orange.shade100
-                      : Colors.green.shade100,
+                  label: Text('$validDocCount documents'),
+                  backgroundColor: Colors.green.shade100,
                   labelStyle: TextStyle(
-                    color: _capturedDocuments.length >= maxDocuments
-                        ? Colors.orange.shade800
-                        : Colors.green.shade800,
+                    color: Colors.green.shade800,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -1318,263 +2036,308 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
           ],
         ],
       ),
-      body: GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onTap: () => FocusScope.of(context).unfocus(),
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Colors.teal.withOpacity(0.05), Colors.white],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
+      body: RefreshIndicator(
+        onRefresh: _onRefresh,
+        color: Colors.teal,
+        backgroundColor: Colors.white,
+        strokeWidth: 2.5,
+        displacement: 40.0,
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: () => FocusScope.of(context).unfocus(),
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.teal.withOpacity(0.05), Colors.white],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+              ),
             ),
-          ),
-          child: SingleChildScrollView(
-            controller: _scrollController,
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                if (showTopLoader)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Column(
-                      children: [
-                        const LinearProgressIndicator(),
-                        const SizedBox(height: 8),
-                        Text(
-                          (_processingCount > 0 || _isProcessingImage)
-                              ? 'Processing documents...'
-                              : 'Loading lists...',
-                          style: TextStyle(
-                            color: Colors.grey.shade600,
-                            fontSize: 12,
+            child: SingleChildScrollView(
+              controller: _scrollController,
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  if (showTopLoader || _isRefreshing)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Column(
+                        children: [
+                          const LinearProgressIndicator(),
+                          const SizedBox(height: 8),
+                          Text(
+                            _isRefreshing
+                                ? 'Refreshing page...'
+                                : (_processingCount > 0 || _isProcessingImage)
+                                ? 'Processing documents...'
+                                : 'Loading lists...',
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontSize: 12,
+                            ),
                           ),
+                        ],
+                      ),
+                    ),
+                  _buildSectionCard(
+                    icon: Icons.description,
+                    title: 'Document Type',
+                    child: SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(value: 'POD', label: Text('POD')),
+                        ButtonSegment(value: 'GRN', label: Text('GRN')),
+                        ButtonSegment(
+                          value: 'E-INVOICE',
+                          label: Text('E-Invoice'),
                         ),
                       ],
-                    ),
-                  ),
-                _buildSectionCard(
-                  icon: Icons.description,
-                  title: 'Document Type',
-                  child: SegmentedButton<String>(
-                    segments: const [
-                      ButtonSegment(value: 'POD', label: Text('POD')),
-                      ButtonSegment(value: 'GRN', label: Text('GRN')),
-                      ButtonSegment(
-                        value: 'E-INVOICE',
-                        label: Text('E-Invoice'),
-                      ),
-                    ],
-                    selected: {_selectedDocType ?? 'POD'},
-                    onSelectionChanged: _isBusy
-                        ? null
-                        : (value) {
-                            setState(() {
-                              _selectedDocType = value.first;
-                              _selectedStockist = null;
-                              _selectedChemist = null;
-                              _selectedPod = null;
-                              _einvoiceData = null;
-                              _stockistKey = UniqueKey();
-                              _chemistKey = UniqueKey();
-                              _podKey = UniqueKey();
-                            });
-                          },
-                  ),
-                ),
-                if (_isPodDoc()) ...[
-                  _buildSectionCard(
-                    icon: Icons.store_mall_directory,
-                    title: 'Stockist',
-                    subtitle: 'Select Stockist',
-                    child: _customAutocomplete(
-                      key: _stockistKey,
-                      options: _allStockists,
-                      selected: _selectedStockist,
-                      label: 'Search Stockist',
-                      onSelected: (opt) =>
-                          setState(() => _selectedStockist = opt),
-                      onClear: () => setState(() => _selectedStockist = null),
-                    ),
-                  ),
-                  _buildSectionCard(
-                    icon: Icons.local_hospital,
-                    title: 'Hospital',
-                    subtitle: 'Select Hospital',
-                    child: _customAutocomplete(
-                      key: _chemistKey,
-                      options: _allChemists,
-                      selected: _selectedChemist,
-                      label: 'Search Hospital',
-                      onSelected: (opt) =>
-                          setState(() => _selectedChemist = opt),
-                      onClear: () => setState(() => _selectedChemist = null),
-                    ),
-                  ),
-                ],
-                _buildSectionCard(
-                  icon: Icons.receipt_long,
-                  title: 'POD Link',
-                  subtitle: 'Select POD (recommended for E-Invoice / GRN)',
-                  child: _customAutocomplete(
-                    key: _podKey,
-                    options: _allPods,
-                    selected: _selectedPod,
-                    label: 'Search POD',
-                    onSelected: (opt) => setState(() => _selectedPod = opt),
-                    onClear: () => setState(() => _selectedPod = null),
-                  ),
-                ),
-                _buildSectionCard(
-                  icon: Icons.add_a_photo,
-                  title: 'Add Documents',
-                  subtitle:
-                      'Images converted to PDF. POD & E-INVOICE types auto-extract QR.',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      ElevatedButton.icon(
-                        onPressed: _isBusy ? null : _showDocumentSourceDialog,
-                        icon: _isBusy
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Icon(Icons.add),
-                        label: Text(
-                          _isBusy ? 'Processing...' : 'Add Documents',
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      if (!_isPodDoc())
-                        OutlinedButton.icon(
-                          onPressed: _isBusy
+                      selected: {_selectedDocType ?? 'POD'},
+                      onSelectionChanged:
+                          _isBusy
                               ? null
-                              : () async {
-                                  final res =
-                                      await Navigator.push<
+                              : (value) {
+                                setState(() {
+                                  _selectedDocType = value.first;
+                                  _selectedStockist = null;
+                                  _selectedChemist = null;
+                                  _selectedPod = null;
+                                  _einvoiceData = null;
+                                  _stockistKey = UniqueKey();
+                                  _chemistKey = UniqueKey();
+                                  _podKey = UniqueKey();
+                                });
+                              },
+                    ),
+                  ),
+                  if (_isPodDoc()) ...[
+                    _buildSectionCard(
+                      icon: Icons.store_mall_directory,
+                      title: 'Stockist',
+                      subtitle: 'Select Stockist',
+                      child: _debouncedAutocomplete(
+                        key: _stockistKey,
+                        initialOptions: _allStockists,
+                        selected: _selectedStockist,
+                        label: 'Search Stockist',
+                        onSelected:
+                            (opt) => setState(() => _selectedStockist = opt),
+                        onClear: () => setState(() => _selectedStockist = null),
+                        searchFunction: _searchStockists,
+                        isSearching: _isSearchingStockists,
+                      ),
+                    ),
+                    _buildSectionCard(
+                      icon: Icons.local_hospital,
+                      title: 'Hospital',
+                      subtitle: 'Select Hospital',
+                      child: _debouncedAutocomplete(
+                        key: _chemistKey,
+                        initialOptions: _allChemists,
+                        selected: _selectedChemist,
+                        label: 'Search Hospital',
+                        onSelected:
+                            (opt) => setState(() => _selectedChemist = opt),
+                        onClear: () => setState(() => _selectedChemist = null),
+                        searchFunction: _searchHospitals,
+                        isSearching: _isSearchingHospitals,
+                      ),
+                    ),
+                  ],
+                  if (!_isPodDoc())
+                    _buildSectionCard(
+                      icon: Icons.receipt_long,
+                      title: 'POD Link',
+                      subtitle: 'Select POD (recommended for E-Invoice / GRN)',
+                      child: _customAutocomplete(
+                        key: _podKey,
+                        options: _allPods,
+                        selected: _selectedPod,
+                        label: 'Search POD',
+                        onSelected: (opt) => setState(() => _selectedPod = opt),
+                        onClear: () => setState(() => _selectedPod = null),
+                      ),
+                    ),
+                  _buildSectionCard(
+                    icon: Icons.add_a_photo,
+                    title: 'Add Documents',
+                    subtitle:
+                        'Images converted to PDF. POD & E-INVOICE types auto-extract QR.',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        ElevatedButton.icon(
+                          onPressed: _isBusy ? null : _showDocumentSourceDialog,
+                          icon:
+                              _isBusy
+                                  ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                  : const Icon(Icons.add),
+                          label: Text(
+                            _isBusy ? 'Processing...' : 'Add Documents',
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        // Process QR Codes button
+                        // if (_capturedDocuments.any((d) => d.isValid && d.type == DocumentType.pdf && d.qrData == null))
+                        //   OutlinedButton.icon(
+                        //     onPressed: _isBusy ? null : _processAllQRCodes,
+                        //     icon: _isBusy
+                        //         ? const SizedBox(
+                        //             width: 18,
+                        //             height: 18,
+                        //             child: CircularProgressIndicator(
+                        //               strokeWidth: 2,
+                        //               color: Colors.blue,
+                        //             ),
+                        //           )
+                        //         : const Icon(Icons.qr_code_scanner),
+                        //     label: Text(
+                        //       _isBusy ? 'Processing QR...' : 'Process QR Codes',
+                        //     ),
+                        //     style: OutlinedButton.styleFrom(
+                        //       foregroundColor: Colors.blue,
+                        //       side: const BorderSide(color: Colors.blue),
+                        //     ),
+                        //   ),
+                        // const SizedBox(height: 8),
+                        if (!_isPodDoc())
+                          OutlinedButton.icon(
+                            onPressed:
+                                _isBusy
+                                    ? null
+                                    : () async {
+                                      final res = await Navigator.push<
                                         Map<String, dynamic>
                                       >(
                                         context,
                                         MaterialPageRoute(
-                                          builder: (_) => GstQrApp(
-                                            podId: _selectedPod?.id ?? '0',
-                                          ),
+                                          builder:
+                                              (_) => GstQrApp(
+                                                podId: _selectedPod?.id ?? '0',
+                                              ),
                                         ),
                                       );
-                                  if (res != null) {
-                                    setState(() => _einvoiceData = res);
-                                    _autoMarkEinvoiceSelectedForEinvoiceFlow();
-                                    await _openInvoiceDetails(res);
-                                  }
-                                },
-                          icon: const Icon(Icons.qr_code_scanner),
-                          label: Text(
-                            _einvoiceData != null
-                                ? 'Manual Scan (Done)'
-                                : 'Manual Scan (Camera)',
+                                      if (res != null) {
+                                        setState(() => _einvoiceData = res);
+                                        _autoMarkEinvoiceSelectedForEinvoiceFlow();
+                                        await _openInvoiceDetails(res);
+                                      }
+                                    },
+                            icon: const Icon(Icons.qr_code_scanner),
+                            label: Text(
+                              _einvoiceData != null
+                                  ? 'Manual Scan (Done)'
+                                  : 'Manual Scan (Camera)',
+                            ),
                           ),
-                        ),
-                    ],
-                  ),
-                ),
-                if (_isEinvoiceDoc() && _einvoiceData != null)
-                  _buildSectionCard(
-                    icon: Icons.qr_code,
-                    title: 'Primary E-Invoice',
-                    subtitle: 'Auto/manual. Each PDF may have its own.',
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _kv('Invoice No', _einvoiceData?['DocNo']),
-                        _kv('Invoice Date', _einvoiceData?['DocDt']),
-                        _kv('IRN', _einvoiceData?['Irn']),
-                        _kv('Total Value', _einvoiceData?['TotInvVal']),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                onPressed: () =>
-                                    _openInvoiceDetails(_einvoiceData!),
-                                icon: const Icon(Icons.info),
-                                label: const Text('Details'),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            ElevatedButton.icon(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.red.shade600,
-                                foregroundColor: Colors.white,
-                              ),
-                              onPressed: () =>
-                                  setState(() => _einvoiceData = null),
-                              icon: const Icon(Icons.clear),
-                              label: const Text('Clear'),
-                            ),
-                          ],
-                        ),
                       ],
                     ),
                   ),
-                if (_capturedDocuments.isNotEmpty)
-                  _buildSectionCard(
-                    icon: Icons.collections,
-                    title:
-                        'Documents ($validDocCount valid / ${_capturedDocuments.length} total)',
-                    subtitle:
-                        'Green border = QR extracted (POD & E-INVOICE). Tap to preview. Tap QR badge to view.',
-                    child: Column(
-                      children: [
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: _capturedDocuments.asMap().entries.map((e) {
-                            final i = e.key;
-                            final d = e.value;
-                            return _buildDocumentThumbnail(d, i);
-                          }).toList(),
-                        ),
-                        const SizedBox(height: 16),
-                        ElevatedButton.icon(
-                          onPressed:
-                              (_isUploading ||
-                                  validDocCount == 0 ||
-                                  _processingCount > 0 ||
-                                  _isProcessingImage)
-                              ? null
-                              : _uploadCaptured,
-                          icon: _isUploading
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Icon(Icons.cloud_upload),
-                          label: Text(
-                            _isUploading
-                                ? 'Uploading...'
-                                : validDocCount > 0
-                                ? 'Upload $validDocCount Document(s)'
-                                : 'No Valid Documents',
+                  if (_isEinvoiceDoc() && _einvoiceData != null)
+                    _buildSectionCard(
+                      icon: Icons.qr_code,
+                      title: 'Primary E-Invoice',
+                      subtitle: 'Auto/manual. Each PDF may have its own.',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _kv('Invoice No', _einvoiceData?['DocNo']),
+                          _kv('Invoice Date', _einvoiceData?['DocDt']),
+                          _kv('IRN', _einvoiceData?['Irn']),
+                          _kv('Total Value', _einvoiceData?['TotInvVal']),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed:
+                                      () => _openInvoiceDetails(_einvoiceData!),
+                                  icon: const Icon(Icons.info),
+                                  label: const Text('Details'),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red.shade600,
+                                  foregroundColor: Colors.white,
+                                ),
+                                onPressed:
+                                    () => setState(() => _einvoiceData = null),
+                                icon: const Icon(Icons.clear),
+                                label: const Text('Clear'),
+                              ),
+                            ],
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                if (_isUploading && _capturedDocuments.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 16),
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
-              ],
+                  if (_capturedDocuments.isNotEmpty)
+                    _buildSectionCard(
+                      icon: Icons.collections,
+                      title:
+                          'Documents ($validDocCount valid / ${_capturedDocuments.length} total)',
+                      subtitle:
+                          'Green border = QR extracted (POD & E-INVOICE). Tap to preview. Tap QR badge to view.',
+                      child: Column(
+                        children: [
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children:
+                                _capturedDocuments.asMap().entries.map((e) {
+                                  final i = e.key;
+                                  final d = e.value;
+                                  return _buildDocumentThumbnail(d, i);
+                                }).toList(),
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton.icon(
+                            onPressed:
+                                (_isUploading ||
+                                        validDocCount == 0 ||
+                                        _processingCount > 0 ||
+                                        _isProcessingImage)
+                                    ? null
+                                    : _uploadCaptured,
+                            icon:
+                                _isUploading
+                                    ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                    : const Icon(Icons.cloud_upload),
+                            label: Text(
+                              _isUploading
+                                  ? 'Uploading...'
+                                  : _processingCount > 0 || _isProcessingImage
+                                  ? 'Processing QR Codes...'
+                                  : validDocCount > 0
+                                  ? 'Upload $validDocCount Document(s)'
+                                  : 'No Valid Documents',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (_isUploading && _capturedDocuments.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                      child: Center(child: CircularProgressIndicator()),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
@@ -1670,15 +2433,16 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
             border: const OutlineInputBorder(),
             filled: true,
             fillColor: Colors.grey.shade50,
-            suffixIcon: controller.text.isEmpty
-                ? null
-                : IconButton(
-                    icon: const Icon(Icons.clear),
-                    onPressed: () {
-                      controller.clear();
-                      onClear();
-                    },
-                  ),
+            suffixIcon:
+                controller.text.isEmpty
+                    ? null
+                    : IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        controller.clear();
+                        onClear();
+                      },
+                    ),
           ),
         );
       },
@@ -1710,31 +2474,212 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
     );
   }
 
+  // Debounced autocomplete for stockist and hospital search
+  Widget _debouncedAutocomplete({
+    Key? key,
+    required List<_SelectItem> initialOptions,
+    required _SelectItem? selected,
+    required String label,
+    required Function(_SelectItem) onSelected,
+    required VoidCallback onClear,
+    required Future<List<_SelectItem>> Function(String) searchFunction,
+    required bool isSearching,
+  }) {
+    return Autocomplete<_SelectItem>(
+      key: key,
+      displayStringForOption: (o) => o.label,
+      optionsBuilder: (TextEditingValue tv) async {
+        final text = tv.text.trim();
+
+        // Cancel any existing timer
+        if (label.contains('Stockist')) {
+          _stockistSearchTimer?.cancel();
+        } else if (label.contains('Hospital')) {
+          _hospitalSearchTimer?.cancel();
+        }
+
+        // If text is empty, return initial options
+        if (text.isEmpty) {
+          return initialOptions.take(50);
+        }
+
+        // Create a completer for the debounced result
+        final completer = Completer<Iterable<_SelectItem>>();
+
+        // Set up debounced timer
+        final timer = Timer(const Duration(milliseconds: 500), () async {
+          // Set loading state only when we actually start the API call
+          if (mounted) {
+            setState(() {
+              if (label.contains('Stockist')) {
+                _isSearchingStockists = true;
+              } else if (label.contains('Hospital')) {
+                _isSearchingHospitals = true;
+              }
+            });
+          }
+
+          try {
+            final searchResults = await searchFunction(text);
+            if (mounted) {
+              setState(() {
+                if (label.contains('Stockist')) {
+                  _isSearchingStockists = false;
+                } else if (label.contains('Hospital')) {
+                  _isSearchingHospitals = false;
+                }
+              });
+            }
+            completer.complete(searchResults);
+          } catch (e) {
+            print('Search error: $e');
+            if (mounted) {
+              setState(() {
+                if (label.contains('Stockist')) {
+                  _isSearchingStockists = false;
+                } else if (label.contains('Hospital')) {
+                  _isSearchingHospitals = false;
+                }
+              });
+            }
+            // Fallback to local filtering if API fails
+            final fallbackResults = initialOptions.where(
+              (o) =>
+                  o.label.toLowerCase().contains(text.toLowerCase()) ||
+                  o.id.toLowerCase().contains(text.toLowerCase()),
+            );
+            completer.complete(fallbackResults);
+          }
+        });
+
+        // Store the timer
+        if (label.contains('Stockist')) {
+          _stockistSearchTimer = timer;
+        } else if (label.contains('Hospital')) {
+          _hospitalSearchTimer = timer;
+        }
+
+        // Return initial filtered results immediately for better UX
+        final initialFiltered = initialOptions
+            .where(
+              (o) =>
+                  o.label.toLowerCase().contains(text.toLowerCase()) ||
+                  o.id.toLowerCase().contains(text.toLowerCase()),
+            )
+            .take(20);
+
+        // If we have good initial results, return them immediately
+        if (initialFiltered.isNotEmpty) {
+          return initialFiltered;
+        }
+
+        // Otherwise, wait for the debounced search results
+        return completer.future;
+      },
+      fieldViewBuilder: (ctx, controller, focusNode, onSubmit) {
+        if (selected != null && controller.text.isEmpty) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (controller.text.isEmpty) {
+              controller.text = selected.label;
+              controller.selection = TextSelection.fromPosition(
+                TextPosition(offset: controller.text.length),
+              );
+            }
+          });
+        }
+        return TextField(
+          controller: controller,
+          focusNode: focusNode,
+          onTapOutside: (_) => FocusScope.of(ctx).unfocus(),
+          decoration: InputDecoration(
+            labelText: label,
+            prefixIcon:
+                isSearching
+                    ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                    : const Icon(Icons.search),
+            border: const OutlineInputBorder(),
+            filled: true,
+            fillColor: Colors.grey.shade50,
+            suffixIcon:
+                controller.text.isEmpty
+                    ? null
+                    : IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        controller.clear();
+                        onClear();
+                      },
+                    ),
+          ),
+        );
+      },
+      optionsViewBuilder: (ctx, onSelectedOpt, iterable) {
+        return Align(
+          alignment: Alignment.topLeft,
+          child: Material(
+            elevation: 4,
+            borderRadius: BorderRadius.circular(8),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 250),
+              child:
+                  isSearching
+                      ? const Padding(
+                        padding: EdgeInsets.all(16.0),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                      : ListView.builder(
+                        padding: EdgeInsets.zero,
+                        itemCount: iterable.length,
+                        itemBuilder: (_, i) {
+                          final opt = iterable.elementAt(i);
+                          return ListTile(
+                            dense: true,
+                            title: Text(opt.label),
+                            onTap: () => onSelectedOpt(opt),
+                          );
+                        },
+                      ),
+            ),
+          ),
+        );
+      },
+      onSelected: onSelected,
+    );
+  }
+
   Widget _buildDocumentThumbnail(DocumentInfo docInfo, int index) {
     final hasQR = docInfo.qrData != null;
     final width = (MediaQuery.of(context).size.width - 64) / 3;
+
     return SizedBox(
       width: width,
       height: 132,
       child: Stack(
         children: [
+          // Main thumbnail container
           GestureDetector(
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => PdfPreviewScreen(pdfFile: docInfo.file),
-              ),
-            ),
+            onTap:
+                () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => PdfPreviewScreen(pdfFile: docInfo.file),
+                  ),
+                ),
             child: Container(
               decoration: BoxDecoration(
                 color: hasQR ? Colors.green.shade50 : Colors.grey.shade100,
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
-                  color: hasQR
-                      ? Colors.green.shade400
-                      : (docInfo.isValid
-                            ? Colors.grey.shade300
-                            : Colors.red.shade300),
+                  color:
+                      hasQR
+                          ? Colors.green.shade400
+                          : (docInfo.isValid
+                              ? Colors.grey.shade300
+                              : Colors.red.shade300),
                   width: hasQR ? 2 : (docInfo.isValid ? 1 : 2),
                 ),
               ),
@@ -1744,11 +2689,12 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                   Icon(
                     Icons.picture_as_pdf,
                     size: 34,
-                    color: hasQR
-                        ? Colors.green.shade600
-                        : (docInfo.isValid
-                              ? Colors.red.shade600
-                              : Colors.red.shade400),
+                    color:
+                        hasQR
+                            ? Colors.green.shade600
+                            : (docInfo.isValid
+                                ? Colors.red.shade600
+                                : Colors.red.shade400),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -1756,9 +2702,8 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
-                      color: hasQR
-                          ? Colors.green.shade700
-                          : Colors.red.shade700,
+                      color:
+                          hasQR ? Colors.green.shade700 : Colors.red.shade700,
                     ),
                   ),
                   if (hasQR)
@@ -1798,7 +2743,8 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
               ),
             ),
           ),
-          // Remove
+
+          // Remove button (top-right)
           Positioned(
             top: 4,
             right: 4,
@@ -1814,7 +2760,8 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
               ),
             ),
           ),
-          // Index
+
+          // Index badge (bottom-left)
           Positioned(
             bottom: 4,
             left: 4,
@@ -1834,7 +2781,8 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
               ),
             ),
           ),
-          // Extract button if needed (POD & E-INVOICE scenarios only)
+
+          // AUTO-EXTRACT BUTTON (top-left) - Blue (when no QR)
           if (docInfo.isValid &&
               docInfo.type == DocumentType.pdf &&
               !hasQR &&
@@ -1843,24 +2791,123 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
               top: 4,
               left: 4,
               child: GestureDetector(
-                onTap: _isBusy
-                    ? null
-                    : () => _enqueueExtraction(docInfo, index),
+                onTap:
+                    _isBusy ? null : () => _enqueueExtraction(docInfo, index),
                 child: Container(
-                  padding: const EdgeInsets.all(3),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: _isBusy ? Colors.grey : Colors.blue.shade600,
                     borderRadius: BorderRadius.circular(8),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Colors.black26,
+                        blurRadius: 3,
+                        offset: Offset(0, 1),
+                      ),
+                    ],
                   ),
-                  child: const Icon(
-                    Icons.qr_code_scanner,
-                    color: Colors.white,
-                    size: 14,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(Icons.auto_awesome, color: Colors.white, size: 11),
+                      SizedBox(width: 3),
+                      Text(
+                        'Auto',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
             ),
-          // View QR
+
+          // MANUAL SCAN BUTTON (bottom-right) - Orange (when no QR)
+          if (docInfo.isValid &&
+              docInfo.type == DocumentType.pdf &&
+              !hasQR &&
+              (_isPodDoc() || _isEinvoiceDoc()))
+            Positioned(
+              bottom: 4,
+              right: 4,
+              child: GestureDetector(
+                onTap:
+                    _isBusy
+                        ? null
+                        : () async {
+                          final res =
+                              await Navigator.push<Map<String, dynamic>>(
+                                context,
+                                MaterialPageRoute(
+                                  builder:
+                                      (_) => GstQrApp(
+                                        podId: _selectedPod?.id ?? '0',
+                                      ),
+                                ),
+                              );
+                          if (res != null && mounted) {
+                            setState(() {
+                              _capturedDocuments[index] = docInfo.copyWith(
+                                qrData: res,
+                              );
+                              _einvoiceData ??= res;
+                            });
+
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('✅ Manual QR scan successful'),
+                                backgroundColor: Colors.green,
+                                duration: Duration(seconds: 2),
+                              ),
+                            );
+                          }
+                        },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _isBusy ? Colors.grey : Colors.orange.shade700,
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Colors.black26,
+                        blurRadius: 3,
+                        offset: Offset(0, 1),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(
+                        Icons.qr_code_scanner,
+                        color: Colors.white,
+                        size: 11,
+                      ),
+                      SizedBox(width: 3),
+                      Text(
+                        'Scan',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+          // VIEW QR BUTTON (top-left) - Green (when QR exists)
           if (hasQR)
             Positioned(
               top: 4,
@@ -1870,19 +2917,33 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 6,
-                    vertical: 2,
+                    vertical: 4,
                   ),
                   decoration: BoxDecoration(
                     color: Colors.green.shade700,
                     borderRadius: BorderRadius.circular(8),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Colors.black26,
+                        blurRadius: 3,
+                        offset: Offset(0, 1),
+                      ),
+                    ],
                   ),
-                  child: const Text(
-                    'View',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(Icons.visibility, color: Colors.white, size: 11),
+                      SizedBox(width: 3),
+                      Text(
+                        'View',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -1898,6 +2959,10 @@ class _QrQueueItem {
   final int index;
   _QrQueueItem(this.doc, this.index);
 }
+
+/// ===================== QR REGION ENUM =====================
+
+enum QrRegion { topRight, bottomRight, topLeft, bottomLeft, center }
 
 /// ===================== AUTOCOMPLETE SUPPORT =====================
 
