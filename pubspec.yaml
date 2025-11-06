@@ -1,7 +1,7 @@
 name: zyduspod
 description: "Zydus Pod"
 publish_to: "none"
-version: 1.0.7+17
+version: 1.0.8+18
 
 environment:
   sdk: ^3.7.0
