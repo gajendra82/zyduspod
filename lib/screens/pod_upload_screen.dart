@@ -637,8 +637,8 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
               displayName: displayName,
               isValid: true,
               qrData: null,
-              qrStatus: QRProcessingStatus.completed, // Skip QR extraction - mark as completed
-              originalRawFile: originalFile, // Store reference to original raw file
+              qrStatus: QRProcessingStatus.completed, 
+              originalRawFile: originalFile, 
             );
             
             setState(() {
