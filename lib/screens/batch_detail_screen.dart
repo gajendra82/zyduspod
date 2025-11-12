@@ -43,6 +43,7 @@ class _BatchDetailScreenState extends State<BatchDetailScreen> {
         _batch = batch;
       });
     } catch (e) {
+      print('Error loading batch details: $e');
       setState(() {
         _hasError = true;
         _errorMessage = e.toString();
@@ -416,13 +417,9 @@ class _BatchDetailScreenState extends State<BatchDetailScreen> {
       final result = stepMap['result'];
       List<dynamic> errors = [];
       if (result is Map) {
-        try {
-          final resultMap = Map<String, dynamic>.from(result);
-          if (resultMap['errors'] is List) {
-            errors = resultMap['errors'] as List<dynamic>;
-          }
-        } catch (_) {
-          // Ignore parsing errors
+        final resultMap = Map<String, dynamic>.from(result);
+        if (resultMap['errors'] is List) {
+          errors = resultMap['errors'] as List<dynamic>;
         }
       }
 
@@ -537,14 +534,10 @@ class _BatchDetailScreenState extends State<BatchDetailScreen> {
                     ...errors.take(5).map((error) {
                       String errorText = '';
                       if (error is Map) {
-                        try {
-                          final errorMap = Map<String, dynamic>.from(error);
-                          if (errorMap['error'] != null) {
-                            errorText = errorMap['error'].toString();
-                          } else {
-                            errorText = error.toString();
-                          }
-                        } catch (_) {
+                        final errorMap = Map<String, dynamic>.from(error);
+                        if (errorMap['error'] != null) {
+                          errorText = errorMap['error'].toString();
+                        } else {
                           errorText = error.toString();
                         }
                       } else {

@@ -742,7 +742,8 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
               displayName: displayName,
               isValid: true,
               qrData: null,
-              qrStatus: QRProcessingStatus.completed,
+              qrStatus: QRProcessingStatus.completed, // Skip QR extraction - mark as completed
+              originalRawFile: originalFile, // Store reference to original raw file
             );
 
             setState(() {
@@ -963,17 +964,36 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('authToken');
 
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Sending data to server...'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+
       final uri = Uri.parse(Multi_Api_POD_UPLOAD_URL);
       final req = http.MultipartRequest('POST', uri);
 
+      // Attach files
       for (final d in validDocs) {
-        final filename = d.displayName.isNotEmpty ? d.displayName : 'document';
-        final contentType = _inferContentTypeByName(
-          filename,
-          fallbackFromFile: d.file,
-        );
-
-        if (d.webBytes != null) {
+        if (d.file != null) {
+          // Mobile/desktop: use file path
+          final filename = p.basename(d.file!.path);
+          final contentType = _inferContentTypeFile(d.file!);
+          req.files.add(
+            await http.MultipartFile.fromPath(
+              'files[]',
+              d.file!.path,
+              filename: filename,
+              contentType: contentType,
+            ),
+          );
+        } else if (d.webBytes != null) {
+          // Web: use bytes
+          final filename = d.displayName;
+          final contentType = _inferContentTypeByName(filename);
           req.files.add(
             await _multipartFromBytes(
               fieldName: 'files[]',
@@ -982,15 +1002,32 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
               contentType: contentType,
             ),
           );
-        } else if (d.file != null) {
-          req.files.add(
-            await _multipartFromFile(
-              fieldName: 'files[]',
-              file: d.file!,
-              contentType: contentType,
-            ),
-          );
         }
+      }
+
+      // Attach original raw files if documents were split
+      // Collect unique original raw files
+      final Set<String> rawFilePaths = {};
+      for (final d in validDocs) {
+        if (d.originalRawFile != null && await d.originalRawFile!.exists()) {
+          rawFilePaths.add(d.originalRawFile!.path);
+        }
+      }
+      
+      // Attach each unique raw file with key 'raw_file'
+      for (final rawFilePath in rawFilePaths) {
+        final rawFile = File(rawFilePath);
+        final filename = p.basename(rawFile.path);
+        final contentType = _inferContentTypeFile(rawFile);
+        req.files.add(
+          await http.MultipartFile.fromPath(
+            'raw_file',
+            rawFile.path,
+            filename: filename,
+            contentType: contentType,
+          ),
+        );
+        debugPrint('[UPLOAD] Attached original raw file: $filename');
       }
 
       if (token != null) {
@@ -1828,6 +1865,7 @@ class DocumentInfo {
   final Map<String, dynamic>? qrData;
   final QRProcessingStatus qrStatus;
   final String? errorMessage;
+  final File? originalRawFile; // Original file if this was split from a PDF
 
   DocumentInfo({
     required this.file,
@@ -1837,6 +1875,7 @@ class DocumentInfo {
     this.qrData,
     this.qrStatus = QRProcessingStatus.notStarted,
     this.errorMessage,
+    this.originalRawFile,
   });
 
   DocumentInfo copyWith({
@@ -1847,6 +1886,7 @@ class DocumentInfo {
     Map<String, dynamic>? qrData,
     QRProcessingStatus? qrStatus,
     String? errorMessage,
+    File? originalRawFile,
   }) {
     return DocumentInfo(
       file: file ?? this.file,
@@ -1856,6 +1896,7 @@ class DocumentInfo {
       qrData: qrData ?? this.qrData,
       qrStatus: qrStatus ?? this.qrStatus,
       errorMessage: errorMessage ?? this.errorMessage,
+      originalRawFile: originalRawFile ?? this.originalRawFile,
     );
   }
 }

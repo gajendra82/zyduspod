@@ -40,13 +40,19 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       _hasError = false;
     });
     try {
-      final data = await _service.fetchNotifications(page: 1);
+      final response = await _service.fetchNotifications(page: 1);
       setState(() {
         _notifications
           ..clear()
-          ..addAll(data);
-        _page = 1;
-        _hasMore = data.isNotEmpty;
+          ..addAll(response.notifications);
+        _page = response.currentPage;
+        // Stop pagination if:
+        // 1. No notifications returned
+        // 2. No next page available
+        // 3. Reached last page (if available)
+        _hasMore = response.notifications.isNotEmpty && 
+                   response.hasNextPage &&
+                   (response.lastPage == null || response.currentPage < response.lastPage!);
       });
     } catch (e) {
       setState(() {
@@ -59,18 +65,35 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Future<void> _loadMore() async {
-    if (!_hasMore) return;
+    // Don't load more if already loading, no more pages, or reached last page
+    if (_isLoadingMore || !_hasMore) return;
+    
     setState(() => _isLoadingMore = true);
     try {
-      final next = _page + 1;
-      final data = await _service.fetchNotifications(page: next);
+      final nextPage = _page + 1;
+      final response = await _service.fetchNotifications(page: nextPage);
+      
       setState(() {
-        _notifications.addAll(data);
-        _page = next;
-        _hasMore = data.isNotEmpty;
+        // Only add notifications if we got some
+        if (response.notifications.isNotEmpty) {
+          _notifications.addAll(response.notifications);
+          _page = response.currentPage;
+        }
+        
+        // Stop pagination if:
+        // 1. No notifications returned (empty page)
+        // 2. No next page available
+        // 3. Reached last page (if available)
+        _hasMore = response.notifications.isNotEmpty && 
+                   response.hasNextPage &&
+                   (response.lastPage == null || response.currentPage < response.lastPage!);
       });
-    } catch (_) {
-      // ignore pagination errors silently
+    } catch (e) {
+      print('Error loading more notifications: $e');
+      // On error, stop pagination to prevent infinite retries
+      setState(() {
+        _hasMore = false;
+      });
     } finally {
       if (mounted) setState(() => _isLoadingMore = false);
     }
@@ -121,12 +144,28 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         padding: const EdgeInsets.all(16),
         itemBuilder: (context, index) {
           if (index == _notifications.length) {
-            return _isLoadingMore
-                ? const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 16),
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                : const SizedBox.shrink();
+            if (_isLoadingMore) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            // Show "no more items" message if we've reached the end
+            if (!_hasMore && _notifications.isNotEmpty) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Center(
+                  child: Text(
+                    'No more notifications',
+                    style: TextStyle(
+                      color: Colors.grey,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              );
+            }
+            return const SizedBox.shrink();
           }
           final n = _notifications[index];
           return _NotificationCard(notification: n);
