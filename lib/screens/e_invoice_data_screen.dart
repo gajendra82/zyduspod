@@ -7,6 +7,7 @@ import 'package:zyduspod/GstInvoiceScanner.dart';
 import 'package:zyduspod/services/PythonQRService.dart';
 import 'package:zyduspod/widgets/EInvoiceQRExtractor.dart';
 import 'package:zyduspod/services/pod_details_service.dart';
+import 'package:zyduspod/routes.dart';
 
 class EInvoiceDataScreen extends StatefulWidget {
   final Map<String, dynamic>? qrData;
@@ -717,16 +718,15 @@ class _EInvoiceDataScreenState extends State<EInvoiceDataScreen>
 
       if (result != null) {
         // Navigate to data screen with the scanned data
-        Navigator.pushReplacement(
+        Navigator.pushReplacementNamed(
           context,
-          MaterialPageRoute(
-            builder: (context) => EInvoiceDataScreen(
-              qrData: result,
-              fileName: widget.fileName,
-              uploadTime: DateTime.now(),
-              podId: widget.podId,
-            ),
-          ),
+          AppRoutes.eInvoiceData,
+          arguments: {
+            'qrData': result,
+            'fileName': widget.fileName,
+            'uploadTime': DateTime.now(),
+            'podId': widget.podId,
+          },
         );
       }
     } catch (e) {
@@ -809,16 +809,15 @@ class _EInvoiceDataScreenState extends State<EInvoiceDataScreen>
           final qrData = _convertPodResponseToQrData(response);
           
           // Navigate to data screen with the fetched data
-          Navigator.pushReplacement(
+          Navigator.pushReplacementNamed(
             context,
-            MaterialPageRoute(
-              builder: (context) => EInvoiceDataScreen(
-                qrData: qrData,
-                fileName: widget.fileName,
-                uploadTime: DateTime.now(),
-                podId: widget.podId,
-              ),
-            ),
+            AppRoutes.eInvoiceData,
+            arguments: {
+              'qrData': qrData,
+              'fileName': widget.fileName,
+              'uploadTime': DateTime.now(),
+              'podId': widget.podId,
+            },
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -857,16 +856,15 @@ class _EInvoiceDataScreenState extends State<EInvoiceDataScreen>
     
     if (result != null) {
       // Navigate to data screen with the extracted data
-      Navigator.pushReplacement(
+      Navigator.pushReplacementNamed(
         context,
-        MaterialPageRoute(
-          builder: (context) => EInvoiceDataScreen(
-            qrData: result,
-            fileName: widget.fileName,
-            uploadTime: DateTime.now(),
-            podId: widget.podId,
-          ),
-        ),
+        AppRoutes.eInvoiceData,
+        arguments: {
+          'qrData': result,
+          'fileName': widget.fileName,
+          'uploadTime': DateTime.now(),
+          'podId': widget.podId,
+        },
       );
     }
   }
@@ -1036,16 +1034,15 @@ class _EInvoiceDataScreenState extends State<EInvoiceDataScreen>
 
         if (qrData != null && qrData.isNotEmpty) {
           // Navigate to data screen with the extracted data
-          Navigator.pushReplacement(
+          Navigator.pushReplacementNamed(
             context,
-            MaterialPageRoute(
-              builder: (context) => EInvoiceDataScreen(
-                qrData: qrData,
-                fileName: result.files.single.name,
-                uploadTime: DateTime.now(),
-                podId: widget.podId,
-              ),
-            ),
+            AppRoutes.eInvoiceData,
+            arguments: {
+              'qrData': qrData,
+              'fileName': result.files.single.name,
+              'uploadTime': DateTime.now(),
+              'podId': widget.podId,
+            },
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(

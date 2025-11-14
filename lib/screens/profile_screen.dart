@@ -9,6 +9,7 @@ import 'package:zyduspod/screens/notifications_screen.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:zyduspod/config.dart';
+import 'package:zyduspod/routes.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -110,11 +111,9 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
         actions: [
           IconButton(
             onPressed: () {
-              Navigator.push(
+              Navigator.pushNamed(
                 context,
-                MaterialPageRoute(
-                  builder: (context) => const NotificationsScreen(),
-                ),
+                AppRoutes.notifications,
               );
             },
             icon: const Icon(Icons.notifications_rounded),
@@ -392,11 +391,9 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
             'See all your notifications',
             Icons.notifications_rounded,
             const Color(0xFF1E88E5),
-            () => Navigator.push(
+            () => Navigator.pushNamed(
               context,
-              MaterialPageRoute(
-                builder: (context) => const NotificationsScreen(),
-              ),
+              AppRoutes.notifications,
             ),
           ),
           _buildModernDivider(),
@@ -407,11 +404,9 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
             'Manage app notifications and updates',
             Icons.notifications_rounded,
             const Color(0xFF9C27B0),
-            () => Navigator.push(
+            () => Navigator.pushNamed(
               context,
-              MaterialPageRoute(
-                builder: (context) => const NotificationSettings(),
-              ),
+              AppRoutes.notificationSettings,
             ),
           ),
           _buildModernDivider(),

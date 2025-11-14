@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:zyduspod/services/pod_details_service.dart';
 import 'package:zyduspod/screens/e_invoice_data_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:zyduspod/routes.dart';
 
 class PodDetailsScreen extends StatefulWidget {
   final int podId;
@@ -178,16 +179,15 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
                     final eInvoice = pod['e_invoice'];
                     if (eInvoice == null) {
                       // Navigate to E-Invoice data screen with null data to show no-data view
-                      Navigator.push(
+                      Navigator.pushNamed(
                         context,
-                        MaterialPageRoute(
-                          builder: (context) => EInvoiceDataScreen(
-                            qrData: null,
-                            fileName: 'POD_${pod['id']}_E-Invoice.pdf',
-                            uploadTime: DateTime.now(),
-                            podId: pod['id']?.toString() ?? '0',
-                          ),
-                        ),
+                        AppRoutes.eInvoiceData,
+                        arguments: {
+                          'qrData': null,
+                          'fileName': 'POD_${pod['id']}_E-Invoice.pdf',
+                          'uploadTime': DateTime.now(),
+                          'podId': pod['id']?.toString() ?? '0',
+                        },
                       );
                     } else {
                       // Navigate to E-Invoice data screen with existing data
@@ -732,16 +732,15 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
     // Convert POD E-Invoice data to QR data format for the E-Invoice data screen
     final qrData = _convertPodEInvoiceToQrData(eInvoice);
     
-    Navigator.push(
+    Navigator.pushNamed(
       context,
-      MaterialPageRoute(
-        builder: (context) => EInvoiceDataScreen(
-          qrData: qrData,
-          fileName: 'POD_${pod['id']}_E-Invoice.pdf',
-          uploadTime: DateTime.now(),
-          podId: pod['id']?.toString() ?? '0',
-        ),
-      ),
+      AppRoutes.eInvoiceData,
+      arguments: {
+        'qrData': qrData,
+        'fileName': 'POD_${pod['id']}_E-Invoice.pdf',
+        'uploadTime': DateTime.now(),
+        'podId': pod['id']?.toString() ?? '0',
+      },
     );
   }
 

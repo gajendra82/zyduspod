@@ -27,6 +27,7 @@ import 'package:zyduspod/widgets/EInvoiceQRExtractor.dart'; // COMMENTED OUT: Us
 import 'package:zyduspod/widgets/PdfPreviewScreen.dart'; // existing File-based preview
 import 'package:zyduspod/widgets/modern_ui_components.dart';
 import 'package:zyduspod/screens/upload_status_screen.dart';
+import 'package:zyduspod/routes.dart';
 
 // PDF Splitting API
 const String _SPLIT_API_BASE = 'https://anujakkulkarni-splitpdffile.hf.space';
@@ -908,20 +909,19 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
       return;
     }
 
-    if (_selectedStockist == null || _selectedChemist == null) {
+    if (_selectedStockist == null ) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select Stockist & Hospital for POD.')),
+        const SnackBar(content: Text('Select Stockist for POD.')),
       );
       return;
     }
 
     final stockistIdStr = _selectedStockist!.id.trim();
-    final hospitalIdStr = _selectedChemist!.id.trim();
 
-    if (stockistIdStr.isEmpty || hospitalIdStr.isEmpty) {
+    if (stockistIdStr.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Stockist or Hospital ID is empty'),
+          content: Text('Stockist is empty'),
           backgroundColor: Colors.red,
         ),
       );
@@ -929,27 +929,17 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
     }
 
     final stockistId = int.tryParse(stockistIdStr);
-    final hospitalId = int.tryParse(hospitalIdStr);
 
     if (stockistId == null || stockistId <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Invalid stockist ID: "$stockistIdStr"'),
+          content: Text('Invalid Stockist ID: "$stockistIdStr"'),
           backgroundColor: Colors.red,
         ),
       );
       return;
     }
 
-    if (hospitalId == null || hospitalId <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Invalid hospital ID: "$hospitalIdStr"'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
 
     await _performUpload(validDocs);
   }
@@ -1047,11 +1037,11 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
         req.fields['stockist_id'] = stockistId.toString();
         req.fields['stockistId'] = stockistId.toString();
       }
-      if (_selectedChemist != null) {
-        final hospitalId = int.parse(_selectedChemist!.id.trim());
-        req.fields['hospital_id'] = hospitalId.toString();
-        req.fields['hospitalId'] = hospitalId.toString();
-      }
+      // if (_selectedChemist != null) {
+      //   final hospitalId = int.parse(_selectedChemist!.id.trim());
+      //   req.fields['hospital_id'] = hospitalId.toString();
+      //   req.fields['hospitalId'] = hospitalId.toString();
+      // }
 
       final resp = await req.send();
       final responseBody = await resp.stream.bytesToString();
@@ -1069,7 +1059,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
         }
 
         setState(() {
-          _capturedDocuments.clear();
+          _capturedDocuments.clear(); 
         });
 
         if (mounted) {
@@ -1080,15 +1070,13 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
           final responseData = jsonDecode(responseBody);
 
           if (mounted) {
-            Navigator.pushReplacement(
+            Navigator.pushReplacementNamed(
               context,
-              MaterialPageRoute(
-                builder:
-                    (context) => UploadStatusScreen(
-                      uploadData: responseData,
-                      totalFiles: validDocs.length,
-                    ),
-              ),
+              AppRoutes.uploadStatus,
+              arguments: {
+                'uploadData': responseData,
+                'totalFiles': validDocs.length,
+              },
             );
           }
         } catch (e) {
@@ -1321,33 +1309,34 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                       isStockist: true,
                     ),
                   ),
-                  _buildSectionCard(
-                    icon: Icons.local_hospital,
-                    title: 'Hospital',
-                    subtitle: 'Select Hospital',
-                    child: _customAutocomplete(
-                      key: _chemistKey,
-                      options: _allChemists,
-                      selected: _selectedChemist,
-                      label: 'Search Hospital',
-                      onSelected:
-                          (opt) => setState(() => _selectedChemist = opt),
-                      onClear: () {
-                        setState(() {
-                          _selectedChemist = null;
-                          _chemistKey = UniqueKey();
-                        });
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Hospital selection cleared'),
-                            duration: Duration(seconds: 1),
-                            backgroundColor: Colors.orange,
-                          ),
-                        );
-                      },
-                      isStockist: false,
-                    ),
-                  ),
+                  // _buildSectionCard(
+                  //   icon: Icons.local_hospital,
+                  //   title: 'Hospital',
+                  //   subtitle: 'Select Hospital',
+                  //   child: _customAutocomplete(
+                  //     key: _chemistKey,
+                  //     options: _allChemists,
+                  //     selected: _selectedChemist,
+                  //     label: 'Search Hospital',
+                  //     onSelected:
+                  //         (opt) => setState(() => _selectedChemist = opt),
+                  //     onClear: () {
+                  //       setState(() {
+                  //         _selectedChemist = null;
+                  //         _chemistKey = UniqueKey();
+                  //       });
+                  //       ScaffoldMessenger.of(context).showSnackBar(
+                  //         const SnackBar(
+                  //           content: Text('Hospital selection cleared'),
+                  //           duration: Duration(seconds: 1),
+                  //           backgroundColor: Colors.orange,
+                  //         ),
+                  //       );
+                  //     },
+                  //     isStockist: false,
+                  //   ),
+                  // ),
+                   
                   _buildSectionCard(
                     icon: Icons.add_a_photo,
                     title: 'Add Documents',
@@ -1361,7 +1350,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                           icon: const Icon(Icons.add),
                           label: const Text('Add Documents'),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF00A0A8),
+                            backgroundColor: const Color(0xFF00A0A8), 
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
@@ -1820,22 +1809,21 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
 
   void _previewDocument(DocumentInfo doc) {
     if (doc.file != null && !kIsWeb) {
-      Navigator.push(
+      Navigator.pushNamed(
         context,
-        MaterialPageRoute(
-          builder: (context) => PdfPreviewScreen(pdfFile: doc.file!),
-        ),
+        AppRoutes.pdfPreview,
+        arguments: {
+          'pdfFile': doc.file!,
+        },
       );
     } else if (doc.webBytes != null) {
-      Navigator.push(
+      Navigator.pushNamed(
         context,
-        MaterialPageRoute(
-          builder:
-              (context) => PdfPreviewBytesScreen(
-                pdfBytes: doc.webBytes!,
-                title: doc.displayName,
-              ),
-        ),
+        AppRoutes.pdfPreview,
+        arguments: {
+          'pdfBytes': doc.webBytes!,
+          'title': doc.displayName,
+        },
       );
     } else {
       ScaffoldMessenger.of(

@@ -5,6 +5,7 @@ import 'package:zyduspod/screens/splash_screen.dart';
 import 'package:zyduspod/widgets/connectivity_wrapper.dart';
 import 'package:zyduspod/widgets/notification_handler.dart';
 import 'package:zyduspod/services/firebase_service.dart';
+import 'package:zyduspod/routes.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,6 +30,8 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Zydus Vistaar',
       debugShowCheckedModeBanner: false,
+      initialRoute: AppRoutes.splash,
+      onGenerateRoute: RouteGenerator.generateRoute,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: brandTeal,
@@ -86,11 +89,13 @@ class MyApp extends StatelessWidget {
         useMaterial3: true,
         fontFamily: 'SF Pro Display',
       ),
-      home: const NotificationHandler(
-        child: ConnectivityWrapper(
-          child: SplashScreen(),
-        ),
-      ),
+      builder: (context, child) {
+        return NotificationHandler(
+          child: ConnectivityWrapper(
+            child: child ?? const SizedBox(),
+          ),
+        );
+      },
     );
   }
 }

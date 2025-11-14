@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:zyduspod/login_screen.dart';
+import 'package:zyduspod/routes.dart';
 
 class AuthService {
   static final AuthService _instance = AuthService._internal();
@@ -24,8 +24,8 @@ class AuthService {
       
       // Navigate to login screen if context is provided
       if (context != null && context.mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const LoginScreen()),
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          AppRoutes.login,
           (route) => false,
         );
       }

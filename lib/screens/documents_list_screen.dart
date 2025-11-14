@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'package:zyduspod/config.dart';
 import 'package:zyduspod/screens/pod_details_screen.dart';
 import 'package:zyduspod/services/master_data_service.dart';
+import 'package:zyduspod/routes.dart';
 
 class DocumentsListScreen extends StatefulWidget {
   const DocumentsListScreen({super.key});
@@ -1388,14 +1389,13 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
     
     if (docId != null) {
       // Navigate to POD details screen
-      Navigator.push(
+      Navigator.pushNamed(
         context,
-        MaterialPageRoute(
-          builder: (context) => PodDetailsScreen(
-            podId: docId!,
-            documentType: docType,
-          ),
-        ),
+        AppRoutes.podDetails,
+        arguments: {
+          'podId': docId!,
+          'documentType': docType,
+        },
       );
     } else {
       // Show error if no valid ID found

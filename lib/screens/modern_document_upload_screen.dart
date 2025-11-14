@@ -5,6 +5,7 @@ import 'package:zyduspod/screens/pod_upload_screen.dart';
 import 'package:zyduspod/screens/e_invoice_data_screen.dart';
 import 'package:zyduspod/screens/batches_list_screen.dart';
 import 'package:zyduspod/widgets/modern_ui_components.dart';
+import 'package:zyduspod/routes.dart';
 
 class ModernDocumentUploadScreen extends StatefulWidget {
   const ModernDocumentUploadScreen({super.key});
@@ -95,11 +96,9 @@ class _ModernDocumentUploadScreenState extends State<ModernDocumentUploadScreen>
           child: IconButton(
             onPressed: () {
               // Add notification or settings functionality
-              Navigator.push(
+              Navigator.pushNamed(
                 context,
-                MaterialPageRoute(
-                  builder: (context) => NotificationsScreen(),
-                ),
+                AppRoutes.notifications,
               );
             },
             icon: 
@@ -166,11 +165,9 @@ class _PODUploadPageState extends State<PODUploadPage> {
             color: const Color(0xFF00A0A8),
             onTap: () {
               // Navigate to dedicated POD upload screen
-              Navigator.push(
+              Navigator.pushNamed(
                 context,
-                MaterialPageRoute(
-                  builder: (context) => const PODUploadScreen(),
-                ),
+                AppRoutes.podUpload,
               );
             },
           ),
@@ -181,11 +178,9 @@ class _PODUploadPageState extends State<PODUploadPage> {
             icon: Icons.list_alt,
             color: const Color(0xFF1E88E5),
             onTap: () {
-              Navigator.push(
+              Navigator.pushNamed(
                 context,
-                MaterialPageRoute(
-                  builder: (context) => const BatchesListScreen(),
-                ),
+                AppRoutes.batchesList,
               );
             },
           ),
@@ -315,30 +310,28 @@ class _EInvoiceUploadPageState extends State<EInvoiceUploadPage> {
   }
 
   void _showEmptyEInvoicePage() {
-    Navigator.push(
+    Navigator.pushNamed(
       context,
-      MaterialPageRoute(
-        builder: (context) => EInvoiceDataScreen(
-          qrData: null, // No QR data - will show scan options
-          fileName: 'Test_E-Invoice.pdf',
-          uploadTime: DateTime.now(),
-          podId: '0',
-        ),
-      ),
+      AppRoutes.eInvoiceData,
+      arguments: {
+        'qrData': null, // No QR data - will show scan options
+        'fileName': 'Test_E-Invoice.pdf',
+        'uploadTime': DateTime.now(),
+        'podId': '0',
+      },
     );
   }
 
   void _showQrData(Map<String, dynamic> qrData, {String? fileName}) {
-    Navigator.push(
+    Navigator.pushNamed(
       context,
-      MaterialPageRoute(
-        builder: (context) => EInvoiceDataScreen(
-          qrData: qrData,
-          fileName: fileName ?? 'E-Invoice_${qrData['DocNo'] ?? 'Unknown'}.pdf',
-          uploadTime: DateTime.now(),
-          podId: '0',
-        ),
-      ),
+      AppRoutes.eInvoiceData,
+      arguments: {
+        'qrData': qrData,
+        'fileName': fileName ?? 'E-Invoice_${qrData['DocNo'] ?? 'Unknown'}.pdf',
+        'uploadTime': DateTime.now(),
+        'podId': '0',
+      },
     );
   }
 

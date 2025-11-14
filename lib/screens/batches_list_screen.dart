@@ -3,6 +3,7 @@ import 'package:zyduspod/Models/batch_model.dart';
 import 'package:zyduspod/services/batch_service.dart';
 import 'package:zyduspod/screens/batch_detail_screen.dart';
 import 'package:zyduspod/widgets/modern_ui_components.dart';
+import 'package:zyduspod/routes.dart';
 
 class BatchesListScreen extends StatefulWidget {
   const BatchesListScreen({super.key});
@@ -197,14 +198,13 @@ class _BatchesListScreenState extends State<BatchesListScreen> {
       ),
       child: InkWell(
         onTap: () {
-          Navigator.push(
+          Navigator.pushNamed(
             context,
-            MaterialPageRoute(
-              builder: (context) => BatchDetailScreen(
-                batchId: batch.id,
-                batch: batch, // Pass the batch data directly
-              ),
-            ),
+            AppRoutes.batchDetail,
+            arguments: {
+              'batchId': batch.id,
+              'batch': batch, // Pass the batch data directly
+            },
           );
         },
         borderRadius: BorderRadius.circular(16),

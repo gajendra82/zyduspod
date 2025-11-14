@@ -1,8 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:zyduspod/login_screen.dart';
-import 'package:zyduspod/screens/main_navigation.dart';
+import 'package:zyduspod/routes.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -64,14 +63,10 @@ class _SplashScreenState extends State<SplashScreen>
 
     if (token != null && token.isNotEmpty) {
       // User is logged in, go to main navigation
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const MainNavigation()),
-      );
+      Navigator.of(context).pushReplacementNamed(AppRoutes.mainNavigation);
     } else {
       // User is not logged in, go to login screen
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-      );
+      Navigator.of(context).pushReplacementNamed(AppRoutes.login);
     }
   }
 

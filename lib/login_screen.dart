@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zyduspod/config.dart';
-import 'package:zyduspod/screens/main_navigation.dart';
+import 'package:zyduspod/routes.dart';
 import 'package:zyduspod/services/firebase_service.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -150,8 +150,8 @@ class _LoginScreenState extends State<LoginScreen>
           ),
         );
 
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const MainNavigation()),
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          AppRoutes.mainNavigation,
           (route) => false,
         );
       } else {
