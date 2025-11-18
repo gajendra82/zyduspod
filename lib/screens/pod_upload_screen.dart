@@ -828,16 +828,16 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
     }
 
     // Validate selections
-    if (_selectedStockist == null || _selectedChemist == null) {
+    if (_selectedStockist == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select Stockist & Hospital for POD.')),
+        const SnackBar(content: Text('Select Stockist for POD.')),
       );
       return;
     }
 
     // Validate that both IDs are valid integers
     final stockistIdStr = _selectedStockist!.id.trim();
-    final hospitalIdStr = _selectedChemist!.id.trim();
+    // final hospitalIdStr = _selectedChemist!.id.trim();
     
     if (stockistIdStr.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -849,18 +849,18 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
       return;
     }
     
-    if (hospitalIdStr.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Hospital ID is empty'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
+    // if (hospitalIdStr.isEmpty) {
+    //   ScaffoldMessenger.of(context).showSnackBar(
+    //     const SnackBar(
+    //       content: Text('Hospital ID is empty'),
+    //       backgroundColor: Colors.red,
+    //     ),
+    //   );
+    //   return;
+    // }
     
     final stockistId = int.tryParse(stockistIdStr);
-    final hospitalId = int.tryParse(hospitalIdStr);
+    // final hospitalId = int.tryParse(hospitalIdStr);
     
     if (stockistId == null || stockistId <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -872,15 +872,15 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
       return;
     }
     
-    if (hospitalId == null || hospitalId <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Invalid hospital ID: "$hospitalIdStr"'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
+    // if (hospitalId == null || hospitalId <= 0) {
+    //   ScaffoldMessenger.of(context).showSnackBar(
+    //     SnackBar(
+    //       content: Text('Invalid hospital ID: "$hospitalIdStr"'),
+    //       backgroundColor: Colors.red,
+    //     ),
+    //   );
+    //   return;
+    // }
 
     await _performUpload(validDocs);
   }
@@ -978,7 +978,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
       });
       debugPrint('===================');
       debugPrint('stockist: ${_selectedStockist?.id} (${_selectedStockist?.id.runtimeType})');
-      debugPrint('hospital: ${_selectedChemist?.id} (${_selectedChemist?.id.runtimeType})');
+      // debugPrint('hospital: ${_selectedChemist?.id} (${_selectedChemist?.id.runtimeType})');
       if (_selectedStockist != null) {
         // Use the already validated and trimmed ID
         final stockistId = int.parse(_selectedStockist!.id.trim());
@@ -986,13 +986,13 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
         req.fields['stockistId'] = stockistId.toString();
         debugPrint('stockist_id (converted): $stockistId');
       }
-      if (_selectedChemist != null) {
-        // Use the already validated and trimmed ID
-        final hospitalId = int.parse(_selectedChemist!.id.trim());
-        req.fields['hospital_id'] = hospitalId.toString();
-        req.fields['hospitalId'] = hospitalId.toString();
-        debugPrint('hospital_id (converted): $hospitalId');
-      }
+      // if (_selectedChemist != null) {
+      //   // Use the already validated and trimmed ID
+      //   final hospitalId = int.parse(_selectedChemist!.id.trim());
+      //   req.fields['hospital_id'] = hospitalId.toString();
+      //   req.fields['hospitalId'] = hospitalId.toString();
+      //   debugPrint('hospital_id (converted): $hospitalId');
+      // }
 
       final resp = await req.send();
       final responseBody = await resp.stream.bytesToString();
@@ -1307,32 +1307,33 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                       isStockist: true,
                     ),
                   ),
-                  _buildSectionCard(
-                    icon: Icons.local_hospital,
-                    title: 'Hospital',
-                    subtitle: 'Select Hospital',
-                    child: _customAutocomplete(
-                      key: _chemistKey,
-                      options: _allChemists,
-                      selected: _selectedChemist,
-                      label: 'Search Hospital',
-                      onSelected: (opt) => setState(() => _selectedChemist = opt),
-                      onClear: () {
-                        setState(() {
-                          _selectedChemist = null;
-                          _chemistKey = UniqueKey();
-                        });
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Hospital selection cleared'),
-                            duration: Duration(seconds: 1),
-                            backgroundColor: Colors.orange,
-                          ),
-                        );
-                      },
-                      isStockist: false,
-                    ),
-                  ),
+                  // _buildSectionCard(
+                  //   icon: Icons.local_hospital,
+                  //   title: 'Hospital',
+                  //   subtitle: 'Select Hospital',
+                  //   child: _customAutocomplete(
+                  //     key: _chemistKey,
+                  //     options: _allChemists,
+                  //     selected: _selectedChemist,
+                  //     label: 'Search Hospital',
+                  //     onSelected: (opt) => setState(() => _selectedChemist = opt),
+                  //     onClear: () {
+                  //       setState(() {
+                  //         _selectedChemist = null;
+                  //         _chemistKey = UniqueKey();
+                  //       });
+                  //       ScaffoldMessenger.of(context).showSnackBar(
+                  //         const SnackBar(
+                  //           content: Text('Hospital selection cleared'),
+                  //           duration: Duration(seconds: 1),
+                  //           backgroundColor: Colors.orange,
+                  //         ),
+                  //       );
+                  //     },
+                  //     isStockist: false,
+                  //   ),
+                  // ),
+                  
                   _buildSectionCard(
                     icon: Icons.add_a_photo,
                     title: 'Add Documents',
