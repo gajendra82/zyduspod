@@ -30,6 +30,55 @@ import 'package:zyduspod/screens/upload_status_screen.dart';
 // PDF Splitting API
 const String _SPLIT_API_BASE = 'https://anujakkulkarni-splitpdffile.hf.space';
 
+// PDF Quality Check API
+const String _QUALITY_CHECK_API = 'https://harshadsalunkhe1212-checkpdfquality.hf.space/check-file';
+
+/// Check file quality before processing
+Future<Map<String, dynamic>> _checkFileQuality(File file) async {
+  try {
+    final uri = Uri.parse(_QUALITY_CHECK_API);
+    final req = http.MultipartRequest('POST', uri)
+      ..files.add(
+        await http.MultipartFile.fromPath(
+          'file',
+          file.path,
+          filename: p.basename(file.path),
+          contentType: MediaType('application', 'pdf'),
+        ),
+      );
+
+    final streamed = await req.send();
+    final resp = await http.Response.fromStream(streamed);
+
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      debugPrint('[QUALITY] HTTP ${resp.statusCode}: ${resp.body}');
+      // Return default values if API fails
+      return {
+        'is_good_for_extraction': true, // Allow processing if check fails
+        'ocr_confidence': 0.0,
+        'message': 'Quality check failed, proceeding anyway',
+      };
+    }
+
+    final decoded = jsonDecode(resp.body);
+    debugPrint('[QUALITY] Response: ${resp.body}');
+    
+    return {
+      'is_good_for_extraction': decoded['is_good_for_extraction'] ?? false,
+      'ocr_confidence': decoded['ocr_confidence']?.toDouble() ?? 0.0,
+      'message': decoded['message'] ?? 'Quality check completed',
+    };
+  } catch (e) {
+    debugPrint('[QUALITY] Error: $e');
+    // Return default values if check fails
+    return {
+      'is_good_for_extraction': true, // Allow processing if check fails
+      'ocr_confidence': 0.0,
+      'message': 'Quality check error, proceeding anyway',
+    };
+  }
+}
+
 Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
   try {
     final uri = Uri.parse('$_SPLIT_API_BASE/split-invoices');
@@ -112,7 +161,7 @@ class PODUploadScreen extends StatefulWidget {
   State<PODUploadScreen> createState() => _PODUploadScreenState();
 }
 
-class _PODUploadScreenState extends State<PODUploadScreen> {
+class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProviderStateMixin {
   // Loading states
   bool _isLoadingLists = false;
   // bool _isProcessingImage = false; // COMMENTED OUT: QR processing disabled
@@ -122,6 +171,9 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
   bool _isBusy = false;
   bool _isProcessingDocuments = false; // NEW: For document processing and splitting
   String _currentProcessingMessage = ''; // NEW: Current processing message
+  
+  // Tab controller for quality tabs
+  late TabController _tabController;
 
   // Selection data
   List<_SelectItem> _allStockists = [];
@@ -148,14 +200,22 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _loadLists();
   }
+  
+  // Helper method to get good quality count
+  int get _goodQualityCount => _capturedDocuments.where((d) => d.isValid && (d.isGoodForExtraction ?? true)).length;
+  
+  // Helper method to get bad quality count
+  int get _badQualityCount => _capturedDocuments.where((d) => d.isValid && (d.isGoodForExtraction == false)).length;
 
   @override
   void dispose() {
     _stockistSearchTimer?.cancel();
     _hospitalSearchTimer?.cancel();
     _scrollController.dispose();
+    _tabController.dispose();
     super.dispose();
   }
 
@@ -603,7 +663,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
   Future<void> _processAndAddDocument(File originalFile, {required bool isFromScanner}) async {
     setState(() {
       _isProcessingDocuments = true;
-      _currentProcessingMessage = 'Processing ${p.basename(originalFile.path)}...';
+      _currentProcessingMessage = 'Checking file quality...';
       _updateBusyState();
     });
 
@@ -611,8 +671,63 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
       final displayNameBase = p.basenameWithoutExtension(originalFile.path);
       final extension = p.extension(originalFile.path).toLowerCase();
       
+      // Check file quality first
+      Map<String, dynamic> qualityResult;
+      if (extension == '.pdf') {
+        setState(() {
+          _currentProcessingMessage = 'Checking quality of ${p.basename(originalFile.path)}...';
+        });
+        qualityResult = await _checkFileQuality(originalFile);
+      } else {
+        // For non-PDF files, assume good quality (images are typically fine)
+        qualityResult = {
+          'is_good_for_extraction': true,
+          'ocr_confidence': 100.0,
+          'message': 'Image file - quality check skipped',
+        };
+      }
+      
+      final isGoodForExtraction = qualityResult['is_good_for_extraction'] as bool;
+      final ocrConfidence = qualityResult['ocr_confidence'] as double;
+      final qualityMessage = qualityResult['message'] as String;
+      
       // Check if it's a PDF file for splitting
       if (extension == '.pdf') {
+        if (!isGoodForExtraction) {
+          // File is not good for extraction - add to list but mark as valid (so it shows in bad quality tab)
+          setState(() {
+            _currentProcessingMessage = 'File quality check completed';
+          });
+          
+          final newDoc = DocumentInfo(
+            file: originalFile,
+            displayName: '${displayNameBase}.pdf',
+            isValid: true, // Mark as valid so it shows in the bad quality tab
+            qrData: null,
+            qrStatus: QRProcessingStatus.completed,
+            isGoodForExtraction: false, // But mark as bad quality so it won't be uploaded
+            ocrConfidence: ocrConfidence,
+            qualityMessage: qualityMessage,
+          );
+          
+          setState(() {
+            _capturedDocuments.add(newDoc);
+          });
+          
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('⚠️ ${p.basename(originalFile.path)}: Low quality (${ocrConfidence.toStringAsFixed(1)}%). Please reupload with better quality.'),
+                backgroundColor: Colors.orange,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          }
+          
+          _scheduleScrollToBottom();
+          return; // Don't proceed with splitting
+        }
+        
         // Update processing message for splitting
         setState(() {
           _currentProcessingMessage = 'Splitting ${p.basename(originalFile.path)} into invoices...';
@@ -638,7 +753,10 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
               isValid: true,
               qrData: null,
               qrStatus: QRProcessingStatus.completed, 
-              originalRawFile: originalFile, 
+              originalRawFile: originalFile,
+              isGoodForExtraction: true,
+              ocrConfidence: ocrConfidence,
+              qualityMessage: qualityMessage,
             );
             
             setState(() {
@@ -656,6 +774,9 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
             isValid: true,
             qrData: null,
             qrStatus: QRProcessingStatus.completed, // Skip QR extraction - mark as completed
+            isGoodForExtraction: true,
+            ocrConfidence: ocrConfidence,
+            qualityMessage: qualityMessage,
           );
           
           setState(() {
@@ -686,6 +807,9 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
           isValid: true,
           qrData: null,
           qrStatus: QRProcessingStatus.completed, // Skip QR extraction - mark as completed
+          isGoodForExtraction: true,
+          ocrConfidence: 100.0,
+          qualityMessage: 'Image file - quality check skipped',
         );
         
         setState(() {
@@ -819,11 +943,23 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
   Future<void> _uploadCaptured() async {
     if (_isBusy) return;
     
-    final validDocs = _capturedDocuments.where((d) => d.isValid).toList();
+    // Filter to only good quality files that are valid
+    final validDocs = _capturedDocuments.where((d) => d.isValid && (d.isGoodForExtraction ?? true)).toList();
     if (validDocs.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No valid documents to upload')),
-      );
+      final badQualityCount = _capturedDocuments.where((d) => d.isValid && (d.isGoodForExtraction == false)).length;
+      if (badQualityCount > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No good quality documents to upload. $badQualityCount file(s) have low quality. Please reupload with better quality.'),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No valid documents to upload')),
+        );
+      }
       return;
     }
 
@@ -892,13 +1028,12 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
     });
 
     try {
-      // COMMENTED OUT: QR processing disabled - directly proceed to upload
-      // Original: Show progress for QR processing, then await _processAllQRCodes(validDocs);
+      // Show upload progress
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Uploading documents to server...'),
-            duration: Duration(seconds: 2),
+          SnackBar(
+            content: Text('Uploading ${validDocs.length} document(s) to server...'),
+            duration: const Duration(seconds: 2),
           ),
         );
       }
@@ -1185,7 +1320,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final validDocCount = _capturedDocuments.where((d) => d.isValid).length;
+    // final validDocCount = _capturedDocuments.where((d) => d.isValid).length; // Not used anymore
     // final docsWithQR = _capturedDocuments.where((d) => d.qrData != null).length; // COMMENTED OUT: QR processing disabled
     final showTopLoader = _isLoadingLists || _isProcessingDocuments; // UPDATED: Include document processing
     // Original: _isLoadingLists || _isProcessingImage || _processingCount > 0
@@ -1355,16 +1490,227 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                       ],
                     ),
                   ),
-                  if (_capturedDocuments.isNotEmpty)
+                  if (_capturedDocuments.isNotEmpty) ...[
                     _buildSectionCard(
                       icon: Icons.collections,
-                      title: 'Uploaded Documents (${_capturedDocuments.length} total, $validDocCount valid)', // COMMENTED OUT: QR count removed
-                      // Original: 'Uploaded Documents (${_capturedDocuments.length} total, $validDocCount valid, $docsWithQR with QR)'
-                      subtitle: 'Tap to preview, swipe to remove. Documents ready for upload.', // COMMENTED OUT: QR status removed
-                      // Original: 'Tap to preview, swipe to remove. Green = QR extracted, Yellow = Processing, Red = Failed.'
+                      title: 'Documents',
+                      subtitle: 'View files by quality',
                       child: Column(
                         children: [
-                          // Summary stats
+                          // Tab Bar
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: TabBar(
+                              controller: _tabController,
+                              indicator: BoxDecoration(
+                                color: const Color(0xFF00A0A8),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              labelColor: Colors.white,
+                              unselectedLabelColor: Colors.grey.shade700,
+                              tabs: [
+                                Tab(
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.check_circle, size: 18),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        'Good Quality ($_goodQualityCount)',
+                                        style: const TextStyle(fontWeight: FontWeight.w600),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Tab(
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.error, size: 18),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        'Bad Quality ($_badQualityCount)',
+                                        style: const TextStyle(fontWeight: FontWeight.w600),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          // Tab Bar View
+                          SizedBox(
+                            height: 400, // Fixed height for tab content
+                            child: TabBarView(
+                              controller: _tabController,
+                              children: [
+                                // Good Quality Tab
+                                Builder(
+                                  builder: (context) {
+                                    final goodQualityDocs = _capturedDocuments.where((d) => 
+                                      d.isValid && (d.isGoodForExtraction ?? true)
+                                    ).toList();
+                                    
+                                    if (goodQualityDocs.isEmpty) {
+                                      return Center(
+                                        child: Column(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Icon(Icons.check_circle_outline, size: 64, color: Colors.grey.shade400),
+                                            const SizedBox(height: 16),
+                                            Text(
+                                              'No good quality files',
+                                              style: TextStyle(
+                                                fontSize: 16,
+                                                color: Colors.grey.shade600,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Text(
+                                              'Files with good quality will appear here',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.grey.shade500,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    }
+                                    
+                                    return Column(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(12),
+                                          decoration: BoxDecoration(
+                                            color: Colors.green.shade50,
+                                            borderRadius: BorderRadius.circular(8),
+                                            border: Border.all(color: Colors.green.shade300),
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              Icon(Icons.check_circle, color: Colors.green.shade700, size: 20),
+                                              const SizedBox(width: 8),
+                                              Expanded(
+                                                child: Text(
+                                                  '${goodQualityDocs.length} file(s) ready for upload',
+                                                  style: TextStyle(
+                                                    color: Colors.green.shade700,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(height: 12),
+                                        Expanded(
+                                          child: ListView.separated(
+                                            itemCount: goodQualityDocs.length,
+                                            separatorBuilder: (context, index) => const SizedBox(height: 8),
+                                            itemBuilder: (context, index) {
+                                              final docIndex = _capturedDocuments.indexOf(goodQualityDocs[index]);
+                                              return _buildDocumentCard(goodQualityDocs[index], docIndex);
+                                            },
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                ),
+                                // Bad Quality Tab
+                                Builder(
+                                  builder: (context) {
+                                    final badQualityDocs = _capturedDocuments.where((d) => 
+                                      d.isValid && (d.isGoodForExtraction == false)
+                                    ).toList();
+                                    
+                                    if (badQualityDocs.isEmpty) {
+                                      return Center(
+                                        child: Column(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Icon(Icons.error_outline, size: 64, color: Colors.grey.shade400),
+                                            const SizedBox(height: 16),
+                                            Text(
+                                              'No low quality files',
+                                              style: TextStyle(
+                                                fontSize: 16,
+                                                color: Colors.grey.shade600,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Text(
+                                              'All files have good quality',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.grey.shade500,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    }
+                                    
+                                    return Column(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(12),
+                                          decoration: BoxDecoration(
+                                            color: Colors.red.shade50,
+                                            borderRadius: BorderRadius.circular(8),
+                                            border: Border.all(color: Colors.red.shade300),
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              Icon(Icons.error_outline, color: Colors.red.shade700, size: 20),
+                                              const SizedBox(width: 8),
+                                              Expanded(
+                                                child: Text(
+                                                  '${badQualityDocs.length} file(s) have low quality and cannot be uploaded',
+                                                  style: TextStyle(
+                                                    color: Colors.red.shade700,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(height: 12),
+                                        Expanded(
+                                          child: ListView.separated(
+                                            itemCount: badQualityDocs.length,
+                                            separatorBuilder: (context, index) => const SizedBox(height: 8),
+                                            itemBuilder: (context, index) {
+                                              final docIndex = _capturedDocuments.indexOf(badQualityDocs[index]);
+                                              return _buildDocumentCard(badQualityDocs[index], docIndex);
+                                            },
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Summary and Clear All
+                    _buildSectionCard(
+                      icon: Icons.info,
+                      title: 'Summary',
+                      subtitle: 'Total documents: ${_capturedDocuments.length}',
+                      child: Column(
+                        children: [
                           Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
@@ -1376,14 +1722,12 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                               mainAxisAlignment: MainAxisAlignment.spaceAround,
                               children: [
                                 _buildStatItem('Total', _capturedDocuments.length, Colors.blue),
-                                _buildStatItem('Valid', validDocCount, Colors.green),
-                                // COMMENTED OUT: QR processed stat removed
-                                // _buildStatItem('QR Processed', docsWithQR, Colors.orange),
+                                _buildStatItem('Good Quality', _goodQualityCount, Colors.green),
+                                _buildStatItem('Low Quality', _badQualityCount, Colors.red),
                               ],
                             ),
                           ),
                           const SizedBox(height: 12),
-                          // Clear all button
                           SizedBox(
                             width: double.infinity,
                             child: OutlinedButton.icon(
@@ -1397,21 +1741,10 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                               ),
                             ),
                           ),
-                          const SizedBox(height: 12),
-                          // Document list
-                          ListView.separated(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            itemCount: _capturedDocuments.length,
-                            separatorBuilder: (context, index) => const SizedBox(height: 8),
-                            itemBuilder: (context, index) {
-                              final doc = _capturedDocuments[index];
-                              return _buildDocumentCard(doc, index);
-                            },
-                          ),
                         ],
                       ),
                     ),
+                  ],
                   const SizedBox(height: 20),
                   SizedBox(
                     width: double.infinity,
@@ -1435,7 +1768,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                                     ? 'Processing Documents...'
                                     : 'Loading...') // UPDATED: Show document processing status
                             // Original: (_isProcessingImage || _processingCount > 0) ? 'Processing QR Codes...' : (_isUploading ? 'Uploading...' : 'Loading...')
-                            : 'Upload $validDocCount POD Documents',
+                            : 'Upload $_goodQualityCount POD Documents',
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: _isBusy ? Colors.grey : const Color(0xFF00A0A8),
@@ -1649,9 +1982,11 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
   Widget _buildDocumentCard(DocumentInfo doc, int index) {
     final fileSize = _getFileSize(doc.file);
     
-    // COMMENTED OUT: QR status-based border colors - now using simple validity-based colors
-    // Original: Complex border colors based on QR processing status (green=completed, orange=processing, red=failed)
-    Color borderColor = doc.isValid ? Colors.green : Colors.red;
+    // Use quality-based colors: green for good quality, red for bad quality
+    final isGoodQuality = doc.isGoodForExtraction ?? true;
+    Color borderColor = doc.isValid 
+        ? (isGoodQuality ? Colors.green : Colors.red)
+        : Colors.grey;
     double borderWidth = 2;
     
     return Dismissible(
@@ -1741,20 +2076,65 @@ class _PODUploadScreenState extends State<PODUploadScreen> {
                       ),
                     ),
                     const SizedBox(width: 16),
-                    Icon(
-                      Icons.check_circle,
-                      size: 14,
-                      color: doc.isValid ? Colors.green : Colors.red,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      doc.isValid ? 'Valid' : 'Invalid',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: doc.isValid ? Colors.green : Colors.red,
-                        fontWeight: FontWeight.w500,
+                    if (doc.isGoodForExtraction != null) ...[
+                      Icon(
+                        doc.isGoodForExtraction == false ? Icons.error : Icons.check_circle,
+                        size: 14,
+                        color: doc.isGoodForExtraction == false ? Colors.red : Colors.green,
                       ),
-                    ),
+                      const SizedBox(width: 4),
+                      Text(
+                        doc.isGoodForExtraction == false 
+                            ? 'Low Quality (${doc.ocrConfidence?.toStringAsFixed(1) ?? "N/A"}%)'
+                            : 'Good Quality',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: doc.isGoodForExtraction == false ? Colors.red : Colors.green,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ] else ...[
+                      Icon(
+                        Icons.check_circle,
+                        size: 14,
+                        color: doc.isValid ? Colors.green : Colors.red,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        doc.isValid ? 'Valid' : 'Invalid',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: doc.isValid ? Colors.green : Colors.red,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                    if (doc.qualityMessage != null && doc.isGoodForExtraction == false) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade50,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: Colors.red.shade200),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.info_outline, size: 14, color: Colors.red.shade700),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                doc.qualityMessage!,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.red.shade700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
                 // COMMENTED OUT: QR info section removed
@@ -2061,6 +2441,9 @@ class DocumentInfo {
   final QRProcessingStatus qrStatus;
   final String? errorMessage;
   final File? originalRawFile; // Original file if this was split from a PDF
+  final bool? isGoodForExtraction; // Quality check result
+  final double? ocrConfidence; // OCR confidence percentage
+  final String? qualityMessage; // Quality check message
 
   DocumentInfo({
     required this.file,
@@ -2070,6 +2453,9 @@ class DocumentInfo {
     this.qrStatus = QRProcessingStatus.notStarted,
     this.errorMessage,
     this.originalRawFile,
+    this.isGoodForExtraction,
+    this.ocrConfidence,
+    this.qualityMessage,
   });
 
   DocumentInfo copyWith({
@@ -2080,6 +2466,9 @@ class DocumentInfo {
     QRProcessingStatus? qrStatus,
     String? errorMessage,
     File? originalRawFile,
+    bool? isGoodForExtraction,
+    double? ocrConfidence,
+    String? qualityMessage,
   }) {
     return DocumentInfo(
       file: file ?? this.file,
@@ -2089,6 +2478,9 @@ class DocumentInfo {
       qrStatus: qrStatus ?? this.qrStatus,
       errorMessage: errorMessage ?? this.errorMessage,
       originalRawFile: originalRawFile ?? this.originalRawFile,
+      isGoodForExtraction: isGoodForExtraction ?? this.isGoodForExtraction,
+      ocrConfidence: ocrConfidence ?? this.ocrConfidence,
+      qualityMessage: qualityMessage ?? this.qualityMessage,
     );
   }
 }
