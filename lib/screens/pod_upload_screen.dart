@@ -1083,7 +1083,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
         final contentType = _inferContentType(rawFile);
         req.files.add(
           await http.MultipartFile.fromPath(
-            'raw_file',
+            'raw_files[]',
             rawFile.path,
             filename: filename,
             contentType: contentType,
