@@ -30,10 +30,12 @@ import 'package:zyduspod/screens/upload_status_screen.dart';
 // PDF Splitting API
 const String _SPLIT_API_BASE = 'https://anujakkulkarni-splitpdffile.hf.space';
 
-// PDF Quality Check API
-const String _QUALITY_CHECK_API = 'https://harshadsalunkhe1212-checkpdfquality.hf.space/check-file';
+// COMMENTED OUT: PDF Quality Check API - disabled for simple upload
+// const String _QUALITY_CHECK_API = 'https://harshadsalunkhe1212-checkpdfquality.hf.space/check-file';
 
 /// Check file quality before processing
+// COMMENTED OUT: Quality check API disabled - all files are treated as good quality for simple upload
+/*
 Future<Map<String, dynamic>> _checkFileQuality(File file) async {
   try {
     final uri = Uri.parse(_QUALITY_CHECK_API);
@@ -78,6 +80,7 @@ Future<Map<String, dynamic>> _checkFileQuality(File file) async {
     };
   }
 }
+*/
 
 Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
   try {
@@ -663,7 +666,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
   Future<void> _processAndAddDocument(File originalFile, {required bool isFromScanner}) async {
     setState(() {
       _isProcessingDocuments = true;
-      _currentProcessingMessage = 'Checking file quality...';
+      _currentProcessingMessage = 'Processing file...'; // UPDATED: Removed quality check message
       _updateBusyState();
     });
 
@@ -671,21 +674,29 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
       final displayNameBase = p.basenameWithoutExtension(originalFile.path);
       final extension = p.extension(originalFile.path).toLowerCase();
       
+      // COMMENTED OUT: Quality check API disabled - all files are treated as good quality for simple upload
       // Check file quality first
-      Map<String, dynamic> qualityResult;
-      if (extension == '.pdf') {
-        setState(() {
-          _currentProcessingMessage = 'Checking quality of ${p.basename(originalFile.path)}...';
-        });
-        qualityResult = await _checkFileQuality(originalFile);
-      } else {
-        // For non-PDF files, assume good quality (images are typically fine)
-        qualityResult = {
-          'is_good_for_extraction': true,
-          'ocr_confidence': 100.0,
-          'message': 'Image file - quality check skipped',
-        };
-      }
+      // Map<String, dynamic> qualityResult;
+      // if (extension == '.pdf') {
+      //   setState(() {
+      //     _currentProcessingMessage = 'Checking quality of ${p.basename(originalFile.path)}...';
+      //   });
+      //   qualityResult = await _checkFileQuality(originalFile);
+      // } else {
+      //   // For non-PDF files, assume good quality (images are typically fine)
+      //   qualityResult = {
+      //     'is_good_for_extraction': true,
+      //     'ocr_confidence': 100.0,
+      //     'message': 'Image file - quality check skipped',
+      //   };
+      // }
+      
+      // SIMPLE UPLOAD: All files are treated as good quality (no quality check)
+      final qualityResult = {
+        'is_good_for_extraction': true,
+        'ocr_confidence': 100.0,
+        'message': 'Quality check disabled - proceeding with upload',
+      };
       
       final isGoodForExtraction = qualityResult['is_good_for_extraction'] as bool;
       final ocrConfidence = qualityResult['ocr_confidence'] as double;
@@ -693,40 +704,41 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
       
       // Check if it's a PDF file for splitting
       if (extension == '.pdf') {
-        if (!isGoodForExtraction) {
-          // File is not good for extraction - add to list but mark as valid (so it shows in bad quality tab)
-          setState(() {
-            _currentProcessingMessage = 'File quality check completed';
-          });
-          
-          final newDoc = DocumentInfo(
-            file: originalFile,
-            displayName: '${displayNameBase}.pdf',
-            isValid: true, // Mark as valid so it shows in the bad quality tab
-            qrData: null,
-            qrStatus: QRProcessingStatus.completed,
-            isGoodForExtraction: false, // But mark as bad quality so it won't be uploaded
-            ocrConfidence: ocrConfidence,
-            qualityMessage: qualityMessage,
-          );
-          
-          setState(() {
-            _capturedDocuments.add(newDoc);
-          });
-          
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('⚠️ ${p.basename(originalFile.path)}: Low quality (${ocrConfidence.toStringAsFixed(1)}%). Please reupload with better quality.'),
-                backgroundColor: Colors.orange,
-                duration: const Duration(seconds: 4),
-              ),
-            );
-          }
-          
-          _scheduleScrollToBottom();
-          return; // Don't proceed with splitting
-        }
+        // COMMENTED OUT: Quality check blocking - all files proceed to splitting
+        // if (!isGoodForExtraction) {
+        //   // File is not good for extraction - add to list but mark as valid (so it shows in bad quality tab)
+        //   setState(() {
+        //     _currentProcessingMessage = 'File quality check completed';
+        //   });
+        //   
+        //   final newDoc = DocumentInfo(
+        //     file: originalFile,
+        //     displayName: '${displayNameBase}.pdf',
+        //     isValid: true, // Mark as valid so it shows in the bad quality tab
+        //     qrData: null,
+        //     qrStatus: QRProcessingStatus.completed,
+        //     isGoodForExtraction: false, // But mark as bad quality so it won't be uploaded
+        //     ocrConfidence: ocrConfidence,
+        //     qualityMessage: qualityMessage,
+        //   );
+        //   
+        //   setState(() {
+        //     _capturedDocuments.add(newDoc);
+        //   });
+        //   
+        //   if (mounted) {
+        //     ScaffoldMessenger.of(context).showSnackBar(
+        //       SnackBar(
+        //         content: Text('⚠️ ${p.basename(originalFile.path)}: Low quality (${ocrConfidence.toStringAsFixed(1)}%). Please reupload with better quality.'),
+        //         backgroundColor: Colors.orange,
+        //         duration: const Duration(seconds: 4),
+        //       ),
+        //     );
+        //   }
+        //   
+        //   _scheduleScrollToBottom();
+        //   return; // Don't proceed with splitting
+        // }
         
         // Update processing message for splitting
         setState(() {

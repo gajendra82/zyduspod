@@ -57,7 +57,7 @@ class SalesService {
   }) async {
     try {
       // Return mock data for development
-      return _getMockHospitalSummaries();
+      // return _getMockHospitalSummaries();
       
       final queryParams = <String, String>{};
       // Ensure dateFrom and dateTo are formatted as 'YYYY-MM-DD' (Y-m-d)

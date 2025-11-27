@@ -63,7 +63,7 @@ class MasterDataService {
     } catch (e) {
       print('Error loading hospitals: $e');
       // Return mock data for development
-      _hospitals = _getMockHospitals();
+      _hospitals = [];
       _hospitalsLoaded = true;
       return _hospitals;
     }

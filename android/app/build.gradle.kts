@@ -21,7 +21,7 @@ fun prop(key: String): String? = keystoreProperties.getProperty(key)
 android {
     namespace = "com.globalspace.zyduspod"
     compileSdk = 36
-    ndkVersion = "27.0.12077973"
+    ndkVersion = "28.0.12674087"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -69,6 +69,12 @@ android {
             )
 
             signingConfig = signingConfigs.findByName("release")
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
         }
     }
 
