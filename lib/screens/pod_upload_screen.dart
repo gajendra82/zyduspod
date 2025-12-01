@@ -28,12 +28,15 @@ import 'package:zyduspod/widgets/PdfPreviewScreen.dart'; // existing File-based 
 import 'package:zyduspod/widgets/modern_ui_components.dart';
 import 'package:zyduspod/screens/upload_status_screen.dart';
 import 'package:zyduspod/routes.dart';
+import 'package:zyduspod/utils/web_camera_helper.dart'
+    if (dart.library.io) 'package:zyduspod/utils/web_camera_helper_stub.dart';
 
 // PDF Splitting API
 const String _SPLIT_API_BASE = 'https://anujakkulkarni-splitpdffile.hf.space';
 
 // PDF Quality Check API
-const String _QUALITY_CHECK_API = 'https://harshadsalunkhe1212-checkpdfquality.hf.space/check-file';
+const String _QUALITY_CHECK_API =
+    'https://harshadsalunkhe1212-checkpdfquality.hf.space/check-file';
 
 /// Build MultipartFile from bytes (works on Web & mobile)
 Future<http.MultipartFile> _multipartFromBytes({
@@ -180,7 +183,7 @@ Future<Map<String, dynamic>> _checkFileQuality(File file) async {
 
     final decoded = jsonDecode(resp.body);
     debugPrint('[QUALITY] Response: ${resp.body}');
-    
+
     return {
       'is_good_for_extraction': decoded['is_good_for_extraction'] ?? false,
       'ocr_confidence': decoded['ocr_confidence']?.toDouble() ?? 0.0,
@@ -197,7 +200,10 @@ Future<Map<String, dynamic>> _checkFileQuality(File file) async {
 }
 
 /// Check file quality before processing (web - bytes)
-Future<Map<String, dynamic>> _checkFileQualityBytes(Uint8List pdfBytes, {String filename = 'upload.pdf'}) async {
+Future<Map<String, dynamic>> _checkFileQualityBytes(
+  Uint8List pdfBytes, {
+  String filename = 'upload.pdf',
+}) async {
   try {
     final uri = Uri.parse(_QUALITY_CHECK_API);
     final req = http.MultipartRequest('POST', uri)
@@ -224,7 +230,7 @@ Future<Map<String, dynamic>> _checkFileQualityBytes(Uint8List pdfBytes, {String 
 
     final decoded = jsonDecode(resp.body);
     debugPrint('[QUALITY] Response: ${resp.body}');
-    
+
     return {
       'is_good_for_extraction': decoded['is_good_for_extraction'] ?? false,
       'ocr_confidence': decoded['ocr_confidence']?.toDouble() ?? 0.0,
@@ -304,14 +310,15 @@ class PODUploadScreen extends StatefulWidget {
   State<PODUploadScreen> createState() => _PODUploadScreenState();
 }
 
-class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProviderStateMixin {
+class _PODUploadScreenState extends State<PODUploadScreen>
+    with SingleTickerProviderStateMixin {
   bool _isLoadingLists = false;
   bool _isUploading = false;
   bool _isRefreshing = false;
   bool _isBusy = false;
   bool _isProcessingDocuments = false;
   String _currentProcessingMessage = '';
-  
+
   // Tab controller for quality tabs
   late TabController _tabController;
 
@@ -339,12 +346,18 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
     _tabController = TabController(length: 2, vsync: this);
     _loadLists();
   }
-  
+
   // Helper method to get good quality count
-  int get _goodQualityCount => _capturedDocuments.where((d) => d.isValid && (d.isGoodForExtraction ?? true)).length;
-  
+  int get _goodQualityCount =>
+      _capturedDocuments
+          .where((d) => d.isValid && (d.isGoodForExtraction ?? true))
+          .length;
+
   // Helper method to get bad quality count
-  int get _badQualityCount => _capturedDocuments.where((d) => d.isValid && (d.isGoodForExtraction == false)).length;
+  int get _badQualityCount =>
+      _capturedDocuments
+          .where((d) => d.isValid && (d.isGoodForExtraction == false))
+          .length;
 
   @override
   void dispose() {
@@ -610,28 +623,40 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // ListTile(
-                //   leading: const Icon(Icons.camera_alt),
-                //   title: const Text('Camera'),
-                //   onTap: () {
-                //     Navigator.pop(context);
-                //     _captureFromCamera();
-                //   },
-                // ),
-                // ListTile(
-                //   leading: const Icon(Icons.photo_library),
-                //   title: const Text('Gallery'),
-                //   onTap: () {
-                //     Navigator.pop(context);
-                //     _pickFromGallery();
-                //   },
-                // ),
+                // PDF Files option - FIRST
                 ListTile(
                   leading: const Icon(Icons.picture_as_pdf),
                   title: const Text('PDF Files'),
+                  subtitle: const Text('Select PDF files'),
                   onTap: () {
                     Navigator.pop(context);
                     _pickPDFFiles();
+                  },
+                ),
+
+                // Gallery option - SECOND
+                ListTile(
+                  leading: const Icon(Icons.photo_library),
+                  title: const Text('Gallery'),
+                  subtitle: const Text('Select images from gallery'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _pickFromGallery();
+                  },
+                ),
+
+                // Camera option - THIRD
+                ListTile(
+                  leading: const Icon(Icons.camera_alt),
+                  title: const Text('Camera'),
+                  subtitle: Text(
+                    kIsWeb
+                        ? 'Capture photo (requires camera access)'
+                        : 'Scan documents with camera',
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _captureFromCamera();
                   },
                 ),
               ],
@@ -640,40 +665,68 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
     );
   }
 
+  // Add this import at the top
+
   Future<void> _captureFromCamera() async {
     if (_isBusy) return;
 
     setState(() {
       _isProcessingDocuments = true;
-      _currentProcessingMessage = 'Capturing from camera...';
+      _currentProcessingMessage = 'Opening camera...';
       _updateBusyState();
     });
 
     try {
-      // Mobile-first; not supported on web.
-      final scanned = await FlutterDocScanner().getScanDocuments(page: 1);
-      List<String> result = [];
-      if (scanned != null && scanned is Map) {
-        String? filePath =
-            scanned['pdfUri']?.toString() ??
-            scanned['imageUri']?.toString() ??
-            scanned['documentUri']?.toString();
-        if (filePath != null) {
-          result = [filePath];
-        }
-      }
-      if (result.isNotEmpty) {
-        for (final filePath in result) {
-          final local = filePath.replaceFirst('file://', '');
-          if (kIsWeb) {
+      if (kIsWeb) {
+        // Use web camera helper
+        final bytes = await WebCameraHelper().captureFromCamera();
+
+        if (bytes != null && bytes.isNotEmpty) {
+          setState(() {
+            _currentProcessingMessage = 'Processing captured image...';
+          });
+
+          await _processAndAddDocumentBytes(
+            bytes,
+            displayName: 'camera_${DateTime.now().millisecondsSinceEpoch}.jpg',
+          );
+
+          if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text(
-                  'Camera capture is not supported on Web for this flow.',
-                ),
+                content: Text('✅ Image captured successfully'),
+                backgroundColor: Colors.green,
+                duration: Duration(seconds: 2),
               ),
             );
-          } else {
+          }
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Camera capture cancelled'),
+                backgroundColor: Colors.orange,
+                duration: Duration(seconds: 2),
+              ),
+            );
+          }
+        }
+      } else {
+        // Mobile: use document scanner
+        final scanned = await FlutterDocScanner().getScanDocuments(page: 1);
+        List<String> result = [];
+        if (scanned != null && scanned is Map) {
+          String? filePath =
+              scanned['pdfUri']?.toString() ??
+              scanned['imageUri']?.toString() ??
+              scanned['documentUri']?.toString();
+          if (filePath != null) {
+            result = [filePath];
+          }
+        }
+        if (result.isNotEmpty) {
+          for (final filePath in result) {
+            final local = filePath.replaceFirst('file://', '');
             final original = File(local);
             await _processAndAddDocumentFile(original, isFromScanner: true);
           }
@@ -681,9 +734,13 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Scanner error: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Camera error: $e'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
+        ),
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -700,37 +757,88 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
 
     setState(() {
       _isProcessingDocuments = true;
-      _currentProcessingMessage = 'Selecting from gallery...';
+      _currentProcessingMessage = 'Opening gallery...';
       _updateBusyState();
     });
 
     try {
       if (kIsWeb) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Use "PDF Files" on Web for now.')),
-        );
-      } else {
-        final imgs = await _imagePicker.pickMultiImage(imageQuality: 100);
-        for (int i = 0; i < imgs.length; i++) {
-          await _processAndAddDocumentFile(
-            File(imgs[i].path),
-            isFromScanner: false,
-          );
+        // Use web gallery helper
+        final images = await WebCameraHelper().pickFromGallery();
+
+        if (images.isNotEmpty) {
+          for (int i = 0; i < images.length; i++) {
+            setState(() {
+              _currentProcessingMessage =
+                  'Processing image ${i + 1}/${images.length}...';
+            });
+
+            await _processAndAddDocumentBytes(
+              images[i].bytes,
+              displayName: images[i].filename,
+            );
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Processing ${i + 1}/${images.length}'),
+                  duration: const Duration(milliseconds: 400),
+                ),
+              );
+            }
+          }
+
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('Processing image ${i + 1}/${imgs.length}'),
-                duration: const Duration(milliseconds: 400),
+                content: Text('✅ ${images.length} image(s) selected'),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 2),
               ),
             );
+          }
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Gallery selection cancelled'),
+                backgroundColor: Colors.orange,
+                duration: Duration(seconds: 2),
+              ),
+            );
+          }
+        }
+      } else {
+        // Mobile: use image picker
+        final imgs = await _imagePicker.pickMultiImage(imageQuality: 100);
+
+        if (imgs.isNotEmpty) {
+          for (int i = 0; i < imgs.length; i++) {
+            await _processAndAddDocumentFile(
+              File(imgs[i].path),
+              isFromScanner: false,
+            );
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Processing image ${i + 1}/${imgs.length}'),
+                  duration: const Duration(milliseconds: 400),
+                ),
+              );
+            }
           }
         }
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Gallery error: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gallery error: $e'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
+        ),
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -815,12 +923,13 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
     try {
       final displayNameBase = p.basenameWithoutExtension(originalFile.path);
       final extension = p.extension(originalFile.path).toLowerCase();
-      
+
       // Check file quality first
       Map<String, dynamic> qualityResult;
       if (extension == '.pdf') {
         setState(() {
-          _currentProcessingMessage = 'Checking quality of ${p.basename(originalFile.path)}...';
+          _currentProcessingMessage =
+              'Checking quality of ${p.basename(originalFile.path)}...';
         });
         qualityResult = await _checkFileQuality(originalFile);
       } else {
@@ -831,8 +940,9 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
           'message': 'Image file - quality check skipped',
         };
       }
-      
-      final isGoodForExtraction = qualityResult['is_good_for_extraction'] as bool;
+
+      final isGoodForExtraction =
+          qualityResult['is_good_for_extraction'] as bool;
       final ocrConfidence = qualityResult['ocr_confidence'] as double;
       final qualityMessage = qualityResult['message'] as String;
 
@@ -842,7 +952,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
           setState(() {
             _currentProcessingMessage = 'File quality check completed';
           });
-          
+
           final newDoc = DocumentInfo(
             file: originalFile,
             webBytes: null,
@@ -850,25 +960,28 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
             isValid: true, // Mark as valid so it shows in the bad quality tab
             qrData: null,
             qrStatus: QRProcessingStatus.completed,
-            isGoodForExtraction: false, // But mark as bad quality so it won't be uploaded
+            isGoodForExtraction:
+                false, // But mark as bad quality so it won't be uploaded
             ocrConfidence: ocrConfidence,
             qualityMessage: qualityMessage,
           );
-          
+
           setState(() {
             _capturedDocuments.add(newDoc);
           });
-          
+
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('⚠️ ${p.basename(originalFile.path)}: Low quality (${ocrConfidence.toStringAsFixed(1)}%). Please reupload with better quality.'),
+                content: Text(
+                  '⚠️ ${p.basename(originalFile.path)}: Low quality (${ocrConfidence.toStringAsFixed(1)}%). Please reupload with better quality.',
+                ),
                 backgroundColor: Colors.orange,
                 duration: const Duration(seconds: 4),
               ),
             );
           }
-          
+
           _scheduleScrollToBottom();
           return; // Don't proceed with splitting
         }
@@ -898,8 +1011,11 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
               displayName: displayName,
               isValid: true,
               qrData: null,
-              qrStatus: QRProcessingStatus.completed, // Skip QR extraction - mark as completed
-              originalRawFile: originalFile, // Store reference to original raw file
+              qrStatus:
+                  QRProcessingStatus
+                      .completed, // Skip QR extraction - mark as completed
+              originalRawFile:
+                  originalFile, // Store reference to original raw file
               isGoodForExtraction: true,
               ocrConfidence: ocrConfidence,
               qualityMessage: qualityMessage,
@@ -976,14 +1092,17 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
 
     try {
       final isPdf = p.extension(displayName).toLowerCase() == '.pdf';
-      
+
       // Check file quality first
       Map<String, dynamic> qualityResult;
       if (isPdf) {
         setState(() {
           _currentProcessingMessage = 'Checking quality of $displayName...';
         });
-        qualityResult = await _checkFileQualityBytes(bytes, filename: displayName);
+        qualityResult = await _checkFileQualityBytes(
+          bytes,
+          filename: displayName,
+        );
       } else {
         // For non-PDF files, assume good quality
         qualityResult = {
@@ -992,8 +1111,9 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
           'message': 'Image file - quality check skipped',
         };
       }
-      
-      final isGoodForExtraction = qualityResult['is_good_for_extraction'] as bool;
+
+      final isGoodForExtraction =
+          qualityResult['is_good_for_extraction'] as bool;
       final ocrConfidence = qualityResult['ocr_confidence'] as double;
       final qualityMessage = qualityResult['message'] as String;
 
@@ -1003,7 +1123,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
           setState(() {
             _currentProcessingMessage = 'File quality check completed';
           });
-          
+
           final newDoc = DocumentInfo(
             file: null,
             webBytes: bytes,
@@ -1011,25 +1131,28 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
             isValid: true, // Mark as valid so it shows in the bad quality tab
             qrData: null,
             qrStatus: QRProcessingStatus.completed,
-            isGoodForExtraction: false, // But mark as bad quality so it won't be uploaded
+            isGoodForExtraction:
+                false, // But mark as bad quality so it won't be uploaded
             ocrConfidence: ocrConfidence,
             qualityMessage: qualityMessage,
           );
-          
+
           setState(() {
             _capturedDocuments.add(newDoc);
           });
-          
+
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('⚠️ $displayName: Low quality (${ocrConfidence.toStringAsFixed(1)}%). Please reupload with better quality.'),
+                content: Text(
+                  '⚠️ $displayName: Low quality (${ocrConfidence.toStringAsFixed(1)}%). Please reupload with better quality.',
+                ),
                 backgroundColor: Colors.orange,
                 duration: const Duration(seconds: 4),
               ),
             );
           }
-          
+
           _scheduleScrollToBottom();
           return; // Don't proceed with splitting
         }
@@ -1125,15 +1248,23 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
 
   Future<void> _uploadCaptured() async {
     if (_isBusy) return;
-    
+
     // Filter to only good quality files that are valid
-    final validDocs = _capturedDocuments.where((d) => d.isValid && (d.isGoodForExtraction ?? true)).toList();
+    final validDocs =
+        _capturedDocuments
+            .where((d) => d.isValid && (d.isGoodForExtraction ?? true))
+            .toList();
     if (validDocs.isEmpty) {
-      final badQualityCount = _capturedDocuments.where((d) => d.isValid && (d.isGoodForExtraction == false)).length;
+      final badQualityCount =
+          _capturedDocuments
+              .where((d) => d.isValid && (d.isGoodForExtraction == false))
+              .length;
       if (badQualityCount > 0) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('No good quality documents to upload. $badQualityCount file(s) have low quality. Please reupload with better quality.'),
+            content: Text(
+              'No good quality documents to upload. $badQualityCount file(s) have low quality. Please reupload with better quality.',
+            ),
             backgroundColor: Colors.orange,
             duration: const Duration(seconds: 4),
           ),
@@ -1146,10 +1277,10 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
       return;
     }
 
-    if (_selectedStockist == null ) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select Stockist for POD.')),
-      );
+    if (_selectedStockist == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Select Stockist for POD.')));
       return;
     }
 
@@ -1176,7 +1307,6 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
       );
       return;
     }
-
 
     await _performUpload(validDocs);
   }
@@ -1240,7 +1370,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
           rawFilePaths.add(d.originalRawFile!.path);
         }
       }
-      
+
       // Attach each unique raw file with key 'raw_file'
       for (final rawFilePath in rawFilePaths) {
         final rawFile = File(rawFilePath);
@@ -1296,7 +1426,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
         }
 
         setState(() {
-          _capturedDocuments.clear(); 
+          _capturedDocuments.clear();
         });
 
         if (mounted) {
@@ -1546,6 +1676,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
                       isStockist: true,
                     ),
                   ),
+
                   // _buildSectionCard(
                   //   icon: Icons.local_hospital,
                   //   title: 'Hospital',
@@ -1573,7 +1704,6 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
                   //     isStockist: false,
                   //   ),
                   // ),
-                   
                   _buildSectionCard(
                     icon: Icons.add_a_photo,
                     title: 'Add Documents',
@@ -1587,7 +1717,7 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
                           icon: const Icon(Icons.add),
                           label: const Text('Add Documents'),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF00A0A8), 
+                            backgroundColor: const Color(0xFF00A0A8),
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
@@ -1625,7 +1755,9 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
                                       const SizedBox(width: 6),
                                       Text(
                                         'Good Quality ($_goodQualityCount)',
-                                        style: const TextStyle(fontWeight: FontWeight.w600),
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -1638,7 +1770,9 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
                                       const SizedBox(width: 6),
                                       Text(
                                         'Bad Quality ($_badQualityCount)',
-                                        style: const TextStyle(fontWeight: FontWeight.w600),
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -1656,16 +1790,27 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
                                 // Good Quality Tab
                                 Builder(
                                   builder: (context) {
-                                    final goodQualityDocs = _capturedDocuments.where((d) => 
-                                      d.isValid && (d.isGoodForExtraction ?? true)
-                                    ).toList();
-                                    
+                                    final goodQualityDocs =
+                                        _capturedDocuments
+                                            .where(
+                                              (d) =>
+                                                  d.isValid &&
+                                                  (d.isGoodForExtraction ??
+                                                      true),
+                                            )
+                                            .toList();
+
                                     if (goodQualityDocs.isEmpty) {
                                       return Center(
                                         child: Column(
-                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
                                           children: [
-                                            Icon(Icons.check_circle_outline, size: 64, color: Colors.grey.shade400),
+                                            Icon(
+                                              Icons.check_circle_outline,
+                                              size: 64,
+                                              color: Colors.grey.shade400,
+                                            ),
                                             const SizedBox(height: 16),
                                             Text(
                                               'No good quality files',
@@ -1687,25 +1832,34 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
                                         ),
                                       );
                                     }
-                                    
+
                                     return Column(
                                       children: [
                                         Container(
                                           padding: const EdgeInsets.all(12),
                                           decoration: BoxDecoration(
                                             color: Colors.green.shade50,
-                                            borderRadius: BorderRadius.circular(8),
-                                            border: Border.all(color: Colors.green.shade300),
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            border: Border.all(
+                                              color: Colors.green.shade300,
+                                            ),
                                           ),
                                           child: Row(
                                             children: [
-                                              Icon(Icons.check_circle, color: Colors.green.shade700, size: 20),
+                                              Icon(
+                                                Icons.check_circle,
+                                                color: Colors.green.shade700,
+                                                size: 20,
+                                              ),
                                               const SizedBox(width: 8),
                                               Expanded(
                                                 child: Text(
                                                   '${goodQualityDocs.length} file(s) ready for upload',
                                                   style: TextStyle(
-                                                    color: Colors.green.shade700,
+                                                    color:
+                                                        Colors.green.shade700,
                                                     fontWeight: FontWeight.w600,
                                                   ),
                                                 ),
@@ -1717,10 +1871,18 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
                                         Expanded(
                                           child: ListView.separated(
                                             itemCount: goodQualityDocs.length,
-                                            separatorBuilder: (context, index) => const SizedBox(height: 8),
+                                            separatorBuilder:
+                                                (context, index) =>
+                                                    const SizedBox(height: 8),
                                             itemBuilder: (context, index) {
-                                              final docIndex = _capturedDocuments.indexOf(goodQualityDocs[index]);
-                                              return _buildDocumentCard(goodQualityDocs[index], docIndex);
+                                              final docIndex =
+                                                  _capturedDocuments.indexOf(
+                                                    goodQualityDocs[index],
+                                                  );
+                                              return _buildDocumentCard(
+                                                goodQualityDocs[index],
+                                                docIndex,
+                                              );
                                             },
                                           ),
                                         ),
@@ -1731,16 +1893,27 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
                                 // Bad Quality Tab
                                 Builder(
                                   builder: (context) {
-                                    final badQualityDocs = _capturedDocuments.where((d) => 
-                                      d.isValid && (d.isGoodForExtraction == false)
-                                    ).toList();
-                                    
+                                    final badQualityDocs =
+                                        _capturedDocuments
+                                            .where(
+                                              (d) =>
+                                                  d.isValid &&
+                                                  (d.isGoodForExtraction ==
+                                                      false),
+                                            )
+                                            .toList();
+
                                     if (badQualityDocs.isEmpty) {
                                       return Center(
                                         child: Column(
-                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
                                           children: [
-                                            Icon(Icons.error_outline, size: 64, color: Colors.grey.shade400),
+                                            Icon(
+                                              Icons.error_outline,
+                                              size: 64,
+                                              color: Colors.grey.shade400,
+                                            ),
                                             const SizedBox(height: 16),
                                             Text(
                                               'No low quality files',
@@ -1762,19 +1935,27 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
                                         ),
                                       );
                                     }
-                                    
+
                                     return Column(
                                       children: [
                                         Container(
                                           padding: const EdgeInsets.all(12),
                                           decoration: BoxDecoration(
                                             color: Colors.red.shade50,
-                                            borderRadius: BorderRadius.circular(8),
-                                            border: Border.all(color: Colors.red.shade300),
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            border: Border.all(
+                                              color: Colors.red.shade300,
+                                            ),
                                           ),
                                           child: Row(
                                             children: [
-                                              Icon(Icons.error_outline, color: Colors.red.shade700, size: 20),
+                                              Icon(
+                                                Icons.error_outline,
+                                                color: Colors.red.shade700,
+                                                size: 20,
+                                              ),
                                               const SizedBox(width: 8),
                                               Expanded(
                                                 child: Text(
@@ -1792,10 +1973,18 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
                                         Expanded(
                                           child: ListView.separated(
                                             itemCount: badQualityDocs.length,
-                                            separatorBuilder: (context, index) => const SizedBox(height: 8),
+                                            separatorBuilder:
+                                                (context, index) =>
+                                                    const SizedBox(height: 8),
                                             itemBuilder: (context, index) {
-                                              final docIndex = _capturedDocuments.indexOf(badQualityDocs[index]);
-                                              return _buildDocumentCard(badQualityDocs[index], docIndex);
+                                              final docIndex =
+                                                  _capturedDocuments.indexOf(
+                                                    badQualityDocs[index],
+                                                  );
+                                              return _buildDocumentCard(
+                                                badQualityDocs[index],
+                                                docIndex,
+                                              );
                                             },
                                           ),
                                         ),
@@ -1826,9 +2015,21 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceAround,
                               children: [
-                                _buildStatItem('Total', _capturedDocuments.length, Colors.blue),
-                                _buildStatItem('Good Quality', _goodQualityCount, Colors.green),
-                                _buildStatItem('Low Quality', _badQualityCount, Colors.red),
+                                _buildStatItem(
+                                  'Total',
+                                  _capturedDocuments.length,
+                                  Colors.blue,
+                                ),
+                                _buildStatItem(
+                                  'Good Quality',
+                                  _goodQualityCount,
+                                  Colors.green,
+                                ),
+                                _buildStatItem(
+                                  'Low Quality',
+                                  _badQualityCount,
+                                  Colors.red,
+                                ),
                               ],
                             ),
                           ),
@@ -1842,7 +2043,9 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: Colors.red.shade600,
                                 side: BorderSide(color: Colors.red.shade300),
-                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 8,
+                                ),
                               ),
                             ),
                           ),
@@ -2092,9 +2295,8 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
 
     // Use quality-based colors: green for good quality, red for bad quality
     final isGoodQuality = doc.isGoodForExtraction ?? true;
-    Color borderColor = doc.isValid 
-        ? (isGoodQuality ? Colors.green : Colors.red)
-        : Colors.grey;
+    Color borderColor =
+        doc.isValid ? (isGoodQuality ? Colors.green : Colors.red) : Colors.grey;
     double borderWidth = 2;
 
     return Dismissible(
@@ -2176,18 +2378,26 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
                     const SizedBox(width: 16),
                     if (doc.isGoodForExtraction != null) ...[
                       Icon(
-                        doc.isGoodForExtraction == false ? Icons.error : Icons.check_circle,
+                        doc.isGoodForExtraction == false
+                            ? Icons.error
+                            : Icons.check_circle,
                         size: 14,
-                        color: doc.isGoodForExtraction == false ? Colors.red : Colors.green,
+                        color:
+                            doc.isGoodForExtraction == false
+                                ? Colors.red
+                                : Colors.green,
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        doc.isGoodForExtraction == false 
+                        doc.isGoodForExtraction == false
                             ? 'Low Quality (${doc.ocrConfidence?.toStringAsFixed(1) ?? "N/A"}%)'
                             : 'Good Quality',
                         style: TextStyle(
                           fontSize: 12,
-                          color: doc.isGoodForExtraction == false ? Colors.red : Colors.green,
+                          color:
+                              doc.isGoodForExtraction == false
+                                  ? Colors.red
+                                  : Colors.green,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -2209,7 +2419,8 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
                     ],
                   ],
                 ),
-                if (doc.qualityMessage != null && doc.isGoodForExtraction == false) ...[
+                if (doc.qualityMessage != null &&
+                    doc.isGoodForExtraction == false) ...[
                   const SizedBox(height: 8),
                   Container(
                     padding: const EdgeInsets.all(8),
@@ -2220,7 +2431,11 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.info_outline, size: 14, color: Colors.red.shade700),
+                        Icon(
+                          Icons.info_outline,
+                          size: 14,
+                          color: Colors.red.shade700,
+                        ),
                         const SizedBox(width: 4),
                         Expanded(
                           child: Text(
@@ -2290,18 +2505,13 @@ class _PODUploadScreenState extends State<PODUploadScreen> with SingleTickerProv
       Navigator.pushNamed(
         context,
         AppRoutes.pdfPreview,
-        arguments: {
-          'pdfFile': doc.file!,
-        },
+        arguments: {'pdfFile': doc.file!},
       );
     } else if (doc.webBytes != null) {
       Navigator.pushNamed(
         context,
         AppRoutes.pdfPreview,
-        arguments: {
-          'pdfBytes': doc.webBytes!,
-          'title': doc.displayName,
-        },
+        arguments: {'pdfBytes': doc.webBytes!, 'title': doc.displayName},
       );
     } else {
       ScaffoldMessenger.of(
