@@ -17,6 +17,7 @@ import 'package:zyduspod/GstInvoiceScanner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zyduspod/config.dart';
 import 'package:zyduspod/Models/pod.dart';
+import 'package:zyduspod/Models/document_info.dart';
 
 import 'package:flutter_doc_scanner/flutter_doc_scanner.dart';
 import 'package:flutter/services.dart';
@@ -175,6 +176,13 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   File? _capturedImageFile;
   Map<String, dynamic>? _einvoiceData;
 
+  // List to store multiple captured documents with independent byte copies
+  final List<DocumentInfo> _capturedDocuments = [];
+  String _currentProcessingMessage = '';
+  
+  // ScrollController for auto-scrolling to bottom
+  final ScrollController _scrollController = ScrollController();
+
   // Add keys to force rebuild of Autocomplete widgets
   Key _stockistKey = UniqueKey();
   Key _chemistKey = UniqueKey();
@@ -184,6 +192,180 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   void initState() {
     super.initState();
     _loadLists();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  /// Schedules scroll to bottom of the list after adding new documents
+  void _scheduleScrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  /// Process and add document bytes with proper byte copying to prevent reference issues.
+  /// This ensures each document has its own independent copy of bytes in memory.
+  Future<void> _processAndAddDocumentBytes(
+    Uint8List bytes,
+    String displayName, {
+    bool isImage = false,
+  }) async {
+    debugPrint('[ADD DOC] Processing: $displayName, ${bytes.length} bytes, isImage: $isImage');
+
+    // Handle image files
+    if (isImage) {
+      // Add image directly without conversion
+      // CREATE A COPY of the bytes to prevent reference issues
+      final bytesCopy = Uint8List.fromList(bytes);
+
+      final newDoc = DocumentInfo(
+        file: null,
+        webBytes: bytesCopy, // Use copied bytes instead of reference
+        displayName: displayName,
+        isValid: true,
+        qrData: null,
+        qrStatus: QRProcessingStatus.completed,
+        isGoodForExtraction: true,
+        ocrConfidence: 100.0,
+        qualityMessage: 'Image file',
+      );
+
+      setState(() {
+        _capturedDocuments.add(newDoc);
+      });
+
+      _scheduleScrollToBottom();
+      return;
+    }
+
+    // For PDF files, check quality metrics (simplified)
+    double ocrConfidence = 95.0; // Default good confidence
+    String qualityMessage = 'Good quality';
+    bool isGoodForExtraction = true;
+
+    // Check for very small files which might indicate low quality
+    if (bytes.length < 1000) {
+      ocrConfidence = 30.0;
+      qualityMessage = 'Very small file - may have quality issues';
+      isGoodForExtraction = false;
+    }
+
+    // Handle low quality PDFs
+    if (!isGoodForExtraction) {
+      // CREATE A COPY of the bytes to prevent reference issues
+      final bytesCopy = Uint8List.fromList(bytes);
+
+      final newDoc = DocumentInfo(
+        file: null,
+        webBytes: bytesCopy, // Use copied bytes
+        displayName: displayName,
+        isValid: true,
+        qrData: null,
+        qrStatus: QRProcessingStatus.completed,
+        isGoodForExtraction: false,
+        ocrConfidence: ocrConfidence,
+        qualityMessage: qualityMessage,
+      );
+
+      setState(() {
+        _capturedDocuments.add(newDoc);
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '⚠️ $displayName: Low quality (${ocrConfidence.toStringAsFixed(1)}%). Please reupload with better quality.',
+            ),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+
+      _scheduleScrollToBottom();
+      return;
+    }
+
+    // Try to split PDF if it contains multiple invoices (API call would go here)
+    // For now, we'll add the PDF as a single document
+    final List<SplitPdfPart> parts = await _splitPdfViaApiBytes(bytes, filename: displayName);
+    
+    if (parts.isNotEmpty) {
+      setState(() {
+        _currentProcessingMessage = 'Adding ${parts.length} split documents...';
+      });
+
+      for (int i = 0; i < parts.length; i++) {
+        final part = parts[i];
+        debugPrint('[ADD DOC] Part $i: ${part.bytes.length} bytes');
+
+        // CREATE A COPY of the bytes to prevent reference issues
+        final bytesCopy = Uint8List.fromList(part.bytes);
+
+        final name = (part.invoiceNo != null && part.invoiceNo!.isNotEmpty)
+            ? 'Invoice_${part.invoiceNo}.pdf'
+            : '${p.basenameWithoutExtension(displayName)}_part${i + 1}.pdf';
+
+        final newDoc = DocumentInfo(
+          file: null,
+          webBytes: bytesCopy, // Use copied bytes instead of reference
+          displayName: name,
+          isValid: true,
+          qrData: null,
+          qrStatus: QRProcessingStatus.completed,
+          isGoodForExtraction: true,
+          ocrConfidence: ocrConfidence,
+          qualityMessage: qualityMessage,
+        );
+
+        setState(() {
+          _capturedDocuments.add(newDoc);
+        });
+      }
+    } else {
+      // Use original unsplit PDF
+      debugPrint('[ADD DOC] Adding original PDF: ${bytes.length} bytes');
+
+      // CREATE A COPY of the bytes to prevent reference issues
+      final bytesCopy = Uint8List.fromList(bytes);
+
+      final newDoc = DocumentInfo(
+        file: null,
+        webBytes: bytesCopy, // Use copied bytes instead of original reference
+        displayName: displayName,
+        isValid: true,
+        qrData: null,
+        qrStatus: QRProcessingStatus.completed,
+        isGoodForExtraction: true,
+        ocrConfidence: ocrConfidence,
+        qualityMessage: qualityMessage,
+      );
+
+      setState(() {
+        _capturedDocuments.add(newDoc);
+      });
+    }
+
+    _scheduleScrollToBottom();
+  }
+
+  /// Attempts to split a PDF via API. Returns empty list if splitting fails or not needed.
+  Future<List<SplitPdfPart>> _splitPdfViaApiBytes(Uint8List bytes, {String? filename}) async {
+    // This is a placeholder for the actual PDF splitting API call
+    // In a real implementation, this would call an API to split multi-page PDFs
+    // For now, return empty list to use the original PDF
+    return [];
   }
 
   Future<void> _loadLists() async {
