@@ -361,6 +361,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   }
 
   /// Attempts to split a PDF via API. Returns empty list if splitting fails or not needed.
+  /// TODO: Implement actual PDF splitting API call when backend endpoint is available.
   Future<List<SplitPdfPart>> _splitPdfViaApiBytes(Uint8List bytes, {String? filename}) async {
     // This is a placeholder for the actual PDF splitting API call
     // In a real implementation, this would call an API to split multi-page PDFs
