@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:zyduspod/services/pod_details_service.dart';
 import 'package:zyduspod/screens/e_invoice_data_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -52,6 +53,117 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
           _errorMessage = e.toString();
           _isLoading = false;
         });
+      }
+    }
+  }
+
+  // Show image preview in a dialog
+  void _showImagePreview(BuildContext context, String imageUrl) {
+    showDialog(
+      context: context,
+      builder:
+          (context) => Dialog(
+            backgroundColor: Colors.transparent,
+            child: Stack(
+              children: [
+                InteractiveViewer(
+                  child: Center(
+                    child: Image.network(
+                      imageUrl,
+                      loadingBuilder: (context, child, loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return Center(
+                          child: CircularProgressIndicator(
+                            value:
+                                loadingProgress.expectedTotalBytes != null
+                                    ? loadingProgress.cumulativeBytesLoaded /
+                                        loadingProgress.expectedTotalBytes!
+                                    : null,
+                          ),
+                        );
+                      },
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          padding: const EdgeInsets.all(20),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.error,
+                                color: Colors.red,
+                                size: 48,
+                              ),
+                              const SizedBox(height: 16),
+                              const Text(
+                                'Failed to load image',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                error.toString(),
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: IconButton(
+                    icon: const Icon(
+                      Icons.close,
+                      color: Colors.white,
+                      size: 30,
+                    ),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ),
+              ],
+            ),
+          ),
+    );
+  }
+
+  // Open PDF file
+  Future<void> _openPdfFile(
+    BuildContext context,
+    String pdfUrl,
+    Map<String, dynamic> pod,
+  ) async {
+    try {
+      // Download PDF
+      final response = await http.get(Uri.parse(pdfUrl));
+
+      if (response.statusCode == 200) {
+        // Navigate to PDF preview
+        Navigator.pushNamed(
+          context,
+          AppRoutes.pdfPreview,
+          arguments: {
+            'pdfBytes': response.bodyBytes,
+            'title': 'POD - ${pod['pod_number'] ?? 'Document'}',
+          },
+        );
+      } else {
+        throw Exception('Failed to download PDF: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error opening PDF: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error opening PDF: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }
@@ -138,15 +250,120 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
               Expanded(
                 child: InkWell(
                   onTap: () async {
-                    // Open the file_path link in the browser
-                    final url = pod['file_path'];
-                    if (url != null && url is String && url.isNotEmpty) {
-                      Uri uri = Uri.parse(url);
-                      if (!await launchUrl(
-                         uri,
-                        mode: LaunchMode.externalApplication,
-                      )) {
-                        throw Exception('Could not launch $url');
+                    try {
+                      final filePath = pod['file_path'];
+
+                      if (filePath == null ||
+                          filePath.toString().trim().isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('File path not available'),
+                            backgroundColor: Colors.orange,
+                          ),
+                        );
+                        return;
+                      }
+
+                      // Convert relative path to full URL
+                      String fileUrl = filePath.toString();
+
+                      // If it's a relative path, prepend the base URL
+                      if (!fileUrl.startsWith('http://') &&
+                          !fileUrl.startsWith('https://')) {
+                        // Get base URL from config (or use your API base URL)
+                        const String baseUrl =
+                            'YOUR_BASE_URL_HERE'; // e.g., 'https://api.yourdomain.com'
+                        fileUrl = '$baseUrl/$fileUrl';
+                      }
+
+                      print('Opening file URL: $fileUrl');
+
+                      // Show loading indicator
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Row(
+                            children: [
+                              SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.white,
+                                  ),
+                                ),
+                              ),
+                              SizedBox(width: 12),
+                              Text('Opening file... '),
+                            ],
+                          ),
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+
+                      final Uri uri = Uri.parse(fileUrl);
+
+                      // Check if it's a PDF or image
+                      final String extension =
+                          fileUrl.toLowerCase().split('.').last;
+
+                      if ([
+                        'jpg',
+                        'jpeg',
+                        'png',
+                        'gif',
+                        'bmp',
+                        'webp',
+                      ].contains(extension)) {
+                        // It's an image - show in a dialog or new screen
+                        _showImagePreview(context, fileUrl);
+                      } else if (extension == 'pdf') {
+                        // It's a PDF - download and preview
+                        await _openPdfFile(context, fileUrl, pod);
+                      } else {
+                        // Other file types - open externally
+                        final bool launched = await launchUrl(
+                          uri,
+                          mode: LaunchMode.externalApplication,
+                        );
+
+                        if (!launched) {
+                          throw Exception('Could not open file');
+                        }
+                      }
+                    } catch (e) {
+                      print('Error opening file: $e');
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'Error opening file: ${e.toString()}',
+                            ),
+                            backgroundColor: Colors.red,
+                            duration: const Duration(seconds: 4),
+                            action: SnackBarAction(
+                              label: 'Details',
+                              textColor: Colors.white,
+                              onPressed: () {
+                                showDialog(
+                                  context: context,
+                                  builder:
+                                      (context) => AlertDialog(
+                                        title: const Text('Error Details'),
+                                        content: Text(e.toString()),
+                                        actions: [
+                                          TextButton(
+                                            onPressed:
+                                                () => Navigator.pop(context),
+                                            child: const Text('OK'),
+                                          ),
+                                        ],
+                                      ),
+                                );
+                              },
+                            ),
+                          ),
+                        );
                       }
                     }
                   },
@@ -162,7 +379,7 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(color: Colors.green.withOpacity(0.5)),
                     ),
-                    child: Text(
+                    child: const Text(
                       'View File',
                       style: TextStyle(
                         color: Colors.green,
@@ -175,7 +392,7 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
               ),
               Expanded(
                 child: InkWell(
-                  onTap: () async{
+                  onTap: () async {
                     final eInvoice = pod['e_invoice'];
                     if (eInvoice == null) {
                       // Navigate to E-Invoice data screen with null data to show no-data view
@@ -193,7 +410,6 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
                       // Navigate to E-Invoice data screen with existing data
                       _navigateToEInvoiceDataScreen(pod, eInvoice);
                     }
-                    
                   },
                   child: Container(
                     alignment: Alignment.center,
@@ -723,15 +939,13 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
     }
   }
 
-
-
-
-
-
-  void _navigateToEInvoiceDataScreen(Map<String, dynamic> pod, Map<String, dynamic> eInvoice) {
+  void _navigateToEInvoiceDataScreen(
+    Map<String, dynamic> pod,
+    Map<String, dynamic> eInvoice,
+  ) {
     // Convert POD E-Invoice data to QR data format for the E-Invoice data screen
     final qrData = _convertPodEInvoiceToQrData(eInvoice);
-    
+
     Navigator.pushNamed(
       context,
       AppRoutes.eInvoiceData,
@@ -744,20 +958,26 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
     );
   }
 
-  Map<String, dynamic> _convertPodEInvoiceToQrData(Map<String, dynamic> eInvoice) {
+  Map<String, dynamic> _convertPodEInvoiceToQrData(
+    Map<String, dynamic> eInvoice,
+  ) {
     // Convert POD E-Invoice format to QR data format expected by EInvoiceDataScreen
     final qrData = <String, dynamic>{};
-    
+
     // Map basic fields
     qrData['DocNo'] = eInvoice['invoice_number'];
     qrData['DocDt'] = eInvoice['invoice_date'];
     qrData['DocTyp'] = eInvoice['metadata']?['doc_type'] ?? 'INV';
     qrData['TotInvVal'] = eInvoice['total_amount'];
     qrData['Gstin'] = eInvoice['metadata']?['seller_gstin'];
-    qrData['CgstAmt'] = eInvoice['tax_amount'] != null ? 
-        (double.tryParse(eInvoice['tax_amount'].toString()) ?? 0) / 2 : null;
-    qrData['SgstAmt'] = eInvoice['tax_amount'] != null ? 
-        (double.tryParse(eInvoice['tax_amount'].toString()) ?? 0) / 2 : null;
+    qrData['CgstAmt'] =
+        eInvoice['tax_amount'] != null
+            ? (double.tryParse(eInvoice['tax_amount'].toString()) ?? 0) / 2
+            : null;
+    qrData['SgstAmt'] =
+        eInvoice['tax_amount'] != null
+            ? (double.tryParse(eInvoice['tax_amount'].toString()) ?? 0) / 2
+            : null;
     qrData['IgstAmt'] = '0.00';
     qrData['TotGstAmt'] = eInvoice['tax_amount'];
     qrData['SellerName'] = eInvoice['metadata']?['seller_name'];
@@ -768,21 +988,19 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
     qrData['AckDt'] = eInvoice['metadata']?['irn_date'];
     qrData['Status'] = eInvoice['status'];
     qrData['GstStatus'] = eInvoice['gst_status'];
-    
+
     // Add metadata
     if (eInvoice['metadata'] != null) {
       qrData['ItemCount'] = eInvoice['metadata']['item_count'];
       qrData['MainHsnCode'] = eInvoice['metadata']['main_hsn_code'];
       qrData['DiscountAmount'] = eInvoice['discount_amount'];
     }
-    
+
     // Add file path if available
     if (eInvoice['file_path'] != null) {
       qrData['FilePath'] = eInvoice['file_path'];
     }
-    
+
     return qrData;
   }
-
-
 }

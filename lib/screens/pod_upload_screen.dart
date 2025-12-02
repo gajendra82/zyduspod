@@ -1,14 +1,12 @@
-// COMMENTED OUT: QR extraction functionality is disabled but imports are kept for easy restoration
-// To restore QR functionality: uncomment all QR-related code and remove this comment block
+// Mobile-only POD Upload Screen - Android/iOS
+// All web logic removed - uses native Flutter plugins
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show File; // used only on mobile/desktop paths
-import 'dart:math' as math; // COMMENTED OUT: Used for QR processing
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_doc_scanner/flutter_doc_scanner.dart';
 import 'package:http/http.dart' as http;
@@ -19,60 +17,31 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 
-import 'package:zyduspod/config.dart';
-import 'package:zyduspod/GstInvoiceScanner.dart'; // COMMENTED OUT: Used for QR processing
 import 'package:zyduspod/Models/_SplitOut.dart';
-import 'package:zyduspod/services/PythonQRService.dart'; // COMMENTED OUT: Used for QR processing
-import 'package:zyduspod/widgets/EInvoiceQRExtractor.dart'; // COMMENTED OUT: Used for QR processing
-import 'package:zyduspod/widgets/PdfPreviewScreen.dart'; // existing File-based preview
-import 'package:zyduspod/widgets/modern_ui_components.dart';
+import 'package:zyduspod/config.dart';
 import 'package:zyduspod/screens/upload_status_screen.dart';
 import 'package:zyduspod/routes.dart';
-import 'package:zyduspod/utils/web_camera_helper.dart'
-    if (dart.library.io) 'package:zyduspod/utils/web_camera_helper_stub.dart';
 
 // PDF Splitting API
 const String _SPLIT_API_BASE = 'https://anujakkulkarni-splitpdffile.hf.space';
 
-// PDF Quality Check API
-const String _QUALITY_CHECK_API =
-    'https://harshadsalunkhe1212-checkpdfquality.hf.space/check-file';
-
-/// Build MultipartFile from bytes (works on Web & mobile)
-Future<http.MultipartFile> _multipartFromBytes({
-  required String fieldName,
-  required String filename,
-  required List<int> bytes,
-  MediaType? contentType,
-}) async {
-  return http.MultipartFile.fromBytes(
-    fieldName,
-    bytes,
-    filename: filename,
-    contentType: contentType,
-  );
-}
-
-/// Build MultipartFile from File (mobile/desktop only)
+/// Build MultipartFile from File
 Future<http.MultipartFile> _multipartFromFile({
   required String fieldName,
   required File file,
   MediaType? contentType,
 }) async {
   final filename = p.basename(file.path);
-  final bytes = await file.readAsBytes();
-  return _multipartFromBytes(
-    fieldName: fieldName,
+  return http.MultipartFile.fromPath(
+    fieldName,
+    file.path,
     filename: filename,
-    bytes: bytes,
     contentType: contentType,
   );
 }
 
+/// Split PDF via API
 Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
-  // On Web we handle splitting using bytes in a separate function
-  if (kIsWeb) return <SplitOut>[];
-
   try {
     final uri = Uri.parse('$_SPLIT_API_BASE/split-invoices');
 
@@ -93,7 +62,7 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
 
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       debugPrint('[SPLIT] HTTP ${resp.statusCode}: ${resp.body}');
-      throw Exception('Split API error ${resp.statusCode}');
+      return <SplitOut>[];
     }
 
     final decoded = jsonDecode(resp.body);
@@ -148,161 +117,6 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
   }
 }
 
-/// In-memory split part for Web
-class _SplitMem {
-  final Uint8List bytes;
-  final String? invoiceNo;
-  final List<int>? pages;
-  _SplitMem({required this.bytes, this.invoiceNo, this.pages});
-}
-
-/// Check file quality before processing (mobile/desktop)
-Future<Map<String, dynamic>> _checkFileQuality(File file) async {
-  try {
-    final uri = Uri.parse(_QUALITY_CHECK_API);
-    final req = http.MultipartRequest('POST', uri)
-      ..files.add(
-        await _multipartFromFile(
-          fieldName: 'file',
-          file: file,
-          contentType: MediaType('application', 'pdf'),
-        ),
-      );
-
-    final streamed = await req.send();
-    final resp = await http.Response.fromStream(streamed);
-
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      debugPrint('[QUALITY] HTTP ${resp.statusCode}: ${resp.body}');
-      return {
-        'is_good_for_extraction': true, // Allow processing if check fails
-        'ocr_confidence': 0.0,
-        'message': 'Quality check failed, proceeding anyway',
-      };
-    }
-
-    final decoded = jsonDecode(resp.body);
-    debugPrint('[QUALITY] Response: ${resp.body}');
-
-    return {
-      'is_good_for_extraction': decoded['is_good_for_extraction'] ?? false,
-      'ocr_confidence': decoded['ocr_confidence']?.toDouble() ?? 0.0,
-      'message': decoded['message'] ?? 'Quality check completed',
-    };
-  } catch (e) {
-    debugPrint('[QUALITY] Error: $e');
-    return {
-      'is_good_for_extraction': true, // Allow processing if check fails
-      'ocr_confidence': 0.0,
-      'message': 'Quality check error, proceeding anyway',
-    };
-  }
-}
-
-/// Check file quality before processing (web - bytes)
-Future<Map<String, dynamic>> _checkFileQualityBytes(
-  Uint8List pdfBytes, {
-  String filename = 'upload.pdf',
-}) async {
-  try {
-    final uri = Uri.parse(_QUALITY_CHECK_API);
-    final req = http.MultipartRequest('POST', uri)
-      ..files.add(
-        await _multipartFromBytes(
-          fieldName: 'file',
-          filename: filename,
-          bytes: pdfBytes,
-          contentType: MediaType('application', 'pdf'),
-        ),
-      );
-
-    final streamed = await req.send();
-    final resp = await http.Response.fromStream(streamed);
-
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      debugPrint('[QUALITY] HTTP ${resp.statusCode}: ${resp.body}');
-      return {
-        'is_good_for_extraction': true,
-        'ocr_confidence': 0.0,
-        'message': 'Quality check failed, proceeding anyway',
-      };
-    }
-
-    final decoded = jsonDecode(resp.body);
-    debugPrint('[QUALITY] Response: ${resp.body}');
-
-    return {
-      'is_good_for_extraction': decoded['is_good_for_extraction'] ?? false,
-      'ocr_confidence': decoded['ocr_confidence']?.toDouble() ?? 0.0,
-      'message': decoded['message'] ?? 'Quality check completed',
-    };
-  } catch (e) {
-    debugPrint('[QUALITY] Error: $e');
-    return {
-      'is_good_for_extraction': true,
-      'ocr_confidence': 0.0,
-      'message': 'Quality check error, proceeding anyway',
-    };
-  }
-}
-
-/// Server-side splitting for Web (bytes -> parts as bytes)
-Future<List<_SplitMem>> _splitPdfViaApiBytes(
-  Uint8List pdfBytes, {
-  String filename = 'upload.pdf',
-}) async {
-  final uri = Uri.parse('$_SPLIT_API_BASE/split-invoices');
-
-  final req =
-      http.MultipartRequest('POST', uri)
-        ..files.add(
-          await _multipartFromBytes(
-            fieldName: 'file',
-            filename: filename,
-            bytes: pdfBytes,
-            contentType: MediaType('application', 'pdf'),
-          ),
-        )
-        ..fields['include_pdf'] = 'true'
-        ..fields['initial_dpi'] = '300';
-
-  final streamed = await req.send();
-  final resp = await http.Response.fromStream(streamed);
-
-  if (resp.statusCode < 200 || resp.statusCode >= 300) {
-    debugPrint('[SPLIT] (web) HTTP ${resp.statusCode}: ${resp.body}');
-    throw Exception('Split API error ${resp.statusCode}');
-  }
-
-  final decoded = jsonDecode(resp.body);
-  if (decoded is! Map || decoded['parts'] is! List) {
-    debugPrint('[SPLIT] (web) Unexpected response: ${resp.body}');
-    return <_SplitMem>[];
-  }
-
-  final parts = decoded['parts'] as List;
-  final out = <_SplitMem>[];
-
-  for (final e in parts) {
-    if (e is! Map) continue;
-    final String? b64 = e['pdf_base64'] as String?;
-    if (b64 == null || b64.isEmpty) continue;
-
-    try {
-      final bytes = Uint8List.fromList(base64.decode(base64.normalize(b64)));
-      final invoiceNo = e['invoice_no'] as String?;
-      final pagesDynamic = e['pages'] as List<dynamic>?;
-      final pages = pagesDynamic?.map((p) => p as int).toList();
-      out.add(_SplitMem(bytes: bytes, invoiceNo: invoiceNo, pages: pages));
-    } catch (err) {
-      debugPrint('[SPLIT] (web) base64 decode failed: $err');
-      continue;
-    }
-  }
-
-  return out;
-}
-
 class PODUploadScreen extends StatefulWidget {
   const PODUploadScreen({super.key});
 
@@ -319,7 +133,6 @@ class _PODUploadScreenState extends State<PODUploadScreen>
   bool _isProcessingDocuments = false;
   String _currentProcessingMessage = '';
 
-  // Tab controller for quality tabs
   late TabController _tabController;
 
   List<_SelectItem> _allStockists = [];
@@ -347,13 +160,11 @@ class _PODUploadScreenState extends State<PODUploadScreen>
     _loadLists();
   }
 
-  // Helper method to get good quality count
   int get _goodQualityCount =>
       _capturedDocuments
           .where((d) => d.isValid && (d.isGoodForExtraction ?? true))
           .length;
 
-  // Helper method to get bad quality count
   int get _badQualityCount =>
       _capturedDocuments
           .where((d) => d.isValid && (d.isGoodForExtraction == false))
@@ -523,7 +334,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('authToken');
-      final searchUrl = '${API_HOSPITALS_URL}?search=$query';
+      final searchUrl = '${API_HOSPITALS_URL}? search=$query';
 
       final resp = await http.get(
         Uri.parse(searchUrl),
@@ -623,7 +434,6 @@ class _PODUploadScreenState extends State<PODUploadScreen>
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // PDF Files option - FIRST
                 ListTile(
                   leading: const Icon(Icons.picture_as_pdf),
                   title: const Text('PDF Files'),
@@ -633,8 +443,6 @@ class _PODUploadScreenState extends State<PODUploadScreen>
                     _pickPDFFiles();
                   },
                 ),
-
-                // Gallery option - SECOND
                 ListTile(
                   leading: const Icon(Icons.photo_library),
                   title: const Text('Gallery'),
@@ -644,16 +452,10 @@ class _PODUploadScreenState extends State<PODUploadScreen>
                     _pickFromGallery();
                   },
                 ),
-
-                // Camera option - THIRD
                 ListTile(
                   leading: const Icon(Icons.camera_alt),
                   title: const Text('Camera'),
-                  subtitle: Text(
-                    kIsWeb
-                        ? 'Capture photo (requires camera access)'
-                        : 'Scan documents with camera',
-                  ),
+                  subtitle: const Text('Scan documents with camera'),
                   onTap: () {
                     Navigator.pop(context);
                     _captureFromCamera();
@@ -665,8 +467,6 @@ class _PODUploadScreenState extends State<PODUploadScreen>
     );
   }
 
-  // Add this import at the top
-
   Future<void> _captureFromCamera() async {
     if (_isBusy) return;
 
@@ -677,99 +477,50 @@ class _PODUploadScreenState extends State<PODUploadScreen>
     });
 
     try {
-      if (kIsWeb) {
-        // Use web camera helper
-        final bytes = await WebCameraHelper().captureFromCamera();
+      final scanned = await FlutterDocScanner().getScanDocuments(page: 1);
 
-        if (bytes != null && bytes.isNotEmpty) {
-          setState(() {
-            _currentProcessingMessage = 'Processing captured image...';
-          });
+      if (scanned != null && scanned is Map) {
+        String? filePath =
+            scanned['pdfUri']?.toString() ??
+            scanned['imageUri']?.toString() ??
+            scanned['documentUri']?.toString();
 
-          await _processAndAddDocumentBytes(
-            bytes,
-            displayName: 'camera_${DateTime.now().millisecondsSinceEpoch}.jpg',
-          );
+        if (filePath != null && filePath.isNotEmpty) {
+          final local = filePath.replaceFirst('file://', '');
+          final original = File(local);
 
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('✅ Image captured successfully'),
-                backgroundColor: Colors.green,
-                duration: Duration(seconds: 2),
-              ),
-            );
+          if (await original.exists()) {
+            await _processAndAddDocumentFile(original, isFromScanner: true);
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('✅ Document scanned successfully'),
+                  backgroundColor: Colors.green,
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            }
           }
         } else {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('Camera capture cancelled'),
+                content: Text('Scan cancelled'),
                 backgroundColor: Colors.orange,
                 duration: Duration(seconds: 2),
               ),
             );
           }
         }
-      } else {
-        // Mobile: use document scanner
-        final scanned = await FlutterDocScanner().getScanDocuments(page: 1);
-        List<String> result = [];
-        if (scanned != null && scanned is Map) {
-          String? filePath =
-              scanned['pdfUri']?.toString() ??
-              scanned['imageUri']?.toString() ??
-              scanned['documentUri']?.toString();
-          if (filePath != null) {
-            result = [filePath];
-          }
-        }
-        if (result.isNotEmpty) {
-          for (final filePath in result) {
-            final local = filePath.replaceFirst('file://', '');
-            final original = File(local);
-            await _processAndAddDocumentFile(original, isFromScanner: true);
-          }
-        }
       }
     } catch (e) {
       if (!mounted) return;
-
-      String errorMessage = 'Camera error: $e';
-      Color bgColor = Colors.red;
-
-      // Provide specific error messages
-      if (e.toString().contains('HTTPS')) {
-        errorMessage =
-            '⚠️ Camera requires HTTPS.  Please access the site securely.';
-      } else if (e.toString().contains('NotAllowedError') ||
-          e.toString().contains('Permission denied')) {
-        errorMessage =
-            '⚠️ Camera permission denied. Please allow camera access in browser settings.';
-        bgColor = Colors.orange;
-      } else if (e.toString().contains('NotFoundError')) {
-        errorMessage = '⚠️ No camera found on this device. ';
-      } else if (e.toString().contains('NotReadableError')) {
-        errorMessage =
-            '⚠️ Camera is already in use by another app.  Please close other camera apps.';
-      } else if (e.toString().contains('OverconstrainedError')) {
-        errorMessage =
-            '⚠️ Camera constraints not supported.  Try a different device.';
-      } else if (e.toString().contains('TypeError')) {
-        errorMessage =
-            '⚠️ Browser doesn\'t support camera access.  Please update your browser.';
-      }
-
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(errorMessage),
-          backgroundColor: bgColor,
-          duration: const Duration(seconds: 5),
-          action: SnackBarAction(
-            label: 'OK',
-            textColor: Colors.white,
-            onPressed: () {},
-          ),
+          content: Text('Camera error: $e'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
         ),
       );
     } finally {
@@ -793,72 +544,33 @@ class _PODUploadScreenState extends State<PODUploadScreen>
     });
 
     try {
-      if (kIsWeb) {
-        // Use web gallery helper
-        final images = await WebCameraHelper().pickFromGallery();
+      final imgs = await _imagePicker.pickMultiImage(imageQuality: 100);
 
-        if (images.isNotEmpty) {
-          for (int i = 0; i < images.length; i++) {
-            setState(() {
-              _currentProcessingMessage =
-                  'Processing image ${i + 1}/${images.length}...';
-            });
-
-            await _processAndAddDocumentBytes(
-              images[i].bytes,
-              displayName: images[i].filename,
-            );
-
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Processing ${i + 1}/${images.length}'),
-                  duration: const Duration(milliseconds: 400),
-                ),
-              );
-            }
-          }
+      if (imgs.isNotEmpty) {
+        for (int i = 0; i < imgs.length; i++) {
+          await _processAndAddDocumentFile(
+            File(imgs[i].path),
+            isFromScanner: false,
+          );
 
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('✅ ${images.length} image(s) selected'),
-                backgroundColor: Colors.green,
-                duration: const Duration(seconds: 2),
-              ),
-            );
-          }
-        } else {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Gallery selection cancelled'),
-                backgroundColor: Colors.orange,
-                duration: Duration(seconds: 2),
+                content: Text('Processing image ${i + 1}/${imgs.length}'),
+                duration: const Duration(milliseconds: 400),
               ),
             );
           }
         }
-      } else {
-        // Mobile: use image picker
-        final imgs = await _imagePicker.pickMultiImage(imageQuality: 100);
 
-        if (imgs.isNotEmpty) {
-          for (int i = 0; i < imgs.length; i++) {
-            await _processAndAddDocumentFile(
-              File(imgs[i].path),
-              isFromScanner: false,
-            );
-
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Processing image ${i + 1}/${imgs.length}'),
-                  duration: const Duration(milliseconds: 400),
-                ),
-              );
-            }
-          }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('✅ ${imgs.length} image(s) selected'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
+            ),
+          );
         }
       }
     } catch (e) {
@@ -895,25 +607,15 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         type: FileType.custom,
         allowedExtensions: ['pdf'],
         allowMultiple: true,
-        withData: true, // IMPORTANT for Web
       );
 
       if (result != null && result.files.isNotEmpty) {
         int added = 0;
         for (final f in result.files) {
-          if (kIsWeb) {
-            if (f.bytes == null) continue;
-            await _processAndAddDocumentBytes(
-              f.bytes!,
-              displayName: f.name.isNotEmpty ? f.name : 'document.pdf',
-            );
-          } else {
-            if (f.path == null) continue;
-            await _processAndAddDocumentFile(
-              File(f.path!),
-              isFromScanner: true,
-            );
-          }
+          if (f.path == null) continue;
+
+          await _processAndAddDocumentFile(File(f.path!), isFromScanner: true);
+
           added++;
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -963,10 +665,10 @@ class _PODUploadScreenState extends State<PODUploadScreen>
 
         final splitParts = await _splitPdfViaApi(originalFile);
 
-        if (!kIsWeb && splitParts.isNotEmpty) {
+        if (splitParts.isNotEmpty) {
           setState(() {
             _currentProcessingMessage =
-                'Adding ${splitParts.length} split documents... ';
+                'Adding ${splitParts.length} split documents...';
           });
 
           for (int i = 0; i < splitParts.length; i++) {
@@ -978,13 +680,12 @@ class _PODUploadScreenState extends State<PODUploadScreen>
 
             final newDoc = DocumentInfo(
               file: part.file,
-              webBytes: null,
               displayName: displayName,
               isValid: true,
               qrData: null,
               qrStatus: QRProcessingStatus.completed,
               originalRawFile: originalFile,
-              isGoodForExtraction: true, // Always true now
+              isGoodForExtraction: true,
               ocrConfidence: 100.0,
               qualityMessage: 'PDF document',
             );
@@ -996,12 +697,11 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         } else {
           final newDoc = DocumentInfo(
             file: originalFile,
-            webBytes: null,
             displayName: '${displayNameBase}.pdf',
             isValid: true,
             qrData: null,
             qrStatus: QRProcessingStatus.completed,
-            isGoodForExtraction: true, // Always true now
+            isGoodForExtraction: true,
             ocrConfidence: 100.0,
             qualityMessage: 'PDF document',
           );
@@ -1018,7 +718,6 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         '.bmp',
         '.webp',
       ].contains(extension)) {
-        // Handle images
         setState(() {
           _currentProcessingMessage =
               'Adding ${p.basename(originalFile.path)}...';
@@ -1026,12 +725,11 @@ class _PODUploadScreenState extends State<PODUploadScreen>
 
         final newDoc = DocumentInfo(
           file: originalFile,
-          webBytes: null,
           displayName: p.basename(originalFile.path),
           isValid: true,
           qrData: null,
           qrStatus: QRProcessingStatus.completed,
-          isGoodForExtraction: true, // Always true now
+          isGoodForExtraction: true,
           ocrConfidence: 100.0,
           qualityMessage: 'Image file',
         );
@@ -1040,7 +738,6 @@ class _PODUploadScreenState extends State<PODUploadScreen>
           _capturedDocuments.add(newDoc);
         });
       } else {
-        // Unsupported file format
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -1051,134 +748,6 @@ class _PODUploadScreenState extends State<PODUploadScreen>
           );
         }
         return;
-      }
-
-      _scheduleScrollToBottom();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error: $e')));
-    } finally {
-      setState(() {
-        _isProcessingDocuments = false;
-        _currentProcessingMessage = '';
-        _updateBusyState();
-      });
-    }
-  }
-
-  Future<void> _processAndAddDocumentBytes(
-    Uint8List bytes, {
-    required String displayName,
-  }) async {
-    setState(() {
-      _isProcessingDocuments = true;
-      _currentProcessingMessage = 'Processing file...';
-      _updateBusyState();
-    });
-
-    try {
-      final extension = p.extension(displayName).toLowerCase();
-      final isPdf = extension == '.pdf';
-      final isImage = [
-        '.jpg',
-        '.jpeg',
-        '.png',
-        '.gif',
-        '.bmp',
-        '.webp',
-      ].contains(extension);
-
-      // CREATE A COPY of bytes to prevent reference issues
-      final bytesCopy = Uint8List.fromList(bytes);
-
-      if (isImage) {
-        // Add image directly
-        final newDoc = DocumentInfo(
-          file: null,
-          webBytes: bytesCopy,
-          displayName: displayName,
-          isValid: true,
-          qrData: null,
-          qrStatus: QRProcessingStatus.completed,
-          isGoodForExtraction: true,
-          ocrConfidence: 100.0,
-          qualityMessage: 'Image file',
-        );
-
-        setState(() {
-          _capturedDocuments.add(newDoc);
-        });
-
-        _scheduleScrollToBottom();
-        return;
-      }
-
-      if (!isPdf) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Unsupported file format: $extension'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-        return;
-      }
-
-      // PDF - process and split
-      final parts = await _splitPdfViaApiBytes(bytes, filename: displayName);
-      if (parts.isNotEmpty) {
-        setState(() {
-          _currentProcessingMessage =
-              'Adding ${parts.length} split documents...';
-        });
-
-        for (int i = 0; i < parts.length; i++) {
-          final part = parts[i];
-
-          // CREATE A COPY of split part bytes
-          final partBytesCopy = Uint8List.fromList(part.bytes);
-
-          final name =
-              (part.invoiceNo != null && part.invoiceNo!.isNotEmpty)
-                  ? 'Invoice_${part.invoiceNo}.pdf' // ← NO SPACE!
-                  : '${p.basenameWithoutExtension(displayName)}_part${i + 1}.pdf';
-
-          final newDoc = DocumentInfo(
-            file: null,
-            webBytes: partBytesCopy,
-            displayName: name,
-            isValid: true,
-            qrData: null,
-            qrStatus: QRProcessingStatus.completed,
-            isGoodForExtraction: true,
-            ocrConfidence: 100.0,
-            qualityMessage: 'PDF document',
-          );
-
-          setState(() {
-            _capturedDocuments.add(newDoc);
-          });
-        }
-      } else {
-        // Unsplit PDF
-        final newDoc = DocumentInfo(
-          file: null,
-          webBytes: bytesCopy,
-          displayName: displayName,
-          isValid: true,
-          qrData: null,
-          qrStatus: QRProcessingStatus.completed,
-          isGoodForExtraction: true,
-          ocrConfidence: 100.0,
-          qualityMessage: 'PDF document',
-        );
-
-        setState(() {
-          _capturedDocuments.add(newDoc);
-        });
       }
 
       _scheduleScrollToBottom();
@@ -1213,21 +782,22 @@ class _PODUploadScreenState extends State<PODUploadScreen>
   Future<void> _uploadCaptured() async {
     if (_isBusy) return;
 
-    // Filter to only good quality files that are valid
     final validDocs =
         _capturedDocuments
             .where((d) => d.isValid && (d.isGoodForExtraction ?? true))
             .toList();
+
     if (validDocs.isEmpty) {
       final badQualityCount =
           _capturedDocuments
               .where((d) => d.isValid && (d.isGoodForExtraction == false))
               .length;
+
       if (badQualityCount > 0) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'No good quality documents to upload. $badQualityCount file(s) have low quality. Please reupload with better quality.',
+              'No good quality documents to upload. $badQualityCount file(s) have low quality.  Please reupload with better quality.',
             ),
             backgroundColor: Colors.orange,
             duration: const Duration(seconds: 4),
@@ -1299,35 +869,19 @@ class _PODUploadScreenState extends State<PODUploadScreen>
 
       // Attach files
       for (final d in validDocs) {
-        if (d.file != null) {
-          // Mobile/desktop: use file path
-          final filename = p.basename(d.file!.path);
-          final contentType = _inferContentTypeFile(d.file!);
-          req.files.add(
-            await http.MultipartFile.fromPath(
-              'files[]',
-              d.file!.path,
-              filename: filename,
-              contentType: contentType,
-            ),
-          );
-        } else if (d.webBytes != null) {
-          // Web: use bytes
-          final filename = d.displayName;
-          final contentType = _inferContentTypeByName(filename);
-          req.files.add(
-            await _multipartFromBytes(
-              fieldName: 'files[]',
-              filename: filename,
-              bytes: d.webBytes!,
-              contentType: contentType,
-            ),
-          );
-        }
+        final filename = p.basename(d.file.path);
+        final contentType = _inferContentTypeFile(d.file);
+        req.files.add(
+          await http.MultipartFile.fromPath(
+            'files[]',
+            d.file.path,
+            filename: filename,
+            contentType: contentType,
+          ),
+        );
       }
 
       // Attach original raw files if documents were split
-      // Collect unique original raw files
       final Set<String> rawFilePaths = {};
       for (final d in validDocs) {
         if (d.originalRawFile != null && await d.originalRawFile!.exists()) {
@@ -1335,7 +889,6 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         }
       }
 
-      // Attach each unique raw file with key 'raw_file'
       for (final rawFilePath in rawFilePaths) {
         final rawFile = File(rawFilePath);
         final filename = p.basename(rawFile.path);
@@ -1368,11 +921,6 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         req.fields['stockist_id'] = stockistId.toString();
         req.fields['stockistId'] = stockistId.toString();
       }
-      // if (_selectedChemist != null) {
-      //   final hospitalId = int.parse(_selectedChemist!.id.trim());
-      //   req.fields['hospital_id'] = hospitalId.toString();
-      //   req.fields['hospitalId'] = hospitalId.toString();
-      // }
 
       final resp = await req.send();
       final responseBody = await resp.stream.bytesToString();
@@ -1382,7 +930,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                '✅ Uploaded ${validDocs.length} POD document(s) successfully. Data generated.',
+                '✅ Uploaded ${validDocs.length} POD document(s) successfully.  Data generated.',
               ),
               backgroundColor: Colors.green,
             ),
@@ -1416,7 +964,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
-                  '✅ Uploaded ${validDocs.length} POD document(s). Background processing initiated.',
+                  '✅ Uploaded ${validDocs.length} POD document(s).  Background processing initiated.',
                 ),
                 backgroundColor: Colors.green,
               ),
@@ -1464,29 +1012,12 @@ class _PODUploadScreenState extends State<PODUploadScreen>
     }
   }
 
-  MediaType _inferContentTypeByName(String filename, {File? fallbackFromFile}) {
-    final ext = p.extension(filename).toLowerCase();
-    switch (ext) {
-      case '.pdf':
-        return MediaType('application', 'pdf');
-      case '.jpg':
-      case '.jpeg':
-        return MediaType('image', 'jpeg');
-      case '.png':
-        return MediaType('image', 'png');
-      default:
-        if (fallbackFromFile != null)
-          return _inferContentTypeFile(fallbackFromFile);
-        return MediaType('application', 'octet-stream');
-    }
-  }
-
   MediaType _inferContentTypeFile(File file) {
     final ext = p.extension(file.path).toLowerCase();
     switch (ext) {
       case '.pdf':
         return MediaType('application', 'pdf');
-      case '.jpg':
+      case '. jpg':
       case '.jpeg':
         return MediaType('image', 'jpeg');
       case '.png':
@@ -1559,15 +1090,23 @@ class _PODUploadScreenState extends State<PODUploadScreen>
 
   @override
   Widget build(BuildContext context) {
-    // final validDocCount = _capturedDocuments.where((d) => d.isValid).length; // Not used anymore
     final showTopLoader = _isLoadingLists || _isProcessingDocuments;
 
     return Scaffold(
-      appBar: ModernUIComponents.buildModernAppBar(
-        title: 'POD Upload',
-        subtitle: 'Upload Proof of Delivery documents',
-        icon: Icons.description,
-        color: const Color(0xFF00A0A8),
+      appBar: AppBar(
+        title: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('POD Upload', style: TextStyle(fontSize: 18)),
+            Text(
+              'Upload Proof of Delivery documents',
+              style: TextStyle(fontSize: 12),
+            ),
+          ],
+        ),
+        backgroundColor: const Color(0xFF00A0A8),
+        foregroundColor: Colors.white,
+        leading: const Icon(Icons.description),
       ),
       body: RefreshIndicator(
         onRefresh: _onRefresh,
@@ -1640,39 +1179,11 @@ class _PODUploadScreenState extends State<PODUploadScreen>
                       isStockist: true,
                     ),
                   ),
-
-                  // _buildSectionCard(
-                  //   icon: Icons.local_hospital,
-                  //   title: 'Hospital',
-                  //   subtitle: 'Select Hospital',
-                  //   child: _customAutocomplete(
-                  //     key: _chemistKey,
-                  //     options: _allChemists,
-                  //     selected: _selectedChemist,
-                  //     label: 'Search Hospital',
-                  //     onSelected:
-                  //         (opt) => setState(() => _selectedChemist = opt),
-                  //     onClear: () {
-                  //       setState(() {
-                  //         _selectedChemist = null;
-                  //         _chemistKey = UniqueKey();
-                  //       });
-                  //       ScaffoldMessenger.of(context).showSnackBar(
-                  //         const SnackBar(
-                  //           content: Text('Hospital selection cleared'),
-                  //           duration: Duration(seconds: 1),
-                  //           backgroundColor: Colors.orange,
-                  //         ),
-                  //       );
-                  //     },
-                  //     isStockist: false,
-                  //   ),
-                  // ),
                   _buildSectionCard(
                     icon: Icons.add_a_photo,
                     title: 'Add Documents',
                     subtitle:
-                        'Images converted to PDF. POD documents ready for upload.',
+                        'Images converted to PDF.  POD documents ready for upload.',
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -1693,10 +1204,9 @@ class _PODUploadScreenState extends State<PODUploadScreen>
                     _buildSectionCard(
                       icon: Icons.collections,
                       title: 'Documents',
-                      subtitle: 'View files by quality',
+                      subtitle: 'View all uploaded files',
                       child: Column(
                         children: [
-                          // Tab Bar
                           Container(
                             decoration: BoxDecoration(
                               color: Colors.grey.shade100,
@@ -1724,9 +1234,8 @@ class _PODUploadScreenState extends State<PODUploadScreen>
                             ),
                           ),
                           const SizedBox(height: 16),
-                          // Tab Bar View
                           SizedBox(
-                            height: 400, // Fixed height for tab content
+                            height: 400,
                             child: TabBarView(
                               controller: _tabController,
                               children: [
@@ -1784,7 +1293,6 @@ class _PODUploadScreenState extends State<PODUploadScreen>
                         ],
                       ),
                     ),
-                    // Summary and Clear All
                     _buildSectionCard(
                       icon: Icons.info,
                       title: 'Summary',
@@ -1863,7 +1371,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
                                 ? 'Uploading...'
                                 : _isProcessingDocuments
                                 ? 'Processing Documents...'
-                                : 'Loading...')
+                                : 'Loading.. .')
                             : 'Upload $_goodQualityCount POD Documents',
                       ),
                       style: ElevatedButton.styleFrom(
@@ -1970,7 +1478,6 @@ class _PODUploadScreenState extends State<PODUploadScreen>
           _hospitalSearchTimer?.cancel();
         }
 
-        // Return current options while waiting
         return options
             .where((o) => o.label.toLowerCase().contains(text.toLowerCase()))
             .take(50);
@@ -2078,8 +1585,6 @@ class _PODUploadScreenState extends State<PODUploadScreen>
 
   Widget _buildDocumentCard(DocumentInfo doc, int index) {
     final fileSize = _getDocSizeString(doc);
-
-    // Use quality-based colors: green for good quality, red for bad quality
     final isGoodQuality = doc.isGoodForExtraction ?? true;
     Color borderColor =
         doc.isValid ? (isGoodQuality ? Colors.green : Colors.red) : Colors.grey;
@@ -2162,80 +1667,32 @@ class _PODUploadScreenState extends State<PODUploadScreen>
                       ),
                     ),
                     const SizedBox(width: 16),
-                    if (doc.isGoodForExtraction != null) ...[
-                      Icon(
-                        doc.isGoodForExtraction == false
-                            ? Icons.error
-                            : Icons.check_circle,
-                        size: 14,
+                    Icon(
+                      doc.isGoodForExtraction == false
+                          ? Icons.error
+                          : Icons.check_circle,
+                      size: 14,
+                      color:
+                          doc.isGoodForExtraction == false
+                              ? Colors.red
+                              : Colors.green,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      doc.isGoodForExtraction == false
+                          ? 'Low Quality (${doc.ocrConfidence?.toStringAsFixed(1) ?? "N/A"}%)'
+                          : 'Good Quality',
+                      style: TextStyle(
+                        fontSize: 12,
                         color:
                             doc.isGoodForExtraction == false
                                 ? Colors.red
                                 : Colors.green,
+                        fontWeight: FontWeight.w500,
                       ),
-                      const SizedBox(width: 4),
-                      Text(
-                        doc.isGoodForExtraction == false
-                            ? 'Low Quality (${doc.ocrConfidence?.toStringAsFixed(1) ?? "N/A"}%)'
-                            : 'Good Quality',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color:
-                              doc.isGoodForExtraction == false
-                                  ? Colors.red
-                                  : Colors.green,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ] else ...[
-                      Icon(
-                        Icons.check_circle,
-                        size: 14,
-                        color: doc.isValid ? Colors.green : Colors.red,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        doc.isValid ? 'Valid' : 'Invalid',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: doc.isValid ? Colors.green : Colors.red,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
+                    ),
                   ],
                 ),
-                if (doc.qualityMessage != null &&
-                    doc.isGoodForExtraction == false) ...[
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.red.shade50,
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: Colors.red.shade200),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.info_outline,
-                          size: 14,
-                          color: Colors.red.shade700,
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            doc.qualityMessage!,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.red.shade700,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
@@ -2246,12 +1703,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
 
   String _getDocSizeString(DocumentInfo doc) {
     try {
-      int bytes = 0;
-      if (doc.webBytes != null) {
-        bytes = doc.webBytes!.lengthInBytes;
-      } else if (doc.file != null) {
-        bytes = doc.file!.lengthSync();
-      }
+      final bytes = doc.file.lengthSync();
       if (bytes == 0) return 'Unknown';
       if (bytes < 1024) return '${bytes}B';
       if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)}KB';
@@ -2299,70 +1751,33 @@ class _PODUploadScreenState extends State<PODUploadScreen>
     ].contains(extension);
 
     if (isImage) {
-      // Preview image
-      if (doc.webBytes != null) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder:
-                (context) => Scaffold(
-                  appBar: AppBar(
-                    title: Text(doc.displayName),
-                    backgroundColor: const Color(0xFF00A0A8),
-                  ),
-                  body: InteractiveViewer(
-                    child: Center(child: Image.memory(doc.webBytes!)),
-                  ),
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder:
+              (context) => Scaffold(
+                appBar: AppBar(
+                  title: Text(doc.displayName),
+                  backgroundColor: const Color(0xFF00A0A8),
                 ),
-          ),
-        );
-      } else if (doc.file != null && !kIsWeb) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder:
-                (context) => Scaffold(
-                  appBar: AppBar(
-                    title: Text(doc.displayName),
-                    backgroundColor: const Color(0xFF00A0A8),
-                  ),
-                  body: InteractiveViewer(
-                    child: Center(child: Image.file(doc.file!)),
-                  ),
+                body: InteractiveViewer(
+                  child: Center(child: Image.file(doc.file)),
                 ),
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No image data available for preview')),
-        );
-      }
+              ),
+        ),
+      );
       return;
     }
 
     if (isPdf) {
-      // Preview PDF
-      if (doc.file != null && !kIsWeb) {
-        Navigator.pushNamed(
-          context,
-          AppRoutes.pdfPreview,
-          arguments: {'pdfFile': doc.file!},
-        );
-      } else if (doc.webBytes != null) {
-        Navigator.pushNamed(
-          context,
-          AppRoutes.pdfPreview,
-          arguments: {'pdfBytes': doc.webBytes!, 'title': doc.displayName},
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No PDF data available for preview')),
-        );
-      }
+      Navigator.pushNamed(
+        context,
+        AppRoutes.pdfPreview,
+        arguments: {'pdfFile': doc.file},
+      );
       return;
     }
 
-    // Unsupported format
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Unsupported file format: $extension'),
@@ -2373,7 +1788,6 @@ class _PODUploadScreenState extends State<PODUploadScreen>
 
   void _removeDocument(int index) {
     if (_isBusy) return;
-
     setState(() {
       _capturedDocuments.removeAt(index);
     });
@@ -2385,21 +1799,19 @@ class _PODUploadScreenState extends State<PODUploadScreen>
 enum QRProcessingStatus { notStarted, processing, completed, failed }
 
 class DocumentInfo {
-  final File? file; // mobile/desktop
-  final Uint8List? webBytes; // web
+  final File file; // Always required
   final String displayName;
   final bool isValid;
   final Map<String, dynamic>? qrData;
   final QRProcessingStatus qrStatus;
   final String? errorMessage;
-  final File? originalRawFile; // Original file if this was split from a PDF
-  final bool? isGoodForExtraction; // Quality check result
-  final double? ocrConfidence; // OCR confidence percentage
-  final String? qualityMessage; // Quality check message
+  final File? originalRawFile;
+  final bool? isGoodForExtraction;
+  final double? ocrConfidence;
+  final String? qualityMessage;
 
   DocumentInfo({
     required this.file,
-    required this.webBytes,
     required this.displayName,
     required this.isValid,
     this.qrData,
@@ -2413,7 +1825,6 @@ class DocumentInfo {
 
   DocumentInfo copyWith({
     File? file,
-    Uint8List? webBytes,
     String? displayName,
     bool? isValid,
     Map<String, dynamic>? qrData,
@@ -2426,7 +1837,6 @@ class DocumentInfo {
   }) {
     return DocumentInfo(
       file: file ?? this.file,
-      webBytes: webBytes ?? this.webBytes,
       displayName: displayName ?? this.displayName,
       isValid: isValid ?? this.isValid,
       qrData: qrData ?? this.qrData,
@@ -2486,31 +1896,5 @@ class _SelectItem {
       if (v is int) return v.toString();
     }
     return null;
-  }
-}
-
-/// ===================== PDF PREVIEW (BYTES) =====================
-/// Uses Syncfusion PDF Viewer which supports Web and memory bytes.
-class PdfPreviewBytesScreen extends StatelessWidget {
-  final Uint8List pdfBytes;
-  final String title;
-
-  const PdfPreviewBytesScreen({
-    super.key,
-    required this.pdfBytes,
-    this.title = 'Preview',
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: ModernUIComponents.buildModernAppBar(
-        title: title,
-        subtitle: 'PDF preview',
-        icon: Icons.picture_as_pdf,
-        color: const Color(0xFF00A0A8),
-      ),
-      body: SfPdfViewer.memory(pdfBytes),
-    );
   }
 }
