@@ -49,6 +49,7 @@ dependencies:
   syncfusion_flutter_pdfviewer: ^31.1.19
   universal_html: ^2.3.0
   js: ^0.7.2
+  pdfx: ^2.9.2
 
 dev_dependencies:
   flutter_test:

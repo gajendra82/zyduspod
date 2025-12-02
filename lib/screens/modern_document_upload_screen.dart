@@ -11,7 +11,8 @@ class ModernDocumentUploadScreen extends StatefulWidget {
   const ModernDocumentUploadScreen({super.key});
 
   @override
-  State<ModernDocumentUploadScreen> createState() => _ModernDocumentUploadScreenState();
+  State<ModernDocumentUploadScreen> createState() =>
+      _ModernDocumentUploadScreenState();
 }
 
 class _ModernDocumentUploadScreenState extends State<ModernDocumentUploadScreen>
@@ -96,13 +97,9 @@ class _ModernDocumentUploadScreenState extends State<ModernDocumentUploadScreen>
           child: IconButton(
             onPressed: () {
               // Add notification or settings functionality
-              Navigator.pushNamed(
-                context,
-                AppRoutes.notifications,
-              );
+              Navigator.pushNamed(context, AppRoutes.notifications);
             },
-            icon: 
-            Stack(
+            icon: Stack(
               children: [
                 const Icon(Icons.notifications),
                 Positioned(
@@ -134,7 +131,6 @@ class _ModernDocumentUploadScreenState extends State<ModernDocumentUploadScreen>
   }
 }
 
-
 // POD Upload Page
 class PODUploadPage extends StatefulWidget {
   const PODUploadPage({super.key});
@@ -165,10 +161,7 @@ class _PODUploadPageState extends State<PODUploadPage> {
             color: const Color(0xFF00A0A8),
             onTap: () {
               // Navigate to dedicated POD upload screen
-              Navigator.pushNamed(
-                context,
-                AppRoutes.podUpload,
-              );
+              Navigator.pushNamed(context, AppRoutes.podUpload);
             },
           ),
           const SizedBox(height: 16),
@@ -178,10 +171,7 @@ class _PODUploadPageState extends State<PODUploadPage> {
             icon: Icons.list_alt,
             color: const Color(0xFF1E88E5),
             onTap: () {
-              Navigator.pushNamed(
-                context,
-                AppRoutes.batchesList,
-              );
+              Navigator.pushNamed(context, AppRoutes.batchesList);
             },
           ),
           const SizedBox(height: 16),
@@ -198,7 +188,6 @@ class _PODUploadPageState extends State<PODUploadPage> {
       ),
     );
   }
-
 }
 
 // E-Invoice Upload Page
@@ -294,9 +283,7 @@ class _EInvoiceUploadPageState extends State<EInvoiceUploadPage> {
     // Navigate to original DocumentUploadScreen with E-Invoice type
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => const DocumentUploadScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => const DocumentUploadScreen()),
     ).then((result) {
       // Handle result from DocumentUploadScreen
       if (result != null && result is Map<String, dynamic>) {
@@ -334,7 +321,6 @@ class _EInvoiceUploadPageState extends State<EInvoiceUploadPage> {
       },
     );
   }
-
 }
 
 // GRN Upload Page
@@ -389,7 +375,6 @@ class _GRNUploadPageState extends State<GRNUploadPage> {
       ),
     );
   }
-
 }
 
 // Documents Page
@@ -422,7 +407,6 @@ class _DocumentsPageState extends State<DocumentsPage> {
       ),
     );
   }
-
 
   Widget _buildDocumentStats() {
     return Row(
@@ -457,13 +441,10 @@ class _DocumentsPageState extends State<DocumentsPage> {
     );
   }
 
-
   Widget _buildRecentDocuments() {
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -503,5 +484,4 @@ class _DocumentsPageState extends State<DocumentsPage> {
       ),
     );
   }
-
 }
