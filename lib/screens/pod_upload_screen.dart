@@ -734,11 +734,42 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       }
     } catch (e) {
       if (!mounted) return;
+
+      String errorMessage = 'Camera error: $e';
+      Color bgColor = Colors.red;
+
+      // Provide specific error messages
+      if (e.toString().contains('HTTPS')) {
+        errorMessage =
+            '⚠️ Camera requires HTTPS.  Please access the site securely.';
+      } else if (e.toString().contains('NotAllowedError') ||
+          e.toString().contains('Permission denied')) {
+        errorMessage =
+            '⚠️ Camera permission denied. Please allow camera access in browser settings.';
+        bgColor = Colors.orange;
+      } else if (e.toString().contains('NotFoundError')) {
+        errorMessage = '⚠️ No camera found on this device. ';
+      } else if (e.toString().contains('NotReadableError')) {
+        errorMessage =
+            '⚠️ Camera is already in use by another app.  Please close other camera apps.';
+      } else if (e.toString().contains('OverconstrainedError')) {
+        errorMessage =
+            '⚠️ Camera constraints not supported.  Try a different device.';
+      } else if (e.toString().contains('TypeError')) {
+        errorMessage =
+            '⚠️ Browser doesn\'t support camera access.  Please update your browser.';
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Camera error: $e'),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 4),
+          content: Text(errorMessage),
+          backgroundColor: bgColor,
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'OK',
+            textColor: Colors.white,
+            onPressed: () {},
+          ),
         ),
       );
     } finally {

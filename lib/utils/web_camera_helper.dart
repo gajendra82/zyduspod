@@ -1,171 +1,208 @@
-import 'dart:async';
-import 'dart:convert';
 import 'dart:html' as html;
-import 'dart:js' as js;
 import 'dart:typed_data';
-import 'package:flutter/foundation.dart';
+import 'dart:async';
 
 class WebCameraHelper {
-  static final WebCameraHelper _instance = WebCameraHelper._internal();
-  factory WebCameraHelper() => _instance;
-  WebCameraHelper._internal();
-
-  Completer<Uint8List?>? _cameraCompleter;
-  Completer<List<CapturedImage>>? _galleryCompleter;
-
-  /// Capture single image from camera
   Future<Uint8List?> captureFromCamera() async {
-    if (!kIsWeb) {
-      throw UnsupportedError('This method is only for web');
-    }
-
-    _cameraCompleter = Completer<Uint8List?>();
-
-    // Set up event listeners
-    late html.EventListener capturedListener;
-    late html.EventListener cancelledListener;
-
-    capturedListener = (html.Event event) {
-      final customEvent = event as html.CustomEvent;
-      final detail = customEvent.detail;
-
-      if (detail != null && detail['base64'] != null) {
-        final base64String = detail['base64'] as String;
-        final bytes = base64Decode(base64String);
-        _cameraCompleter?.complete(bytes);
-      } else {
-        _cameraCompleter?.complete(null);
-      }
-
-      // Clean up listeners
-      html.window.removeEventListener(
-        'camera_image_captured',
-        capturedListener,
-      );
-      html.window.removeEventListener(
-        'camera_capture_cancelled',
-        cancelledListener,
-      );
-    };
-
-    cancelledListener = (html.Event event) {
-      _cameraCompleter?.complete(null);
-
-      // Clean up listeners
-      html.window.removeEventListener(
-        'camera_image_captured',
-        capturedListener,
-      );
-      html.window.removeEventListener(
-        'camera_capture_cancelled',
-        cancelledListener,
-      );
-    };
-
-    html.window.addEventListener('camera_image_captured', capturedListener);
-    html.window.addEventListener('camera_capture_cancelled', cancelledListener);
-
-    // Trigger camera capture using dart:js
     try {
-      // Check if function exists and call it
-      if (js.context.hasProperty('triggerCameraCapture')) {
-        js.context.callMethod('triggerCameraCapture');
-      } else {
-        debugPrint('triggerCameraCapture function not found');
-        _cameraCompleter?.complete(null);
-      }
-    } catch (e) {
-      debugPrint('Error triggering camera: $e');
-      _cameraCompleter?.complete(null);
-    }
+      // Check if running on HTTPS or localhost
+      final protocol = html.window.location.protocol;
+      final hostname = html.window.location.hostname;
 
-    return _cameraCompleter!.future;
+      if (protocol != 'https:' &&
+          !(hostname?.contains('localhost') ?? false) &&
+          !(hostname?.contains('127.0.0.1') ?? false)) {
+        throw Exception(
+          'Camera access requires HTTPS. Please access the site via https:// or localhost',
+        );
+      }
+
+      // Check if mediaDevices is supported
+      final mediaDevices = html.window.navigator.mediaDevices;
+      if (mediaDevices == null) {
+        throw Exception('MediaDevices not supported in this browser');
+      }
+
+      // Request camera with mobile-friendly constraints
+      final constraints = {
+        'video': {
+          'facingMode': 'environment', // Use back camera on mobile
+          'width': {'ideal': 1920},
+          'height': {'ideal': 1080},
+        },
+        'audio': false,
+      };
+
+      html.MediaStream? stream;
+      try {
+        stream = await mediaDevices.getUserMedia(constraints);
+      } catch (e) {
+        // Fallback to simpler constraints if the above fails
+        stream = await mediaDevices.getUserMedia({
+          'video': true,
+          'audio': false,
+        });
+      }
+
+      // Create a container for the video preview
+      final container =
+          html.DivElement()
+            ..style.position = 'fixed'
+            ..style.top = '0'
+            ..style.left = '0'
+            ..style.width = '100vw'
+            ..style.height = '100vh'
+            ..style.backgroundColor = 'black'
+            ..style.zIndex = '9999'
+            ..style.display = 'flex'
+            ..style.flexDirection = 'column'
+            ..style.justifyContent = 'center'
+            ..style.alignItems = 'center';
+
+      // Create video element
+      final video =
+          html.VideoElement()
+            ..srcObject = stream
+            ..autoplay = true
+            ..setAttribute('playsinline', 'true') // Important for iOS/mobile
+            ..style.width = '100%'
+            ..style.height = 'auto'
+            ..style.maxHeight = '80vh'
+            ..style.objectFit = 'contain';
+
+      // Create capture button
+      final captureButton =
+          html.ButtonElement()
+            ..text = '📸 Capture'
+            ..style.position = 'absolute'
+            ..style.bottom = '80px'
+            ..style.padding = '15px 40px'
+            ..style.fontSize = '18px'
+            ..style.backgroundColor = '#00A0A8'
+            ..style.color = 'white'
+            ..style.border = 'none'
+            ..style.borderRadius = '30px'
+            ..style.cursor = 'pointer'
+            ..style.zIndex = '10000';
+
+      // Create cancel button
+      final cancelButton =
+          html.ButtonElement()
+            ..text = '✖ Cancel'
+            ..style.position = 'absolute'
+            ..style.bottom = '20px'
+            ..style.padding = '10px 30px'
+            ..style.fontSize = '16px'
+            ..style.backgroundColor = '#ff4444'
+            ..style.color = 'white'
+            ..style.border = 'none'
+            ..style.borderRadius = '20px'
+            ..style.cursor = 'pointer'
+            ..style.zIndex = '10000';
+
+      container.children.addAll([video, captureButton, cancelButton]);
+      html.document.body?.append(container);
+
+      // Wait for video to be ready
+      await video.onLoadedMetadata.first;
+
+      // Give time for camera to initialize
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // Create completer for user action
+      final completer = Completer<Uint8List?>();
+
+      // Capture button click handler
+      captureButton.onClick.listen((_) async {
+        try {
+          // Create canvas with video dimensions
+          final canvas = html.CanvasElement(
+            width: video.videoWidth,
+            height: video.videoHeight,
+          );
+
+          // Draw video frame to canvas
+          final context = canvas.context2D;
+          context.drawImageScaled(video, 0, 0, canvas.width!, canvas.height!);
+
+          // Convert to JPEG bytes
+          final dataUrl = canvas.toDataUrl('image/jpeg', 0.92);
+          final base64Data = dataUrl.split(',')[1];
+
+          // Decode base64
+          final bytes = html.window.atob(base64Data);
+          final uint8List = Uint8List.fromList(
+            List<int>.generate(bytes.length, (i) => bytes.codeUnitAt(i)),
+          );
+
+          // Stop all tracks
+          stream?.getTracks().forEach((track) => track.stop());
+
+          // Remove UI
+          container.remove();
+
+          completer.complete(uint8List);
+        } catch (e) {
+          print('[Camera] Capture error: $e');
+          stream?.getTracks().forEach((track) => track.stop());
+          container.remove();
+          completer.completeError(e);
+        }
+      });
+
+      // Cancel button click handler
+      cancelButton.onClick.listen((_) {
+        stream?.getTracks().forEach((track) => track.stop());
+        container.remove();
+        completer.complete(null);
+      });
+
+      return await completer.future;
+    } catch (e) {
+      print('[Camera] Error: $e');
+      rethrow;
+    }
   }
 
-  /// Pick multiple images from gallery
-  Future<List<CapturedImage>> pickFromGallery() async {
-    if (!kIsWeb) {
-      throw UnsupportedError('This method is only for web');
-    }
-
-    _galleryCompleter = Completer<List<CapturedImage>>();
-
-    late html.EventListener selectedListener;
-    late html.EventListener cancelledListener;
-
-    selectedListener = (html.Event event) {
-      final customEvent = event as html.CustomEvent;
-      final detail = customEvent.detail;
-
-      if (detail != null && detail['images'] != null) {
-        final imagesList = detail['images'] as List;
-        final capturedImages =
-            imagesList.map((img) {
-              final base64String = img['base64'] as String;
-              final bytes = base64Decode(base64String);
-              return CapturedImage(
-                bytes: bytes,
-                filename: img['filename'] as String? ?? 'image.jpg',
-              );
-            }).toList();
-
-        _galleryCompleter?.complete(capturedImages);
-      } else {
-        _galleryCompleter?.complete([]);
-      }
-
-      // Clean up listeners
-      html.window.removeEventListener(
-        'gallery_images_selected',
-        selectedListener,
-      );
-      html.window.removeEventListener(
-        'gallery_selection_cancelled',
-        cancelledListener,
-      );
-    };
-
-    cancelledListener = (html.Event event) {
-      _galleryCompleter?.complete([]);
-
-      // Clean up listeners
-      html.window.removeEventListener(
-        'gallery_images_selected',
-        selectedListener,
-      );
-      html.window.removeEventListener(
-        'gallery_selection_cancelled',
-        cancelledListener,
-      );
-    };
-
-    html.window.addEventListener('gallery_images_selected', selectedListener);
-    html.window.addEventListener(
-      'gallery_selection_cancelled',
-      cancelledListener,
-    );
-
-    // Trigger gallery picker using dart:js
+  Future<List<WebImage>> pickFromGallery() async {
     try {
-      // Check if function exists and call it
-      if (js.context.hasProperty('triggerGalleryPicker')) {
-        js.context.callMethod('triggerGalleryPicker');
-      } else {
-        debugPrint('triggerGalleryPicker function not found');
-        _galleryCompleter?.complete([]);
-      }
-    } catch (e) {
-      debugPrint('Error triggering gallery: $e');
-      _galleryCompleter?.complete([]);
-    }
+      final uploadInput =
+          html.FileUploadInputElement()
+            ..accept = 'image/*'
+            ..multiple = true;
 
-    return _galleryCompleter!.future;
+      uploadInput.click();
+
+      // Wait for user to select files
+      await uploadInput.onChange.first;
+
+      final files = uploadInput.files;
+      if (files == null || files.isEmpty) {
+        return [];
+      }
+
+      final List<WebImage> images = [];
+
+      for (final file in files) {
+        final reader = html.FileReader();
+        reader.readAsArrayBuffer(file);
+        await reader.onLoad.first;
+
+        final bytes = reader.result as Uint8List;
+        images.add(WebImage(bytes: bytes, filename: file.name));
+      }
+
+      return images;
+    } catch (e) {
+      print('[Gallery] Error: $e');
+      return [];
+    }
   }
 }
 
-class CapturedImage {
+class WebImage {
   final Uint8List bytes;
   final String filename;
 
-  CapturedImage({required this.bytes, required this.filename});
+  WebImage({required this.bytes, required this.filename});
 }
