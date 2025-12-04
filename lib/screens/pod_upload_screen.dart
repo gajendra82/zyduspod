@@ -15,7 +15,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 
 import 'package:zyduspod/Models/_SplitOut.dart';
 import 'package:zyduspod/config.dart';
@@ -472,11 +471,24 @@ class _PODUploadScreenState extends State<PODUploadScreen>
 
     setState(() {
       _isProcessingDocuments = true;
-      _currentProcessingMessage = 'Opening camera...';
+      _currentProcessingMessage = 'Initializing camera...';
       _updateBusyState();
     });
 
     try {
+      // Give ML Kit time to fully initialize
+      setState(() {
+        _currentProcessingMessage = 'Preparing document scanner...';
+      });
+
+      // Wait for ML Kit to be ready
+      await Future.delayed(const Duration(milliseconds: 800));
+
+      setState(() {
+        _currentProcessingMessage = 'Opening document scanner...';
+      });
+
+      // Call the document scanner
       final scanned = await FlutterDocScanner().getScanDocuments(page: 1);
 
       if (scanned != null && scanned is Map) {
@@ -501,28 +513,148 @@ class _PODUploadScreenState extends State<PODUploadScreen>
                 ),
               );
             }
+          } else {
+            throw Exception('Scanned file does not exist: $local');
           }
         } else {
+          // User cancelled
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('Scan cancelled'),
+                content: Text('Document scan cancelled'),
                 backgroundColor: Colors.orange,
                 duration: Duration(seconds: 2),
               ),
             );
           }
         }
+      } else {
+        // Scanner returned null or unexpected format
+        throw Exception('Document scanner returned invalid data');
       }
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Camera error: $e'),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 4),
-        ),
+      debugPrint('[CAMERA] Error: $e');
+
+      // Check if it's an ML Kit initialization error
+      final errorMessage = e.toString().toLowerCase();
+      final isMLKitError =
+          errorMessage.contains('mlkit') ||
+          errorMessage.contains('mlkitcontext') ||
+          errorMessage.contains('has not been initialized') ||
+          errorMessage.contains('preconditions');
+
+      if (isMLKitError && mounted) {
+        // Show retry dialog for ML Kit errors
+        final shouldRetry = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder:
+              (context) => AlertDialog(
+                title: const Row(
+                  children: [
+                    Icon(Icons.warning_amber_rounded, color: Colors.orange),
+                    SizedBox(width: 8),
+                    Text('Scanner Initializing'),
+                  ],
+                ),
+                content: const Text(
+                  'The document scanner is still initializing.\n\n'
+                  'This usually happens on first launch or after app updates.\n\n'
+                  'Would you like to try again?',
+                  style: TextStyle(fontSize: 14),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Cancel'),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: () => Navigator.pop(context, true),
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: const Text('Retry'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF00A0A8),
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+        );
+
+        if (shouldRetry == true) {
+          // Retry with longer delay to ensure ML Kit is ready
+          await Future.delayed(const Duration(milliseconds: 1500));
+          _captureFromCamera();
+          return;
+        }
+      } else {
+        // Non-ML Kit error
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Camera error: ${e.toString().split('\n').first}'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 4),
+              action: SnackBarAction(
+                label: 'Retry',
+                textColor: Colors.white,
+                onPressed: () => _captureFromCamera(),
+              ),
+            ),
+          );
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessingDocuments = false;
+          _currentProcessingMessage = '';
+          _updateBusyState();
+        });
+      }
+    }
+  }
+
+  // Add this helper method for regular camera fallback
+  Future<void> _useRegularCamera() async {
+    setState(() {
+      _isProcessingDocuments = true;
+      _currentProcessingMessage = 'Opening camera...';
+      _updateBusyState();
+    });
+
+    try {
+      final XFile? photo = await _imagePicker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 100,
       );
+
+      if (photo != null) {
+        await _processAndAddDocumentFile(
+          File(photo.path),
+          isFromScanner: false,
+        );
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ Photo captured successfully'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Camera error: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
