@@ -494,63 +494,136 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         _currentProcessingMessage = 'Opening document scanner... ';
       });
 
-      // ✅ Use flutter_doc_scanner (works on both iOS and Android)
+      // ✅ Use flutter_doc_scanner
       final scanned = await FlutterDocScanner().getScanDocuments(page: 1);
 
-      if (scanned != null && scanned is Map) {
-        String? filePath =
-            scanned['pdfUri']?.toString() ??
-            scanned['imageUri']?.toString() ??
-            scanned['documentUri']?.toString();
+      debugPrint('[CAMERA] Scanned result type: ${scanned.runtimeType}');
+      debugPrint('[CAMERA] Scanned result: $scanned');
 
-        if (filePath != null && filePath.isNotEmpty) {
-          final local = filePath.replaceFirst('file://', '');
-          final original = File(local);
-
-          if (await original.exists()) {
-            await _processAndAddDocumentFile(original, isFromScanner: true);
-
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('✅ Document scanned successfully'),
-                  backgroundColor: Colors.green,
-                  duration: Duration(seconds: 2),
-                ),
-              );
-            }
-          } else {
-            throw Exception('Scanned file does not exist: $local');
-          }
-        } else {
-          // User cancelled
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Document scan cancelled'),
-                backgroundColor: Colors.orange,
-                duration: Duration(seconds: 2),
-              ),
-            );
-          }
-        }
-      } else {
-        // Scanner returned null
+      // ✅ Handle different response types
+      if (scanned == null) {
+        debugPrint('[CAMERA] Scanner returned null - user cancelled');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Document scan cancelled'),
+              content: Text('📷 Document scan cancelled'),
+              backgroundColor: Colors.grey,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+        return;
+      }
+
+      String? filePath;
+
+      // ✅ Handle Map response (Android)
+      if (scanned is Map) {
+        debugPrint('[CAMERA] Response is Map: $scanned');
+        filePath =
+            scanned['pdfUri']?.toString() ??
+            scanned['imageUri']?.toString() ??
+            scanned['documentUri']?.toString() ??
+            scanned['uri']?.toString() ??
+            scanned['path']?.toString();
+      }
+      // ✅ Handle String response (iOS often returns direct path)
+      else if (scanned is String) {
+        debugPrint('[CAMERA] Response is String: $scanned');
+        filePath = scanned;
+      }
+      // ✅ Handle List response (multiple images)
+      else if (scanned is List && scanned.isNotEmpty) {
+        debugPrint('[CAMERA] Response is List: $scanned');
+        final firstItem = scanned.first;
+        if (firstItem is String) {
+          filePath = firstItem;
+        } else if (firstItem is Map) {
+          filePath =
+              firstItem['pdfUri']?.toString() ??
+              firstItem['imageUri']?.toString() ??
+              firstItem['documentUri']?.toString() ??
+              firstItem['uri']?.toString() ??
+              firstItem['path']?.toString();
+        }
+      }
+
+      debugPrint('[CAMERA] Extracted file path: $filePath');
+
+      if (filePath == null || filePath.isEmpty) {
+        debugPrint('[CAMERA] No valid file path found in response');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('❌ No document captured'),
               backgroundColor: Colors.orange,
               duration: Duration(seconds: 2),
             ),
           );
         }
+        return;
+      }
+
+      // ✅ Clean up file path
+      String cleanPath =
+          filePath.replaceFirst('file://', '').replaceFirst('file:', '').trim();
+
+      debugPrint('[CAMERA] Clean path: $cleanPath');
+
+      final originalFile = File(cleanPath);
+
+      // ✅ Check if file exists
+      if (!await originalFile.exists()) {
+        debugPrint('[CAMERA] File does not exist at: $cleanPath');
+
+        // Try alternative paths
+        final alternatives = [
+          cleanPath,
+          filePath, // Original with file://
+          '/private$cleanPath', // iOS sometimes needs /private prefix
+          cleanPath.replaceAll('/private', ''), // Or remove /private
+        ];
+
+        File? foundFile;
+        for (final altPath in alternatives) {
+          final testFile = File(altPath);
+          debugPrint('[CAMERA] Trying alternative path: $altPath');
+          if (await testFile.exists()) {
+            foundFile = testFile;
+            debugPrint('[CAMERA] ✅ Found file at: $altPath');
+            break;
+          }
+        }
+
+        if (foundFile == null) {
+          throw Exception(
+            'Scanned file not found.  Tried paths: ${alternatives.join(", ")}',
+          );
+        }
+
+        await _processAndAddDocumentFile(foundFile, isFromScanner: true);
+      } else {
+        debugPrint('[CAMERA] ✅ File exists, processing...');
+        await _processAndAddDocumentFile(originalFile, isFromScanner: true);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Document scanned successfully'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
       }
     } on PlatformException catch (e) {
       debugPrint('[CAMERA] PlatformException: ${e.code} - ${e.message}');
+      debugPrint('[CAMERA] Details: ${e.details}');
 
       // Check if user cancelled
-      if (e.message?.toLowerCase().contains('cancel') ?? false) {
+      if (e.code == 'USER_CANCELLED' ||
+          e.message?.toLowerCase().contains('cancel') == true ||
+          e.message?.toLowerCase().contains('user_cancelled') == true) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -585,7 +658,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
                 ),
                 content: const Text(
                   'The document scanner is still initializing.\n\n'
-                  'Would you like to try again?',
+                  'Would you like to try again? ',
                   style: TextStyle(fontSize: 14),
                 ),
                 actions: [
@@ -627,8 +700,9 @@ class _PODUploadScreenState extends State<PODUploadScreen>
           );
         }
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
       debugPrint('[CAMERA] General Error: $e');
+      debugPrint('[CAMERA] Stack trace: $stackTrace');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
