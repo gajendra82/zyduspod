@@ -8,6 +8,7 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_doc_scanner/flutter_doc_scanner.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
@@ -20,6 +21,8 @@ import 'package:zyduspod/Models/_SplitOut.dart';
 import 'package:zyduspod/config.dart';
 import 'package:zyduspod/screens/upload_status_screen.dart';
 import 'package:zyduspod/routes.dart';
+import 'package:google_mlkit_document_scanner/google_mlkit_document_scanner.dart';
+import 'package:zyduspod/widgets/PdfPreviewScreen.dart'; // ← ADD
 
 // PDF Splitting API
 const String _SPLIT_API_BASE = 'https://anujakkulkarni-splitpdffile.hf.space';
@@ -466,6 +469,10 @@ class _PODUploadScreenState extends State<PODUploadScreen>
     );
   }
 
+  // At the top, change import:
+  // import 'package:flutter_doc_scanner/flutter_doc_scanner.dart';  // ← REMOVE
+
+  // Replace _captureFromCamera() method:
   Future<void> _captureFromCamera() async {
     if (_isBusy) return;
 
@@ -476,75 +483,88 @@ class _PODUploadScreenState extends State<PODUploadScreen>
     });
 
     try {
-      // Give ML Kit time to fully initialize
       setState(() {
         _currentProcessingMessage = 'Preparing document scanner...';
       });
 
-      // Wait for ML Kit to be ready
-      await Future.delayed(const Duration(milliseconds: 800));
+      // Initialize ML Kit Document Scanner
+      final options = DocumentScannerOptions(
+        documentFormat: DocumentFormat.jpeg,
+        mode: ScannerMode.full,
+        pageLimit: 1,
+      );
+
+      final documentScanner = DocumentScanner(options: options);
 
       setState(() {
         _currentProcessingMessage = 'Opening document scanner...';
       });
 
-      // Call the document scanner
-      final scanned = await FlutterDocScanner().getScanDocuments(page: 1);
+      // Scan document
+      final DocumentScanningResult result =
+          await documentScanner.scanDocument();
 
-      if (scanned != null && scanned is Map) {
-        String? filePath =
-            scanned['pdfUri']?.toString() ??
-            scanned['imageUri']?.toString() ??
-            scanned['documentUri']?.toString();
+      if (result.images.isNotEmpty) {
+        for (final scannedImage in result.images) {
+          // Convert scanned image path to file
+          final file = File(scannedImage);
 
-        if (filePath != null && filePath.isNotEmpty) {
-          final local = filePath.replaceFirst('file://', '');
-          final original = File(local);
+          await _processAndAddDocumentFile(file, isFromScanner: true);
+        }
 
-          if (await original.exists()) {
-            await _processAndAddDocumentFile(original, isFromScanner: true);
-
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('✅ Document scanned successfully'),
-                  backgroundColor: Colors.green,
-                  duration: Duration(seconds: 2),
-                ),
-              );
-            }
-          } else {
-            throw Exception('Scanned file does not exist: $local');
-          }
-        } else {
-          // User cancelled
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Document scan cancelled'),
-                backgroundColor: Colors.orange,
-                duration: Duration(seconds: 2),
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '✅ ${result.images.length} document(s) scanned successfully',
               ),
-            );
-          }
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
+            ),
+          );
         }
       } else {
-        // Scanner returned null or unexpected format
-        throw Exception('Document scanner returned invalid data');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Document scan cancelled'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
       }
-    } catch (e) {
-      debugPrint('[CAMERA] Error: $e');
 
-      // Check if it's an ML Kit initialization error
-      final errorMessage = e.toString().toLowerCase();
+      // Clean up
+      documentScanner.close();
+    } on PlatformException catch (e) {
+      // ✅ FIX: Handle PlatformException specifically
+      debugPrint('[CAMERA] PlatformException: ${e.code} - ${e.message}');
+
+      // Check if user cancelled the operation
+      if (e.code == 'DocumentScanner' &&
+          (e.message?.toLowerCase().contains('cancel') ?? false)) {
+        // User cancelled - this is normal, just show a friendly message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('📷 Document scan cancelled'),
+              backgroundColor: Colors.grey,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+        return; // Exit without showing error
+      }
+
+      // For other PlatformExceptions, check if it's ML Kit related
+      final errorMessage = e.message?.toLowerCase() ?? '';
       final isMLKitError =
-          errorMessage.contains('mlkit') ||
-          errorMessage.contains('mlkitcontext') ||
-          errorMessage.contains('has not been initialized') ||
-          errorMessage.contains('preconditions');
+          e.code.toLowerCase().contains('mlkit') ||
+          errorMessage.contains('not available') ||
+          errorMessage.contains('initialization');
 
       if (isMLKitError && mounted) {
-        // Show retry dialog for ML Kit errors
         final shouldRetry = await showDialog<bool>(
           context: context,
           barrierDismissible: false,
@@ -554,14 +574,12 @@ class _PODUploadScreenState extends State<PODUploadScreen>
                   children: [
                     Icon(Icons.warning_amber_rounded, color: Colors.orange),
                     SizedBox(width: 8),
-                    Text('Scanner Initializing'),
+                    Text('Scanner Issue'),
                   ],
                 ),
-                content: const Text(
-                  'The document scanner is still initializing.\n\n'
-                  'This usually happens on first launch or after app updates.\n\n'
-                  'Would you like to try again?',
-                  style: TextStyle(fontSize: 14),
+                content: Text(
+                  'The document scanner encountered an issue:\n\n${e.message}\n\nWould you like to try again? ',
+                  style: const TextStyle(fontSize: 14),
                 ),
                 actions: [
                   TextButton(
@@ -582,19 +600,18 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         );
 
         if (shouldRetry == true) {
-          // Retry with longer delay to ensure ML Kit is ready
-          await Future.delayed(const Duration(milliseconds: 1500));
+          await Future.delayed(const Duration(milliseconds: 500));
           _captureFromCamera();
           return;
         }
       } else {
-        // Non-ML Kit error
+        // Other platform errors
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Camera error: ${e.toString().split('\n').first}'),
+              content: Text('Scanner error: ${e.message ?? "Unknown error"}'),
               backgroundColor: Colors.red,
-              duration: const Duration(seconds: 4),
+              duration: const Duration(seconds: 3),
               action: SnackBarAction(
                 label: 'Retry',
                 textColor: Colors.white,
@@ -603,6 +620,26 @@ class _PODUploadScreenState extends State<PODUploadScreen>
             ),
           );
         }
+      }
+    } catch (e) {
+      // ✅ General catch for other exceptions
+      debugPrint('[CAMERA] General Error: $e');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Unexpected error: ${e.toString().split('\n').first}',
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+            action: SnackBarAction(
+              label: 'Retry',
+              textColor: Colors.white,
+              onPressed: () => _captureFromCamera(),
+            ),
+          ),
+        );
       }
     } finally {
       if (mounted) {
@@ -1229,10 +1266,13 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         title: const Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('POD Upload', style: TextStyle(fontSize: 18)),
+            Text(
+              'POD Upload',
+              style: TextStyle(fontSize: 18, color: Colors.white),
+            ),
             Text(
               'Upload Proof of Delivery documents',
-              style: TextStyle(fontSize: 12),
+              style: TextStyle(fontSize: 12, color: Colors.white70),
             ),
           ],
         ),
@@ -1240,289 +1280,298 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         foregroundColor: Colors.white,
         leading: const Icon(Icons.description),
       ),
-      body: RefreshIndicator(
-        onRefresh: _onRefresh,
-        color: Colors.teal,
-        backgroundColor: Colors.white,
-        strokeWidth: 2.5,
-        displacement: 40.0,
-        child: GestureDetector(
-          behavior: HitTestBehavior.translucent,
-          onTap: () => FocusScope.of(context).unfocus(),
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Colors.teal.withOpacity(0.05), Colors.white],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
+      body: SafeArea(
+        // ✅ ADD THIS
+        child: RefreshIndicator(
+          onRefresh: _onRefresh,
+          color: Colors.teal,
+          backgroundColor: Colors.white,
+          strokeWidth: 2.5,
+          displacement: 40.0,
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: () => FocusScope.of(context).unfocus(),
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.teal.withOpacity(0.05), Colors.white],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
               ),
-            ),
-            child: SingleChildScrollView(
-              controller: _scrollController,
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  if (showTopLoader || _isRefreshing)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
+              child: SingleChildScrollView(
+                controller: _scrollController,
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    if (showTopLoader || _isRefreshing)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Column(
+                          children: [
+                            const LinearProgressIndicator(),
+                            const SizedBox(height: 8),
+                            Text(
+                              _isRefreshing
+                                  ? 'Refreshing page...'
+                                  : _isProcessingDocuments
+                                  ? _currentProcessingMessage
+                                  : 'Loading lists...',
+                              style: TextStyle(
+                                color: Colors.grey.shade600,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    _buildSectionCard(
+                      icon: Icons.store_mall_directory,
+                      title: 'Stockist',
+                      subtitle: 'Select Stockist',
+                      child: _customAutocomplete(
+                        key: _stockistKey,
+                        options: _allStockists,
+                        selected: _selectedStockist,
+                        label: 'Search Stockist',
+                        onSelected:
+                            (opt) => setState(() => _selectedStockist = opt),
+                        onClear: () {
+                          setState(() {
+                            _selectedStockist = null;
+                            _stockistKey = UniqueKey();
+                          });
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Stockist selection cleared'),
+                              duration: Duration(seconds: 1),
+                              backgroundColor: Colors.orange,
+                            ),
+                          );
+                        },
+                        isStockist: true,
+                      ),
+                    ),
+                    _buildSectionCard(
+                      icon: Icons.add_a_photo,
+                      title: 'Add Documents',
+                      subtitle:
+                          'Images converted to PDF.   POD documents ready for upload.',
                       child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          const LinearProgressIndicator(),
-                          const SizedBox(height: 8),
-                          Text(
-                            _isRefreshing
-                                ? 'Refreshing page...'
-                                : _isProcessingDocuments
-                                ? _currentProcessingMessage
-                                : 'Loading lists...',
-                            style: TextStyle(
-                              color: Colors.grey.shade600,
-                              fontSize: 12,
+                          ElevatedButton.icon(
+                            onPressed:
+                                _isBusy ? null : _showDocumentSourceDialog,
+                            icon: const Icon(Icons.add),
+                            label: const Text('Add Documents'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF00A0A8),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
                             ),
                           ),
                         ],
                       ),
                     ),
-                  _buildSectionCard(
-                    icon: Icons.store_mall_directory,
-                    title: 'Stockist',
-                    subtitle: 'Select Stockist',
-                    child: _customAutocomplete(
-                      key: _stockistKey,
-                      options: _allStockists,
-                      selected: _selectedStockist,
-                      label: 'Search Stockist',
-                      onSelected:
-                          (opt) => setState(() => _selectedStockist = opt),
-                      onClear: () {
-                        setState(() {
-                          _selectedStockist = null;
-                          _stockistKey = UniqueKey();
-                        });
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Stockist selection cleared'),
-                            duration: Duration(seconds: 1),
-                            backgroundColor: Colors.orange,
-                          ),
-                        );
-                      },
-                      isStockist: true,
-                    ),
-                  ),
-                  _buildSectionCard(
-                    icon: Icons.add_a_photo,
-                    title: 'Add Documents',
-                    subtitle:
-                        'Images converted to PDF.  POD documents ready for upload.',
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        ElevatedButton.icon(
-                          onPressed: _isBusy ? null : _showDocumentSourceDialog,
-                          icon: const Icon(Icons.add),
-                          label: const Text('Add Documents'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF00A0A8),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (_capturedDocuments.isNotEmpty) ...[
-                    _buildSectionCard(
-                      icon: Icons.collections,
-                      title: 'Documents',
-                      subtitle: 'View all uploaded files',
-                      child: Column(
-                        children: [
-                          Container(
-                            decoration: BoxDecoration(
-                              color: Colors.grey.shade100,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: TabBar(
-                              controller: _tabController,
-                              tabs: [
-                                Tab(
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const Icon(Icons.check_circle, size: 18),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        'All Documents (${_capturedDocuments.where((d) => d.isValid).length})',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w600,
+                    if (_capturedDocuments.isNotEmpty) ...[
+                      _buildSectionCard(
+                        icon: Icons.collections,
+                        title: 'Documents',
+                        subtitle: 'View all uploaded files',
+                        child: Column(
+                          children: [
+                            Container(
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade100,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: TabBar(
+                                controller: _tabController,
+                                tabs: [
+                                  Tab(
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        const Icon(
+                                          Icons.check_circle,
+                                          size: 18,
                                         ),
-                                      ),
-                                    ],
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          'All Documents (${_capturedDocuments.where((d) => d.isValid).length})',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 16),
-                          SizedBox(
-                            height: 400,
-                            child: TabBarView(
-                              controller: _tabController,
-                              children: [
-                                Builder(
-                                  builder: (context) {
-                                    final allDocs =
-                                        _capturedDocuments
-                                            .where((d) => d.isValid)
-                                            .toList();
-
-                                    if (allDocs.isEmpty) {
-                                      return Center(
-                                        child: Column(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          children: [
-                                            Icon(
-                                              Icons.folder_open,
-                                              size: 64,
-                                              color: Colors.grey.shade400,
+                            const SizedBox(height: 16),
+                            ...(_capturedDocuments
+                                    .where((d) => d.isValid)
+                                    .toList()
+                                    .isEmpty
+                                ? [
+                                  SizedBox(
+                                    height: 200,
+                                    child: Center(
+                                      child: Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Icon(
+                                            Icons.folder_open,
+                                            size: 64,
+                                            color: Colors.grey.shade400,
+                                          ),
+                                          const SizedBox(height: 16),
+                                          Text(
+                                            'No documents yet',
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              color: Colors.grey.shade600,
+                                              fontWeight: FontWeight.w500,
                                             ),
-                                            const SizedBox(height: 16),
-                                            Text(
-                                              'No documents yet',
-                                              style: TextStyle(
-                                                fontSize: 16,
-                                                color: Colors.grey.shade600,
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                          ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ]
+                                : _capturedDocuments
+                                    .where((d) => d.isValid)
+                                    .toList()
+                                    .asMap()
+                                    .entries
+                                    .map((entry) {
+                                      final doc = entry.value;
+                                      final docIndex = _capturedDocuments
+                                          .indexOf(doc);
+                                      return Padding(
+                                        padding: const EdgeInsets.only(
+                                          bottom: 8,
+                                        ),
+                                        child: _buildDocumentCard(
+                                          doc,
+                                          docIndex,
                                         ),
                                       );
-                                    }
-
-                                    return ListView.separated(
-                                      itemCount: allDocs.length,
-                                      separatorBuilder:
-                                          (context, index) =>
-                                              const SizedBox(height: 8),
-                                      itemBuilder: (context, index) {
-                                        final docIndex = _capturedDocuments
-                                            .indexOf(allDocs[index]);
-                                        return _buildDocumentCard(
-                                          allDocs[index],
-                                          docIndex,
-                                        );
-                                      },
-                                    );
-                                  },
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                                    })
+                                    .toList()),
+                          ],
+                        ),
                       ),
-                    ),
-                    _buildSectionCard(
-                      icon: Icons.info,
-                      title: 'Summary',
-                      subtitle: 'Total documents: ${_capturedDocuments.length}',
-                      child: Column(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Colors.grey.shade50,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.grey.shade300),
+                      _buildSectionCard(
+                        icon: Icons.info,
+                        title: 'Summary',
+                        subtitle:
+                            'Total documents: ${_capturedDocuments.length}',
+                        child: Column(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade50,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.grey.shade300),
+                              ),
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceAround,
+                                children: [
+                                  _buildStatItem(
+                                    'Total',
+                                    _capturedDocuments.length,
+                                    Colors.blue,
+                                  ),
+                                  _buildStatItem(
+                                    'Good Quality',
+                                    _goodQualityCount,
+                                    Colors.green,
+                                  ),
+                                  _buildStatItem(
+                                    'Low Quality',
+                                    _badQualityCount,
+                                    Colors.red,
+                                  ),
+                                ],
+                              ),
                             ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceAround,
-                              children: [
-                                _buildStatItem(
-                                  'Total',
-                                  _capturedDocuments.length,
-                                  Colors.blue,
-                                ),
-                                _buildStatItem(
-                                  'Good Quality',
-                                  _goodQualityCount,
-                                  Colors.green,
-                                ),
-                                _buildStatItem(
-                                  'Low Quality',
-                                  _badQualityCount,
-                                  Colors.red,
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          SizedBox(
-                            width: double.infinity,
-                            child: OutlinedButton.icon(
-                              onPressed: _isBusy ? null : _showClearAllDialog,
-                              icon: const Icon(Icons.clear_all, size: 18),
-                              label: const Text('Clear All Documents'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.red.shade600,
-                                side: BorderSide(color: Colors.red.shade300),
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 8,
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                onPressed: _isBusy ? null : _showClearAllDialog,
+                                icon: const Icon(Icons.clear_all, size: 18),
+                                label: const Text('Clear All Documents'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.red.shade600,
+                                  side: BorderSide(color: Colors.red.shade300),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 8,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: _isBusy ? null : _uploadCaptured,
-                      icon:
-                          _isBusy
-                              ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    Colors.white,
+                    ],
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _isBusy ? null : _uploadCaptured,
+                        icon:
+                            _isBusy
+                                ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white,
+                                    ),
                                   ),
-                                ),
-                              )
-                              : const Icon(Icons.cloud_upload),
-                      label: Text(
-                        _isBusy
-                            ? (_isUploading
-                                ? 'Uploading...'
-                                : _isProcessingDocuments
-                                ? 'Processing Documents...'
-                                : 'Loading.. .')
-                            : 'Upload $_goodQualityCount POD Documents',
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor:
-                            _isBusy ? Colors.grey : const Color(0xFF00A0A8),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                                )
+                                : const Icon(Icons.cloud_upload),
+                        label: Text(
+                          _isBusy
+                              ? (_isUploading
+                                  ? 'Uploading...'
+                                  : _isProcessingDocuments
+                                  ? 'Processing Documents...'
+                                  : 'Loading.. .')
+                              : 'Upload $_goodQualityCount POD Documents',
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor:
+                              _isBusy ? Colors.grey : const Color(0xFF00A0A8),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                    // ✅ ADD BOTTOM PADDING FOR SAFE AREA
+                    SizedBox(
+                      height: MediaQuery.of(context).padding.bottom + 16,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
         ),
-      ),
+      ), // ✅ CLOSE SafeArea HERE
     );
   }
 
@@ -1891,6 +1940,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
                 appBar: AppBar(
                   title: Text(doc.displayName),
                   backgroundColor: const Color(0xFF00A0A8),
+                  foregroundColor: Colors.white,
                 ),
                 body: InteractiveViewer(
                   child: Center(child: Image.file(doc.file)),
@@ -1902,10 +1952,14 @@ class _PODUploadScreenState extends State<PODUploadScreen>
     }
 
     if (isPdf) {
-      Navigator.pushNamed(
+      // Navigate to PDF preview with file
+      Navigator.push(
         context,
-        AppRoutes.pdfPreview,
-        arguments: {'pdfFile': doc.file},
+        MaterialPageRoute(
+          builder:
+              (context) =>
+                  PdfPreviewScreen(pdfFile: doc.file, title: doc.displayName),
+        ),
       );
       return;
     }
