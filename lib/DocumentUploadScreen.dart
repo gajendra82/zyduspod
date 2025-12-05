@@ -24,7 +24,6 @@ import 'package:zyduspod/Models/pod.dart';
 import 'package:zyduspod/config.dart';
 import 'package:zyduspod/services/PythonQRService.dart';
 import 'package:zyduspod/widgets/EInvoiceQRExtractor.dart';
-import 'package:zyduspod/widgets/PdfPreviewScreen.dart';
 
 /// ===================== IMAGE COMPRESSION / ENHANCE (Isolate Workers) =====================
 
@@ -2662,13 +2661,13 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         children: [
           // Main thumbnail container
           GestureDetector(
-            onTap:
-                () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => PdfPreviewScreen(pdfFile: docInfo.file),
-                  ),
-                ),
+            // onTap:
+            //     () => Navigator.push(
+            //       context,
+            //       MaterialPageRoute(
+            //         builder: (_) => PdfPreviewScreen(pdfFile: docInfo.file),
+            //       ),
+            //     ),
             child: Container(
               decoration: BoxDecoration(
                 color: hasQR ? Colors.green.shade50 : Colors.grey.shade100,

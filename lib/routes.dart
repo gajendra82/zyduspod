@@ -13,7 +13,6 @@ import 'package:zyduspod/screens/documents_list_screen.dart';
 import 'package:zyduspod/screens/pod_details_screen.dart';
 import 'package:zyduspod/screens/e_invoice_data_screen.dart';
 import 'package:zyduspod/screens/profile_screen.dart';
-import 'package:zyduspod/widgets/PdfPreviewScreen.dart';
 import 'package:zyduspod/screens/pod_upload_screen.dart' as pod_upload;
 import 'package:zyduspod/widgets/notification_handler.dart';
 import 'package:zyduspod/widgets/pdf_preview_bytes_screen.dart';
@@ -135,14 +134,7 @@ class RouteGenerator {
       case AppRoutes.pdfPreview:
         if (args is Map<String, dynamic>) {
           // Handle File preview
-          if (args.containsKey('pdfFile')) {
-            return MaterialPageRoute(
-              builder:
-                  (_) => PdfPreviewScreen(pdfFile: args['pdfFile'] as dynamic),
-            );
-          }
-          // Handle bytes preview
-          else if (args.containsKey('pdfBytes')) {
+          if (args.containsKey('pdfBytes')) {
             return MaterialPageRoute(
               builder:
                   (_) => PdfPreviewBytesScreen(

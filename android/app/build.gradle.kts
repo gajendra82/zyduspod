@@ -21,7 +21,7 @@ fun prop(key: String): String? = keystoreProperties.getProperty(key)
 android {
     namespace = "com.globalspace.zyduspod"
     compileSdk = 36
-    ndkVersion = "27.0.12077973"
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -39,18 +39,27 @@ android {
         targetSdk = 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        multiDexEnabled = true
+
     }
 
     // Create signing config only if key.properties exists
     signingConfigs {
         create("release") {
-            if (keystorePropertiesFile.exists()) {
-                // use non-null asserted prop(...) because we know keys exist in file
-                storeFile = file(prop("storeFile")!!)
-                storePassword = prop("storePassword")
-                keyAlias = prop("keyAlias")
-                keyPassword = prop("keyPassword")
+            // Prefer values from key.properties if available, otherwise fall back to an absolute path.
+            val storeFileProp = prop("storeFile")
+            val storeFilePath = storeFileProp ?: "C:/Users/gajen/Downloads/zydus_alias.keystore"
+
+            val sf = file(storeFilePath)
+            if (!sf.exists()) {
+                throw GradleException("Keystore file not found at: $sf. Update storeFile in key.properties or move keystore.")
             }
+
+            // Kotlin DSL style assignments:
+            storeFile = sf
+            storePassword = prop("storePassword") ?: "welcome"
+            keyAlias = prop("keyAlias") ?: "zydus_alias"
+            keyPassword = prop("keyPassword") ?: "welcome"
         }
     }
 
