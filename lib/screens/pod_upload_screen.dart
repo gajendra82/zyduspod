@@ -478,7 +478,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
 
     setState(() {
       _isProcessingDocuments = true;
-      _currentProcessingMessage = 'Initializing camera...';
+      _currentProcessingMessage = 'Initializing camera... ';
       _updateBusyState();
     });
 
@@ -487,43 +487,55 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         _currentProcessingMessage = 'Preparing document scanner...';
       });
 
-      // Initialize ML Kit Document Scanner
-      final options = DocumentScannerOptions(
-        documentFormat: DocumentFormat.jpeg,
-        mode: ScannerMode.full,
-        pageLimit: 1,
-      );
-
-      final documentScanner = DocumentScanner(options: options);
+      // Small delay to ensure scanner is ready
+      await Future.delayed(const Duration(milliseconds: 500));
 
       setState(() {
-        _currentProcessingMessage = 'Opening document scanner...';
+        _currentProcessingMessage = 'Opening document scanner... ';
       });
 
-      // Scan document
-      final DocumentScanningResult result =
-          await documentScanner.scanDocument();
+      // ✅ Use flutter_doc_scanner (works on both iOS and Android)
+      final scanned = await FlutterDocScanner().getScanDocuments(page: 1);
 
-      if (result.images.isNotEmpty) {
-        for (final scannedImage in result.images) {
-          // Convert scanned image path to file
-          final file = File(scannedImage);
+      if (scanned != null && scanned is Map) {
+        String? filePath =
+            scanned['pdfUri']?.toString() ??
+            scanned['imageUri']?.toString() ??
+            scanned['documentUri']?.toString();
 
-          await _processAndAddDocumentFile(file, isFromScanner: true);
-        }
+        if (filePath != null && filePath.isNotEmpty) {
+          final local = filePath.replaceFirst('file://', '');
+          final original = File(local);
 
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                '✅ ${result.images.length} document(s) scanned successfully',
+          if (await original.exists()) {
+            await _processAndAddDocumentFile(original, isFromScanner: true);
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('✅ Document scanned successfully'),
+                  backgroundColor: Colors.green,
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            }
+          } else {
+            throw Exception('Scanned file does not exist: $local');
+          }
+        } else {
+          // User cancelled
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Document scan cancelled'),
+                backgroundColor: Colors.orange,
+                duration: Duration(seconds: 2),
               ),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 2),
-            ),
-          );
+            );
+          }
         }
       } else {
+        // Scanner returned null
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -534,17 +546,11 @@ class _PODUploadScreenState extends State<PODUploadScreen>
           );
         }
       }
-
-      // Clean up
-      documentScanner.close();
     } on PlatformException catch (e) {
-      // ✅ FIX: Handle PlatformException specifically
       debugPrint('[CAMERA] PlatformException: ${e.code} - ${e.message}');
 
-      // Check if user cancelled the operation
-      if (e.code == 'DocumentScanner' &&
-          (e.message?.toLowerCase().contains('cancel') ?? false)) {
-        // User cancelled - this is normal, just show a friendly message
+      // Check if user cancelled
+      if (e.message?.toLowerCase().contains('cancel') ?? false) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -554,17 +560,17 @@ class _PODUploadScreenState extends State<PODUploadScreen>
             ),
           );
         }
-        return; // Exit without showing error
+        return;
       }
 
-      // For other PlatformExceptions, check if it's ML Kit related
+      // Check if it's an initialization error
       final errorMessage = e.message?.toLowerCase() ?? '';
-      final isMLKitError =
-          e.code.toLowerCase().contains('mlkit') ||
+      final isInitError =
+          errorMessage.contains('not initialized') ||
           errorMessage.contains('not available') ||
           errorMessage.contains('initialization');
 
-      if (isMLKitError && mounted) {
+      if (isInitError && mounted) {
         final shouldRetry = await showDialog<bool>(
           context: context,
           barrierDismissible: false,
@@ -574,12 +580,13 @@ class _PODUploadScreenState extends State<PODUploadScreen>
                   children: [
                     Icon(Icons.warning_amber_rounded, color: Colors.orange),
                     SizedBox(width: 8),
-                    Text('Scanner Issue'),
+                    Text('Scanner Initializing'),
                   ],
                 ),
-                content: Text(
-                  'The document scanner encountered an issue:\n\n${e.message}\n\nWould you like to try again? ',
-                  style: const TextStyle(fontSize: 14),
+                content: const Text(
+                  'The document scanner is still initializing.\n\n'
+                  'Would you like to try again?',
+                  style: TextStyle(fontSize: 14),
                 ),
                 actions: [
                   TextButton(
@@ -600,12 +607,11 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         );
 
         if (shouldRetry == true) {
-          await Future.delayed(const Duration(milliseconds: 500));
+          await Future.delayed(const Duration(milliseconds: 1000));
           _captureFromCamera();
           return;
         }
       } else {
-        // Other platform errors
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -622,15 +628,12 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         }
       }
     } catch (e) {
-      // ✅ General catch for other exceptions
       debugPrint('[CAMERA] General Error: $e');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              'Unexpected error: ${e.toString().split('\n').first}',
-            ),
+            content: Text('Camera error: ${e.toString().split('\n').first}'),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 4),
             action: SnackBarAction(
