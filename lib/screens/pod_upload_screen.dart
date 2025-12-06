@@ -23,6 +23,7 @@ import 'package:zyduspod/screens/upload_status_screen.dart';
 import 'package:zyduspod/routes.dart';
 import 'package:google_mlkit_document_scanner/google_mlkit_document_scanner.dart';
 import 'package:zyduspod/widgets/PdfPreviewScreen.dart'; // ← ADD
+import 'dart:math'; // For min() function
 
 // PDF Splitting API
 const String _SPLIT_API_BASE = 'https://anujakkulkarni-splitpdffile.hf.space';
@@ -43,80 +44,357 @@ Future<http.MultipartFile> _multipartFromFile({
 }
 
 /// Split PDF via API
+/// Split PDF via API with retry logic, response validation, and fallback
+/// Split PDF via API with compression support and better error handling
 Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
-  try {
-    final uri = Uri.parse('$_SPLIT_API_BASE/split-invoices');
+  const int maxRetries = 3;
+  const Duration retryDelay = Duration(seconds: 2);
 
-    final req =
-        http.MultipartRequest('POST', uri)
-          ..files.add(
-            await _multipartFromFile(
-              fieldName: 'file',
-              file: pdfFile,
-              contentType: MediaType('application', 'pdf'),
-            ),
-          )
-          ..fields['include_pdf'] = 'true'
-          ..fields['initial_dpi'] = '300';
+  for (int attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      debugPrint(
+        '[SPLIT] Attempt ${attempt + 1}/$maxRetries for ${p.basename(pdfFile.path)}',
+      );
 
-    final streamed = await req.send();
-    final resp = await http.Response.fromStream(streamed);
+      final uri = Uri.parse('$_SPLIT_API_BASE/split-invoices');
 
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      debugPrint('[SPLIT] HTTP ${resp.statusCode}: ${resp.body}');
-      return <SplitOut>[];
-    }
+      final req =
+          http.MultipartRequest('POST', uri)
+            ..files.add(
+              await _multipartFromFile(
+                fieldName: 'file',
+                file: pdfFile,
+                contentType: MediaType('application', 'pdf'),
+              ),
+            )
+            ..fields['include_pdf'] = 'true'
+            ..fields['initial_dpi'] = '300'
+            // ✅ NEW: Request compressed response
+            ..headers['Accept-Encoding'] = 'gzip, deflate';
 
-    final decoded = jsonDecode(resp.body);
-    if (decoded is! Map || decoded['parts'] is! List) {
-      debugPrint('[SPLIT] Unexpected response: ${resp.body}');
-      return <SplitOut>[];
-    }
+      debugPrint('[SPLIT] Sending request...');
+      final streamed = await req.send();
 
-    final parts = decoded['parts'] as List;
-    final tmp = await getTemporaryDirectory();
-    final out = <SplitOut>[];
+      debugPrint('[SPLIT] Response status: ${streamed.statusCode}');
+      debugPrint('[SPLIT] Response headers: ${streamed.headers}');
 
-    for (int i = 0; i < parts.length; i++) {
-      final e = parts[i];
-      if (e is! Map) continue;
+      // ✅ NEW: Monitor response streaming with progress
+      int receivedBytes = 0;
+      int lastLogBytes = 0;
+      final responseChunks = <List<int>>[];
 
-      final String? b64 = e['pdf_base64'] as String?;
-      if (b64 == null || b64.isEmpty) continue;
+      await for (final chunk in streamed.stream) {
+        responseChunks.add(chunk);
+        receivedBytes += chunk.length;
 
-      Uint8List? bytes;
+        // Log progress every 500KB
+        if (receivedBytes - lastLogBytes >= 500000) {
+          debugPrint(
+            '[SPLIT] Received ${(receivedBytes / 1024 / 1024).toStringAsFixed(2)}MB.. .',
+          );
+          lastLogBytes = receivedBytes;
+        }
+      }
+
+      debugPrint(
+        '[SPLIT] Total received: ${(receivedBytes / 1024 / 1024).toStringAsFixed(2)}MB',
+      );
+
+      // ✅ NEW: Check if response was compressed
+      final isCompressed =
+          streamed.headers['content-encoding']?.contains('gzip') ?? false;
+      debugPrint('[SPLIT] Response compressed: $isCompressed');
+
+      // Combine chunks
+      final responseBytes = responseChunks.expand((x) => x).toList();
+
+      // ✅ NEW: Decompress if needed (http package usually does this automatically)
+      final bodyBytes = Uint8List.fromList(responseBytes);
+
+      // Handle HTTP errors
+      if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
+        final bodyPreview = utf8.decode(
+          bodyBytes.sublist(0, min(200, bodyBytes.length)),
+        );
+        debugPrint('[SPLIT] HTTP ${streamed.statusCode}: $bodyPreview');
+
+        if (streamed.statusCode >= 500 || streamed.statusCode == 408) {
+          if (attempt < maxRetries - 1) {
+            debugPrint('[SPLIT] Server error, retrying.. .');
+            await Future.delayed(retryDelay);
+            continue;
+          }
+        }
+
+        return _fallbackUnsplitPdf(pdfFile);
+      }
+
+      // ✅ NEW: Validate response size
+      if (bodyBytes.isEmpty) {
+        debugPrint('[SPLIT] ⚠ Empty response body (Airtel truncation?)');
+
+        if (attempt < maxRetries - 1) {
+          debugPrint('[SPLIT] Retrying due to empty body.. .');
+          await Future.delayed(retryDelay);
+          continue;
+        }
+
+        return _fallbackUnsplitPdf(pdfFile);
+      }
+
+      // Parse JSON
+      String bodyString;
       try {
-        bytes = Uint8List.fromList(base64.decode(base64.normalize(b64)));
-      } catch (err) {
-        debugPrint('[SPLIT] base64 decode failed: $err');
+        bodyString = utf8.decode(bodyBytes);
+      } catch (e) {
+        debugPrint('[SPLIT] ⚠ UTF-8 decode failed: $e');
+
+        if (attempt < maxRetries - 1) {
+          await Future.delayed(retryDelay);
+          continue;
+        }
+
+        return _fallbackUnsplitPdf(pdfFile);
+      }
+
+      dynamic decoded;
+      try {
+        decoded = jsonDecode(bodyString);
+      } catch (jsonErr) {
+        debugPrint('[SPLIT] ⚠ JSON decode failed: $jsonErr');
+        debugPrint('[SPLIT] Body length: ${bodyString.length} chars');
+        debugPrint(
+          '[SPLIT] Body preview: ${bodyString.substring(0, min(500, bodyString.length))}',
+        );
+        debugPrint(
+          '[SPLIT] Body end: ${bodyString.length > 500 ? bodyString.substring(bodyString.length - 100) : "N/A"}',
+        );
+
+        // Check if response was truncated
+        if (!bodyString.endsWith('}') && !bodyString.endsWith(']')) {
+          debugPrint(
+            '[SPLIT] ⚠ Response appears truncated (doesn\'t end with } or ])',
+          );
+        }
+
+        if (attempt < maxRetries - 1) {
+          debugPrint('[SPLIT] Retrying due to invalid JSON...');
+          await Future.delayed(retryDelay);
+          continue;
+        }
+
+        return _fallbackUnsplitPdf(pdfFile);
+      }
+
+      // Validate structure
+      if (decoded is! Map) {
+        debugPrint('[SPLIT] ⚠ Response is not a Map: ${decoded.runtimeType}');
+
+        if (attempt < maxRetries - 1) {
+          await Future.delayed(retryDelay);
+          continue;
+        }
+
+        return _fallbackUnsplitPdf(pdfFile);
+      }
+
+      if (decoded['parts'] is! List) {
+        debugPrint('[SPLIT] ⚠ Missing "parts" field');
+        debugPrint('[SPLIT] Available keys: ${decoded.keys.toList()}');
+
+        if (attempt < maxRetries - 1) {
+          await Future.delayed(retryDelay);
+          continue;
+        }
+
+        return _fallbackUnsplitPdf(pdfFile);
+      }
+
+      final parts = decoded['parts'] as List;
+
+      if (parts.isEmpty) {
+        debugPrint('[SPLIT] ⚠ Received 0 parts');
+
+        if (attempt < maxRetries - 1) {
+          await Future.delayed(retryDelay);
+          continue;
+        }
+
+        return _fallbackUnsplitPdf(pdfFile);
+      }
+
+      debugPrint('[SPLIT] Processing ${parts.length} parts.. .');
+
+      // ✅ NEW: Log expected vs received size
+      if (decoded.containsKey('total_size_bytes')) {
+        final expectedSize = decoded['total_size_bytes'] as int?;
+        final actualSize = parts.fold<int>(
+          0,
+          (sum, p) => sum + ((p as Map)['pdf_base64'] as String? ?? '').length,
+        );
+        debugPrint(
+          '[SPLIT] Expected base64 size: ${expectedSize ?? 0}, Actual: $actualSize',
+        );
+
+        if (expectedSize != null && actualSize < expectedSize * 0.9) {
+          debugPrint(
+            '[SPLIT] ⚠ Response may be truncated (received ${(actualSize / expectedSize * 100).toStringAsFixed(1)}%)',
+          );
+
+          if (attempt < maxRetries - 1) {
+            debugPrint('[SPLIT] Retrying due to incomplete data...');
+            await Future.delayed(retryDelay);
+            continue;
+          }
+        }
+      }
+
+      // Process parts
+      final tmp = await getTemporaryDirectory();
+      final out = <SplitOut>[];
+      int skippedParts = 0;
+
+      for (int i = 0; i < parts.length; i++) {
+        final e = parts[i];
+        if (e is! Map) {
+          debugPrint('[SPLIT] Part $i: Not a Map');
+          skippedParts++;
+          continue;
+        }
+
+        final String? b64 = e['pdf_base64'] as String?;
+        if (b64 == null || b64.isEmpty) {
+          debugPrint('[SPLIT] Part $i: Missing pdf_base64');
+          skippedParts++;
+          continue;
+        }
+
+        debugPrint('[SPLIT] Part $i: base64 length = ${b64.length} chars');
+
+        Uint8List? bytes;
+        try {
+          bytes = Uint8List.fromList(base64.decode(base64.normalize(b64)));
+          debugPrint('[SPLIT] Part $i: Decoded ${bytes.length} bytes');
+        } catch (err) {
+          debugPrint('[SPLIT] Part $i: Base64 decode failed - $err');
+          skippedParts++;
+          continue;
+        }
+
+        if (bytes.isEmpty) {
+          debugPrint('[SPLIT] Part $i: Decoded to 0 bytes');
+          skippedParts++;
+          continue;
+        }
+
+        final fileName =
+            'split_${i + 1}_${p.basenameWithoutExtension(pdfFile.path)}.pdf';
+        final file = File(p.join(tmp.path, fileName));
+
+        try {
+          await file.writeAsBytes(bytes);
+        } catch (writeErr) {
+          debugPrint('[SPLIT] Part $i: Write failed - $writeErr');
+          skippedParts++;
+          continue;
+        }
+
+        final invoiceNo = e['invoice_no'] as String?;
+        final pagesDynamic = e['pages'] as List<dynamic>?;
+        final pages = pagesDynamic?.map((p) => p as int).toList();
+        final sizeBytes = bytes.length;
+
+        out.add(
+          SplitOut(
+            file: file,
+            invoiceNo: invoiceNo,
+            pages: pages,
+            sizeBytes: sizeBytes,
+          ),
+        );
+      }
+
+      debugPrint(
+        '[SPLIT] Result: ${out.length} valid parts, $skippedParts skipped',
+      );
+
+      // ✅ NEW: Validate we got most parts
+      if (out.isNotEmpty && out.length >= parts.length * 0.8) {
+        // Got at least 80% of parts - consider success
+        debugPrint(
+          '[SPLIT] ✓ Successfully processed ${out.length}/${parts.length} parts',
+        );
+        return out;
+      } else if (out.isNotEmpty) {
+        // Got some but not enough
+        debugPrint(
+          '[SPLIT] ⚠ Only got ${out.length}/${parts.length} parts (${(out.length / parts.length * 100).toStringAsFixed(1)}%)',
+        );
+
+        if (attempt < maxRetries - 1) {
+          debugPrint('[SPLIT] Retrying to get all parts...');
+          await Future.delayed(retryDelay);
+          continue;
+        }
+
+        // Return partial results rather than nothing
+        debugPrint('[SPLIT] Returning ${out.length} partial results');
+        return out;
+      } else {
+        debugPrint('[SPLIT] ⚠ Failed to extract any valid parts');
+
+        if (attempt < maxRetries - 1) {
+          await Future.delayed(retryDelay);
+          continue;
+        }
+
+        return _fallbackUnsplitPdf(pdfFile);
+      }
+    } on SocketException catch (e) {
+      debugPrint('[SPLIT] ❌ Network error: $e');
+
+      if (attempt < maxRetries - 1) {
+        debugPrint('[SPLIT] Retrying after network error...');
+        await Future.delayed(retryDelay);
         continue;
       }
 
-      final fileName =
-          'split_${i + 1}_${p.basenameWithoutExtension(pdfFile.path)}.pdf';
-      final file = File(p.join(tmp.path, fileName));
-      await file.writeAsBytes(bytes);
+      return _fallbackUnsplitPdf(pdfFile);
+    } on FormatException catch (e) {
+      debugPrint('[SPLIT] ❌ Format error: $e');
 
-      final invoiceNo = e['invoice_no'] as String?;
-      final pagesDynamic = e['pages'] as List<dynamic>?;
-      final pages = pagesDynamic?.map((p) => p as int).toList();
-      final sizeBytes = bytes.length;
+      if (attempt < maxRetries - 1) {
+        await Future.delayed(retryDelay);
+        continue;
+      }
 
-      out.add(
-        SplitOut(
-          file: file,
-          invoiceNo: invoiceNo,
-          pages: pages,
-          sizeBytes: sizeBytes,
-        ),
+      return _fallbackUnsplitPdf(pdfFile);
+    } catch (e, stackTrace) {
+      debugPrint('[SPLIT] ❌ Unexpected error: $e');
+      debugPrint(
+        '[SPLIT] Stack: ${stackTrace.toString().split('\n').take(5).join('\n')}',
       );
-    }
 
-    return out;
-  } catch (e) {
-    debugPrint('[SPLIT] Error: $e');
-    return <SplitOut>[];
+      if (attempt < maxRetries - 1) {
+        await Future.delayed(retryDelay);
+        continue;
+      }
+
+      return _fallbackUnsplitPdf(pdfFile);
+    }
   }
+
+  return _fallbackUnsplitPdf(pdfFile);
+}
+
+List<SplitOut> _fallbackUnsplitPdf(File pdfFile) {
+  debugPrint('[SPLIT] ⚠ Fallback: Returning PDF as single document');
+
+  final sizeBytes = pdfFile.existsSync() ? pdfFile.lengthSync() : 0;
+
+  return [
+    SplitOut(file: pdfFile, invoiceNo: null, pages: null, sizeBytes: sizeBytes),
+  ];
 }
 
 class PODUploadScreen extends StatefulWidget {
@@ -826,58 +1104,37 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       final displayNameBase = p.basenameWithoutExtension(originalFile.path);
       final extension = p.extension(originalFile.path).toLowerCase();
 
+      // ✅ UPDATED: Accept both PDFs and images - pass everything to backend as-is
       if (extension == '.pdf') {
         setState(() {
           _currentProcessingMessage =
-              'Splitting ${p.basename(originalFile.path)} into invoices...';
+              'Adding ${p.basename(originalFile.path)}... ';
         });
 
-        final splitParts = await _splitPdfViaApi(originalFile);
+        final newDoc = DocumentInfo(
+          file: originalFile,
+          displayName: p.basename(originalFile.path),
+          isValid: true,
+          qrData: null,
+          qrStatus: QRProcessingStatus.completed,
+          originalRawFile: null, // Not needed - backend handles everything
+          isGoodForExtraction: true,
+          ocrConfidence: 100.0,
+          qualityMessage: 'PDF - Backend will process',
+        );
 
-        if (splitParts.isNotEmpty) {
-          setState(() {
-            _currentProcessingMessage =
-                'Adding ${splitParts.length} split documents...';
-          });
+        setState(() {
+          _capturedDocuments.add(newDoc);
+        });
 
-          for (int i = 0; i < splitParts.length; i++) {
-            final part = splitParts[i];
-            final displayName =
-                (part.invoiceNo != null && part.invoiceNo!.isNotEmpty)
-                    ? 'Invoice_${part.invoiceNo}.pdf'
-                    : '${displayNameBase}_part${i + 1}.pdf';
-
-            final newDoc = DocumentInfo(
-              file: part.file,
-              displayName: displayName,
-              isValid: true,
-              qrData: null,
-              qrStatus: QRProcessingStatus.completed,
-              originalRawFile: originalFile,
-              isGoodForExtraction: true,
-              ocrConfidence: 100.0,
-              qualityMessage: 'PDF document',
-            );
-
-            setState(() {
-              _capturedDocuments.add(newDoc);
-            });
-          }
-        } else {
-          final newDoc = DocumentInfo(
-            file: originalFile,
-            displayName: '${displayNameBase}.pdf',
-            isValid: true,
-            qrData: null,
-            qrStatus: QRProcessingStatus.completed,
-            isGoodForExtraction: true,
-            ocrConfidence: 100.0,
-            qualityMessage: 'PDF document',
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('✅ PDF added: ${p.basename(originalFile.path)}'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
+            ),
           );
-
-          setState(() {
-            _capturedDocuments.add(newDoc);
-          });
         }
       } else if ([
         '.jpg',
@@ -892,20 +1149,32 @@ class _PODUploadScreenState extends State<PODUploadScreen>
               'Adding ${p.basename(originalFile.path)}...';
         });
 
+        // ✅ UPDATED: Images also passed as-is to backend (no frontend conversion)
         final newDoc = DocumentInfo(
           file: originalFile,
           displayName: p.basename(originalFile.path),
           isValid: true,
           qrData: null,
           qrStatus: QRProcessingStatus.completed,
+          originalRawFile: null, // Not needed
           isGoodForExtraction: true,
           ocrConfidence: 100.0,
-          qualityMessage: 'Image file',
+          qualityMessage: 'Image - Backend will process',
         );
 
         setState(() {
           _capturedDocuments.add(newDoc);
         });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('✅ Image added: ${p.basename(originalFile.path)}'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1027,7 +1296,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Sending data to server...'),
+            content: Text('Sending files to server...'),
             duration: Duration(seconds: 2),
           ),
         );
@@ -1036,10 +1305,12 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       final uri = Uri.parse(Multi_Api_POD_UPLOAD_URL);
       final req = http.MultipartRequest('POST', uri);
 
-      // Attach files
+      // ✅ UPDATED: Attach ALL files (PDFs and images) directly to backend
+      // Backend will handle splitting, conversion, and processing
       for (final d in validDocs) {
         final filename = p.basename(d.file.path);
         final contentType = _inferContentTypeFile(d.file);
+
         req.files.add(
           await http.MultipartFile.fromPath(
             'files[]',
@@ -1048,35 +1319,20 @@ class _PODUploadScreenState extends State<PODUploadScreen>
             contentType: contentType,
           ),
         );
-      }
 
-      // Attach original raw files if documents were split
-      final Set<String> rawFilePaths = {};
-      for (final d in validDocs) {
-        if (d.originalRawFile != null && await d.originalRawFile!.exists()) {
-          rawFilePaths.add(d.originalRawFile!.path);
-        }
-      }
-
-      for (final rawFilePath in rawFilePaths) {
-        final rawFile = File(rawFilePath);
-        final filename = p.basename(rawFile.path);
-        final contentType = _inferContentTypeFile(rawFile);
-        req.files.add(
-          await http.MultipartFile.fromPath(
-            'raw_file',
-            rawFile.path,
-            filename: filename,
-            contentType: contentType,
-          ),
+        debugPrint(
+          '[UPLOAD] Attached file: $filename (${contentType.mimeType})',
         );
-        debugPrint('[UPLOAD] Attached original raw file: $filename');
       }
+
+      // ✅ REMOVED: No raw_file handling - not needed anymore
+      // All files (PDFs and images) are sent as-is in files[] array
 
       if (token != null) {
         req.headers['Authorization'] = 'Bearer $token';
       }
 
+      // Build metadata for files
       final phpStyleJson = _buildPhpStyleJson(validDocs);
       req.fields['file_einvoice_sequence'] = phpStyleJson;
       req.fields['doc_type'] = 'POD';
@@ -1091,6 +1347,11 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         req.fields['stockistId'] = stockistId.toString();
       }
 
+      debugPrint('[UPLOAD] Sending ${validDocs.length} file(s) to backend');
+      debugPrint(
+        '[UPLOAD] Files: ${validDocs.map((d) => d.displayName).join(', ')}',
+      );
+
       final resp = await req.send();
       final responseBody = await resp.stream.bytesToString();
 
@@ -1099,7 +1360,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                '✅ Uploaded ${validDocs.length} POD document(s) successfully.  Data generated.',
+                '✅ Uploaded ${validDocs.length} file(s) successfully.  Backend processing...',
               ),
               backgroundColor: Colors.green,
             ),
@@ -1133,7 +1394,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
-                  '✅ Uploaded ${validDocs.length} POD document(s).  Background processing initiated.',
+                  '✅ Uploaded ${validDocs.length} file(s).  Background processing initiated.',
                 ),
                 backgroundColor: Colors.green,
               ),
@@ -1148,13 +1409,13 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         }
       } else {
         debugPrint(
-          'POD upload failed: ${resp.statusCode} ${responseBody.isNotEmpty ? "- $responseBody" : ""}',
+          'Upload failed: ${resp.statusCode} ${responseBody.isNotEmpty ? "- $responseBody" : ""}',
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                'POD upload failed: ${resp.statusCode} ${responseBody.isNotEmpty ? "- $responseBody" : ""}',
+                'Upload failed: ${resp.statusCode} ${responseBody.isNotEmpty ? "- $responseBody" : ""}',
               ),
               backgroundColor: Colors.red,
             ),
@@ -1186,7 +1447,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
     switch (ext) {
       case '.pdf':
         return MediaType('application', 'pdf');
-      case '. jpg':
+      case '.jpg':
       case '.jpeg':
         return MediaType('image', 'jpeg');
       case '.png':
@@ -1356,8 +1617,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
                     _buildSectionCard(
                       icon: Icons.add_a_photo,
                       title: 'Add Documents',
-                      subtitle:
-                          'Images converted to PDF.   POD documents ready for upload.',
+                      subtitle: 'Documents sent for processing',
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
