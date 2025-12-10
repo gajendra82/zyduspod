@@ -150,10 +150,9 @@ class _LoginScreenState extends State<LoginScreen>
           ),
         );
 
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          AppRoutes.mainNavigation,
-          (route) => false,
-        );
+        Navigator.of(
+          context,
+        ).pushNamedAndRemoveUntil(AppRoutes.mainNavigation, (route) => false);
       } else {
         // Handle error responses
         _handleErrorResponse(response);
