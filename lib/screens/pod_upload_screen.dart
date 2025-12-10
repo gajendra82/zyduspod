@@ -958,72 +958,10 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       if (extension == '.pdf') {
         setState(() {
           _currentProcessingMessage =
-              'Splitting ${p.basename(originalFile.path)} into invoices...';
-        });
-
-        final splitParts = await _splitPdfViaApi(originalFile);
-
-        if (!kIsWeb && splitParts.isNotEmpty) {
-          setState(() {
-            _currentProcessingMessage =
-                'Adding ${splitParts.length} split documents... ';
-          });
-
-          for (int i = 0; i < splitParts.length; i++) {
-            final part = splitParts[i];
-            final displayName =
-                (part.invoiceNo != null && part.invoiceNo!.isNotEmpty)
-                    ? 'Invoice_${part.invoiceNo}.pdf'
-                    : '${displayNameBase}_part${i + 1}.pdf';
-
-            final newDoc = DocumentInfo(
-              file: part.file,
-              webBytes: null,
-              displayName: displayName,
-              isValid: true,
-              qrData: null,
-              qrStatus: QRProcessingStatus.completed,
-              originalRawFile: originalFile,
-              isGoodForExtraction: true, // Always true now
-              ocrConfidence: 100.0,
-              qualityMessage: 'PDF document',
-            );
-
-            setState(() {
-              _capturedDocuments.add(newDoc);
-            });
-          }
-        } else {
-          final newDoc = DocumentInfo(
-            file: originalFile,
-            webBytes: null,
-            displayName: '${displayNameBase}.pdf',
-            isValid: true,
-            qrData: null,
-            qrStatus: QRProcessingStatus.completed,
-            isGoodForExtraction: true, // Always true now
-            ocrConfidence: 100.0,
-            qualityMessage: 'PDF document',
-          );
-
-          setState(() {
-            _capturedDocuments.add(newDoc);
-          });
-        }
-      } else if ([
-        '.jpg',
-        '.jpeg',
-        '.png',
-        '.gif',
-        '.bmp',
-        '.webp',
-      ].contains(extension)) {
-        // Handle images
-        setState(() {
-          _currentProcessingMessage =
               'Adding ${p.basename(originalFile.path)}...';
         });
 
+        // ✅ UPDATED: Add PDF directly - backend will handle splitting
         final newDoc = DocumentInfo(
           file: originalFile,
           webBytes: null,
@@ -1031,9 +969,10 @@ class _PODUploadScreenState extends State<PODUploadScreen>
           isValid: true,
           qrData: null,
           qrStatus: QRProcessingStatus.completed,
-          isGoodForExtraction: true, // Always true now
+          originalRawFile: null, // Not needed - backend handles everything
+          isGoodForExtraction: true,
           ocrConfidence: 100.0,
-          qualityMessage: 'Image file',
+          qualityMessage: 'PDF - Backend will process',
         );
 
         setState(() {
@@ -1128,58 +1067,27 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       }
 
       // PDF - process and split
-      final parts = await _splitPdfViaApiBytes(bytes, filename: displayName);
-      if (parts.isNotEmpty) {
-        setState(() {
-          _currentProcessingMessage =
-              'Adding ${parts.length} split documents...';
-        });
+      // ✅ UPDATED: PDF - add directly without frontend splitting
+      // Backend will handle splitting automatically
+      setState(() {
+        _currentProcessingMessage = 'Adding ${displayName}...';
+      });
 
-        for (int i = 0; i < parts.length; i++) {
-          final part = parts[i];
+      final newDoc = DocumentInfo(
+        file: null,
+        webBytes: bytesCopy,
+        displayName: displayName,
+        isValid: true,
+        qrData: null,
+        qrStatus: QRProcessingStatus.completed,
+        isGoodForExtraction: true,
+        ocrConfidence: 100.0,
+        qualityMessage: 'PDF - Backend will process',
+      );
 
-          // CREATE A COPY of split part bytes
-          final partBytesCopy = Uint8List.fromList(part.bytes);
-
-          final name =
-              (part.invoiceNo != null && part.invoiceNo!.isNotEmpty)
-                  ? 'Invoice_${part.invoiceNo}.pdf' // ← NO SPACE!
-                  : '${p.basenameWithoutExtension(displayName)}_part${i + 1}.pdf';
-
-          final newDoc = DocumentInfo(
-            file: null,
-            webBytes: partBytesCopy,
-            displayName: name,
-            isValid: true,
-            qrData: null,
-            qrStatus: QRProcessingStatus.completed,
-            isGoodForExtraction: true,
-            ocrConfidence: 100.0,
-            qualityMessage: 'PDF document',
-          );
-
-          setState(() {
-            _capturedDocuments.add(newDoc);
-          });
-        }
-      } else {
-        // Unsplit PDF
-        final newDoc = DocumentInfo(
-          file: null,
-          webBytes: bytesCopy,
-          displayName: displayName,
-          isValid: true,
-          qrData: null,
-          qrStatus: QRProcessingStatus.completed,
-          isGoodForExtraction: true,
-          ocrConfidence: 100.0,
-          qualityMessage: 'PDF document',
-        );
-
-        setState(() {
-          _capturedDocuments.add(newDoc);
-        });
-      }
+      setState(() {
+        _capturedDocuments.add(newDoc);
+      });
 
       _scheduleScrollToBottom();
     } catch (e) {
@@ -1300,7 +1208,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       // Attach files
       for (final d in validDocs) {
         if (d.file != null) {
-          // Mobile/desktop: use file path
+          // Mobile/desktop:  use file path
           final filename = p.basename(d.file!.path);
           final contentType = _inferContentTypeFile(d.file!);
           req.files.add(
@@ -1363,16 +1271,13 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       req.fields['ocr_enhanced'] = 'true';
       req.fields['dpi'] = '300';
 
+      // ✅ FIX: Ensure stockist_id is sent as a STRING
       if (_selectedStockist != null) {
-        final stockistId = int.parse(_selectedStockist!.id.trim());
-        req.fields['stockist_id'] = stockistId.toString();
-        req.fields['stockistId'] = stockistId.toString();
+        final stockistIdStr = _selectedStockist!.id.trim();
+        req.fields['stockist_id'] = stockistIdStr; // Send as string
+        req.fields['stockistId'] = stockistIdStr; // Send as string
+        debugPrint('[UPLOAD] Stockist ID: $stockistIdStr');
       }
-      // if (_selectedChemist != null) {
-      //   final hospitalId = int.parse(_selectedChemist!.id.trim());
-      //   req.fields['hospital_id'] = hospitalId.toString();
-      //   req.fields['hospitalId'] = hospitalId.toString();
-      // }
 
       final resp = await req.send();
       final responseBody = await resp.stream.bytesToString();
@@ -1382,7 +1287,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                '✅ Uploaded ${validDocs.length} POD document(s) successfully. Data generated.',
+                '✅ Uploaded ${validDocs.length} POD document(s) successfully.  Data generated.',
               ),
               backgroundColor: Colors.green,
             ),
@@ -1431,7 +1336,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         }
       } else {
         debugPrint(
-          'POD upload failed: ${resp.statusCode} ${responseBody.isNotEmpty ? "- $responseBody" : ""}',
+          'POD upload failed:  ${resp.statusCode} ${responseBody.isNotEmpty ? "- $responseBody" : ""}',
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
