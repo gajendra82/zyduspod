@@ -906,56 +906,24 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       if (extension == '.pdf') {
         setState(() {
           _currentProcessingMessage =
-              'Splitting ${p.basename(originalFile.path)} into invoices...';
+              'Adding ${p.basename(originalFile.path)}...';
         });
 
-        final splitParts = await _splitPdfViaApi(originalFile);
+        // ✅ Directly add PDF without splitting - backend will handle it
+        final newDoc = DocumentInfo(
+          file: originalFile,
+          displayName: p.basename(originalFile.path),
+          isValid: true,
+          qrData: null,
+          qrStatus: QRProcessingStatus.completed,
+          isGoodForExtraction: true,
+          ocrConfidence: 100.0,
+          qualityMessage: 'PDF document',
+        );
 
-        if (splitParts.isNotEmpty) {
-          setState(() {
-            _currentProcessingMessage =
-                'Adding ${splitParts.length} split documents...';
-          });
-
-          for (int i = 0; i < splitParts.length; i++) {
-            final part = splitParts[i];
-            final displayName =
-                (part.invoiceNo != null && part.invoiceNo!.isNotEmpty)
-                    ? 'Invoice_${part.invoiceNo}.pdf'
-                    : '${displayNameBase}_part${i + 1}.pdf';
-
-            final newDoc = DocumentInfo(
-              file: part.file,
-              displayName: displayName,
-              isValid: true,
-              qrData: null,
-              qrStatus: QRProcessingStatus.completed,
-              originalRawFile: originalFile,
-              isGoodForExtraction: true,
-              ocrConfidence: 100.0,
-              qualityMessage: 'PDF document',
-            );
-
-            setState(() {
-              _capturedDocuments.add(newDoc);
-            });
-          }
-        } else {
-          final newDoc = DocumentInfo(
-            file: originalFile,
-            displayName: '${displayNameBase}.pdf',
-            isValid: true,
-            qrData: null,
-            qrStatus: QRProcessingStatus.completed,
-            isGoodForExtraction: true,
-            ocrConfidence: 100.0,
-            qualityMessage: 'PDF document',
-          );
-
-          setState(() {
-            _capturedDocuments.add(newDoc);
-          });
-        }
+        setState(() {
+          _capturedDocuments.add(newDoc);
+        });
       } else if ([
         '.jpg',
         '.jpeg',
@@ -1001,7 +969,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Error: $e')));
+      ).showSnackBar(SnackBar(content: Text('Error:  $e')));
     } finally {
       setState(() {
         _isProcessingDocuments = false;
@@ -1113,7 +1081,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       final uri = Uri.parse(Multi_Api_POD_UPLOAD_URL);
       final req = http.MultipartRequest('POST', uri);
 
-      // Attach files
+      // ✅ Attach files directly - backend will handle PDF splitting
       for (final d in validDocs) {
         final filename = p.basename(d.file.path);
         final contentType = _inferContentTypeFile(d.file);
@@ -1127,28 +1095,29 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         );
       }
 
-      // Attach original raw files if documents were split
-      final Set<String> rawFilePaths = {};
-      for (final d in validDocs) {
-        if (d.originalRawFile != null && await d.originalRawFile!.exists()) {
-          rawFilePaths.add(d.originalRawFile!.path);
-        }
-      }
-
-      for (final rawFilePath in rawFilePaths) {
-        final rawFile = File(rawFilePath);
-        final filename = p.basename(rawFile.path);
-        final contentType = _inferContentTypeFile(rawFile);
-        req.files.add(
-          await http.MultipartFile.fromPath(
-            'raw_file',
-            rawFile.path,
-            filename: filename,
-            contentType: contentType,
-          ),
-        );
-        debugPrint('[UPLOAD] Attached original raw file: $filename');
-      }
+      // ✅ Remove the originalRawFile logic - no longer needed since we're not splitting
+      // DELETE these lines:
+      // final Set<String> rawFilePaths = {};
+      // for (final d in validDocs) {
+      //   if (d.originalRawFile != null && await d.originalRawFile!. exists()) {
+      //     rawFilePaths.add(d. originalRawFile!.path);
+      //   }
+      // }
+      //
+      // for (final rawFilePath in rawFilePaths) {
+      //   final rawFile = File(rawFilePath);
+      //   final filename = p.basename(rawFile. path);
+      //   final contentType = _inferContentTypeFile(rawFile);
+      //   req.files.add(
+      //     await http.MultipartFile.fromPath(
+      //       'raw_file',
+      //       rawFile. path,
+      //       filename:  filename,
+      //       contentType: contentType,
+      //     ),
+      //   );
+      //   debugPrint('[UPLOAD] Attached original raw file: $filename');
+      // }
 
       if (token != null) {
         req.headers['Authorization'] = 'Bearer $token';
@@ -1176,7 +1145,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                '✅ Uploaded ${validDocs.length} POD document(s) successfully.  Data generated.',
+                '✅ Uploaded ${validDocs.length} POD document(s) successfully. Data generated.',
               ),
               backgroundColor: Colors.green,
             ),
@@ -1210,7 +1179,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
-                  '✅ Uploaded ${validDocs.length} POD document(s).  Background processing initiated.',
+                  '✅ Uploaded ${validDocs.length} POD document(s). Background processing initiated.',
                 ),
                 backgroundColor: Colors.green,
               ),
@@ -1225,7 +1194,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         }
       } else {
         debugPrint(
-          'POD upload failed: ${resp.statusCode} ${responseBody.isNotEmpty ? "- $responseBody" : ""}',
+          'POD upload failed:  ${resp.statusCode} ${responseBody.isNotEmpty ? "- $responseBody" : ""}',
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
