@@ -14,10 +14,13 @@ class UploadStatusScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final data = uploadData['data'] as Map<String, dynamic>?;
-    final batchId = data?['batch_id'] ?? 'N/A';
-    final status = data?['status'] ?? 'processing';
-    final correlationId = data?['correlation_id'] ?? 'N/A';
-    final estimatedCompletion = data?['estimated_completion'] ?? 'N/A';
+
+    // ✅ FIX: Convert all values to strings to avoid type errors
+    final batchId = (data?['batch_id'] ?? 'N/A').toString();
+    final status = (data?['status'] ?? 'processing').toString();
+    final correlationId = (data?['correlation_id'] ?? 'N/A').toString();
+    final estimatedCompletion =
+        (data?['estimated_completion'] ?? 'N/A').toString();
     final processingSteps =
         data?['processing_steps'] as Map<String, dynamic>? ?? {};
 
@@ -130,7 +133,7 @@ class UploadStatusScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Files Uploaded Successfully!',
+                    'Files Uploaded Successfully! ',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 18,
@@ -139,7 +142,7 @@ class UploadStatusScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Background processing has been initiated. Your data will appear on the dashboard once processing is complete.',
+                    'Background processing has been initiated.  Your data will appear on the dashboard once processing is complete.',
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.9),
                       fontSize: 14,
@@ -298,7 +301,7 @@ class UploadStatusScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Your files are being processed in the background. This may take a few minutes. You can check the dashboard later to see the processed data.',
+                    'Your files are being processed in the background. This may take a few minutes.  You can check the dashboard later to see the processed data.',
                     style: TextStyle(fontSize: 14, color: Colors.blue.shade600),
                   ),
                 ],
@@ -361,7 +364,7 @@ class UploadStatusScreen extends StatelessWidget {
 
     try {
       final dateTime = DateTime.parse(dateTimeString);
-      return '${dateTime.day}/${dateTime.month}/${dateTime.year} at ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}';
+      return '${dateTime.day}/${dateTime.month}/${dateTime.year} at ${dateTime.hour}: ${dateTime.minute.toString().padLeft(2, '0')}';
     } catch (e) {
       return dateTimeString;
     }
