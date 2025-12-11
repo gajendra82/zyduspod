@@ -14,11 +14,15 @@ class UploadStatusScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final data = uploadData['data'] as Map<String, dynamic>?;
-    final batchId = data?['batch_id'] ?? 'N/A';
-    final status = data?['status'] ?? 'processing';
-    final correlationId = data?['correlation_id'] ?? 'N/A';
-    final estimatedCompletion = data?['estimated_completion'] ?? 'N/A';
-    final processingSteps = data?['processing_steps'] as Map<String, dynamic>? ?? {};
+
+    // ✅ FIX: Convert all values to strings to avoid type errors
+    final batchId = (data?['batch_id'] ?? 'N/A').toString();
+    final status = (data?['status'] ?? 'processing').toString();
+    final correlationId = (data?['correlation_id'] ?? 'N/A').toString();
+    final estimatedCompletion =
+        (data?['estimated_completion'] ?? 'N/A').toString();
+    final processingSteps =
+        data?['processing_steps'] as Map<String, dynamic>? ?? {};
 
     return Scaffold(
       appBar: ModernUIComponents.buildModernAppBar(
@@ -43,7 +47,7 @@ class UploadStatusScreen extends StatelessWidget {
               // Success Header
               _buildSuccessCard(),
               const SizedBox(height: 20),
-              
+
               // Upload Summary
               _buildSectionCard(
                 icon: Icons.info_outline,
@@ -54,31 +58,38 @@ class UploadStatusScreen extends StatelessWidget {
                     _buildInfoRow('Batch ID', batchId),
                     _buildInfoRow('Status', status.toUpperCase()),
                     _buildInfoRow('Correlation ID', correlationId),
-                    _buildInfoRow('Estimated Completion', _formatDateTime(estimatedCompletion)),
+                    _buildInfoRow(
+                      'Estimated Completion',
+                      _formatDateTime(estimatedCompletion),
+                    ),
                   ],
                 ),
               ),
-              
+
               const SizedBox(height: 16),
-              
+
               // Processing Steps
               _buildSectionCard(
                 icon: Icons.timeline,
                 title: 'Processing Steps',
                 child: Column(
-                  children: processingSteps.entries.map((entry) {
-                    return _buildProcessingStep(entry.key, entry.value.toString());
-                  }).toList(),
+                  children:
+                      processingSteps.entries.map((entry) {
+                        return _buildProcessingStep(
+                          entry.key,
+                          entry.value.toString(),
+                        );
+                      }).toList(),
                 ),
               ),
-              
+
               const SizedBox(height: 20),
-              
+
               // Important Notice
               _buildNoticeCard(),
-              
+
               const SizedBox(height: 20),
-              
+
               // Action Buttons
               _buildActionButtons(context),
             ],
@@ -122,7 +133,7 @@ class UploadStatusScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Files Uploaded Successfully!',
+                    'Files Uploaded Successfully! ',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 18,
@@ -131,7 +142,7 @@ class UploadStatusScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Background processing has been initiated. Your data will appear on the dashboard once processing is complete.',
+                    'Background processing has been initiated.  Your data will appear on the dashboard once processing is complete.',
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.9),
                       fontSize: 14,
@@ -217,7 +228,7 @@ class UploadStatusScreen extends StatelessWidget {
   Widget _buildProcessingStep(String stepKey, String stepValue) {
     // Convert step keys to readable format
     String readableStep = _getReadableStepName(stepKey);
-    
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
@@ -251,10 +262,7 @@ class UploadStatusScreen extends StatelessWidget {
                 ),
                 Text(
                   stepValue,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade600,
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
               ],
             ),
@@ -277,11 +285,7 @@ class UploadStatusScreen extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(
-              Icons.info,
-              color: Colors.blue.shade700,
-              size: 24,
-            ),
+            Icon(Icons.info, color: Colors.blue.shade700, size: 24),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -297,11 +301,8 @@ class UploadStatusScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Your files are being processed in the background. This may take a few minutes. You can check the dashboard later to see the processed data.',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.blue.shade600,
-                    ),
+                    'Your files are being processed in the background. This may take a few minutes.  You can check the dashboard later to see the processed data.',
+                    style: TextStyle(fontSize: 14, color: Colors.blue.shade600),
                   ),
                 ],
               ),
@@ -360,10 +361,10 @@ class UploadStatusScreen extends StatelessWidget {
 
   String _formatDateTime(String dateTimeString) {
     if (dateTimeString == 'N/A') return 'N/A';
-    
+
     try {
       final dateTime = DateTime.parse(dateTimeString);
-      return '${dateTime.day}/${dateTime.month}/${dateTime.year} at ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}';
+      return '${dateTime.day}/${dateTime.month}/${dateTime.year} at ${dateTime.hour}: ${dateTime.minute.toString().padLeft(2, '0')}';
     } catch (e) {
       return dateTimeString;
     }
