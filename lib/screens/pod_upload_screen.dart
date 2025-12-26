@@ -1078,7 +1078,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         );
       }
 
-      final uri = Uri.parse(Multi_Api_POD_UPLOAD_URL);
+      final uri = Uri.parse();
       final req = http.MultipartRequest('POST', uri);
 
       // ✅ Attach files directly - backend will handle PDF splitting
