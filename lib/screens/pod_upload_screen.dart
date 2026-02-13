@@ -23,6 +23,7 @@ import 'package:zyduspod/config.dart';
 import 'package:zyduspod/GstInvoiceScanner.dart'; // COMMENTED OUT: Used for QR processing
 import 'package:zyduspod/Models/_SplitOut.dart';
 import 'package:zyduspod/services/PythonQRService.dart'; // COMMENTED OUT: Used for QR processing
+import 'package:zyduspod/services/azure_blob_service.dart';
 import 'package:zyduspod/widgets/EInvoiceQRExtractor.dart'; // COMMENTED OUT: Used for QR processing
 import 'package:zyduspod/widgets/PdfPreviewScreen.dart'; // existing File-based preview
 import 'package:zyduspod/widgets/modern_ui_components.dart';
@@ -1193,101 +1194,126 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('authToken');
 
+      // Show initial upload message
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Sending data to server...'),
+            content: Text('Uploading files to cloud storage...'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+
+      // ✅ STEP 1: Upload files to Azure Blob Storage
+      final azureBlobService = AzureBlobService();
+      final filesToUpload = <FileUploadData>[];
+
+      // Prepare files for upload
+      for (final doc in validDocs) {
+        Uint8List bytes;
+        String fileName;
+
+        if (doc.webBytes != null) {
+          bytes = doc.webBytes!;
+          fileName = doc.displayName;
+        } else if (doc.file != null) {
+          bytes = await doc.file!.readAsBytes();
+          fileName = p.basename(doc.file!.path);
+        } else {
+          continue;
+        }
+
+        filesToUpload.add(
+          FileUploadData(
+            bytes: bytes,
+            fileName: fileName,
+            contentType: _inferContentTypeByName(fileName).mimeType,
+          ),
+        );
+      }
+
+      // Upload to Azure Blob Storage with progress
+      final blobUrls = await azureBlobService.uploadFiles(
+        files: filesToUpload,
+        onProgress: (current, total) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Uploading to cloud: $current/$total files...'),
+                duration: const Duration(milliseconds: 500),
+              ),
+            );
+          }
+        },
+      );
+
+      debugPrint(
+        '[UPLOAD] Uploaded ${blobUrls.length} files to Azure Blob Storage',
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Files uploaded! Sending data to server...'),
             duration: Duration(seconds: 2),
+            backgroundColor: Colors.green,
           ),
         );
       }
 
+      // ✅ STEP 2: Send blob URLs to your backend API
       final uri = Uri.parse(Multi_Api_POD_UPLOAD_URL);
-      final req = http.MultipartRequest('POST', uri);
+      final requestBody = <String, dynamic>{
+        'blob_urls': blobUrls,
+        'doc_type': 'POD',
+        'document_count': validDocs.length,
+        'multi_page': validDocs.length > 1,
+        'ocr_enhanced': true,
+        'dpi': 300,
+      };
 
-      // Attach files
-      for (final d in validDocs) {
-        if (d.file != null) {
-          // Mobile/desktop:  use file path
-          final filename = p.basename(d.file!.path);
-          final contentType = _inferContentTypeFile(d.file!);
-          req.files.add(
-            await http.MultipartFile.fromPath(
-              'files[]',
-              d.file!.path,
-              filename: filename,
-              contentType: contentType,
-            ),
-          );
-        } else if (d.webBytes != null) {
-          // Web: use bytes
-          final filename = d.displayName;
-          final contentType = _inferContentTypeByName(filename);
-          req.files.add(
-            await _multipartFromBytes(
-              fieldName: 'files[]',
-              filename: filename,
-              bytes: d.webBytes!,
-              contentType: contentType,
-            ),
-          );
-        }
+      // Add file metadata
+      final fileMetadata = <Map<String, dynamic>>[];
+      for (int i = 0; i < validDocs.length; i++) {
+        final doc = validDocs[i];
+        fileMetadata.add({
+          'index': i,
+          'filename': doc.displayName,
+          'blob_url': blobUrls[i],
+          'qr_data': doc.qrData,
+          'is_valid': doc.isValid,
+          'is_good_for_extraction': doc.isGoodForExtraction ?? true,
+          'ocr_confidence': doc.ocrConfidence,
+        });
       }
+      requestBody['file_metadata'] = fileMetadata;
 
-      // Attach original raw files if documents were split
-      // Collect unique original raw files
-      final Set<String> rawFilePaths = {};
-      for (final d in validDocs) {
-        if (d.originalRawFile != null && await d.originalRawFile!.exists()) {
-          rawFilePaths.add(d.originalRawFile!.path);
-        }
-      }
-
-      // Attach each unique raw file with key 'raw_file'
-      for (final rawFilePath in rawFilePaths) {
-        final rawFile = File(rawFilePath);
-        final filename = p.basename(rawFile.path);
-        final contentType = _inferContentTypeFile(rawFile);
-        req.files.add(
-          await http.MultipartFile.fromPath(
-            'raw_file',
-            rawFile.path,
-            filename: filename,
-            contentType: contentType,
-          ),
-        );
-        debugPrint('[UPLOAD] Attached original raw file: $filename');
-      }
-
-      if (token != null) {
-        req.headers['Authorization'] = 'Bearer $token';
-      }
-
-      final phpStyleJson = _buildPhpStyleJson(validDocs);
-      req.fields['file_einvoice_sequence'] = phpStyleJson;
-      req.fields['doc_type'] = 'POD';
-      req.fields['document_count'] = validDocs.length.toString();
-      req.fields['multi_page'] = (validDocs.length > 1).toString();
-      req.fields['ocr_enhanced'] = 'true';
-      req.fields['dpi'] = '300';
-
-      // ✅ FIX: Ensure stockist_id is sent as a STRING
+      // Add stockist ID
       if (_selectedStockist != null) {
         final stockistIdStr = _selectedStockist!.id.trim();
-        req.fields['stockist_id'] = stockistIdStr; // Send as string
-        req.fields['stockistId'] = stockistIdStr; // Send as string
+        requestBody['stockist_id'] = stockistIdStr;
+        requestBody['stockistId'] = stockistIdStr;
         debugPrint('[UPLOAD] Stockist ID: $stockistIdStr');
       }
 
-      final resp = await req.send();
-      final responseBody = await resp.stream.bytesToString();
+      // Send JSON request to backend
+      final response = await http.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(requestBody),
+      );
 
-      if (resp.statusCode == 201) {
+      final responseBody = response.body;
+
+      if (response.statusCode == 201) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                '✅ Uploaded ${validDocs.length} POD document(s) successfully.  Data generated.',
+                '✅ Uploaded ${validDocs.length} POD document(s) successfully. Data generated.',
               ),
               backgroundColor: Colors.green,
             ),
@@ -1301,7 +1327,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         if (mounted) {
           Navigator.pop(context);
         }
-      } else if (resp.statusCode == 202) {
+      } else if (response.statusCode == 202) {
         try {
           final responseData = jsonDecode(responseBody);
 
@@ -1336,13 +1362,13 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         }
       } else {
         debugPrint(
-          'POD upload failed:  ${resp.statusCode} ${responseBody.isNotEmpty ? "- $responseBody" : ""}',
+          'POD upload failed: ${response.statusCode} ${responseBody.isNotEmpty ? "- $responseBody" : ""}',
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                'POD upload failed: ${resp.statusCode} ${responseBody.isNotEmpty ? "- $responseBody" : ""}',
+                'POD upload failed: ${response.statusCode} ${responseBody.isNotEmpty ? "- $responseBody" : ""}',
               ),
               backgroundColor: Colors.red,
             ),
@@ -1356,6 +1382,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
           SnackBar(
             content: Text('Upload failed: $e'),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
           ),
         );
       }
