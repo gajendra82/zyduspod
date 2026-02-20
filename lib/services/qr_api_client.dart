@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -22,20 +23,26 @@ class QrApiClient {
   }) async {
     final uri = Uri.parse('$baseUrl/extract_qr');
 
-    final req = http.MultipartRequest('POST', uri)
-      ..fields['max_pages'] = maxPages.toString()
-      ..fields['dpi'] = dpi.toString()
-      ..files.add(
-        await http.MultipartFile.fromPath(
-          'file',
-          filePath,
-          contentType: MediaType('application', 'pdf'),
-        ),
-      );
+    final req =
+        http.MultipartRequest('POST', uri)
+          ..fields['max_pages'] = maxPages.toString()
+          ..fields['dpi'] = dpi.toString()
+          ..files.add(
+            await http.MultipartFile.fromPath(
+              'file',
+              filePath,
+              contentType: MediaType('application', 'pdf'),
+            ),
+          );
 
-    final streamed = await req.send()
-    // .timeout(timeout)
-    ;
+    final streamed = await req.send().timeout(
+      timeout,
+      onTimeout: () {
+        throw TimeoutException(
+          'QR extraction request timed out after ${timeout.inSeconds} seconds',
+        );
+      },
+    );
     final resp = await http.Response.fromStream(streamed);
 
     if (resp.statusCode != 200) {

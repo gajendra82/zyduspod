@@ -23,7 +23,6 @@ import 'package:zyduspod/config.dart';
 import 'package:zyduspod/GstInvoiceScanner.dart'; // COMMENTED OUT: Used for QR processing
 import 'package:zyduspod/Models/_SplitOut.dart';
 import 'package:zyduspod/services/PythonQRService.dart'; // COMMENTED OUT: Used for QR processing
-import 'package:zyduspod/services/azure_blob_service.dart';
 import 'package:zyduspod/widgets/EInvoiceQRExtractor.dart'; // COMMENTED OUT: Used for QR processing
 import 'package:zyduspod/widgets/PdfPreviewScreen.dart'; // existing File-based preview
 import 'package:zyduspod/widgets/modern_ui_components.dart';
@@ -89,7 +88,12 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
           ..fields['include_pdf'] = 'true'
           ..fields['initial_dpi'] = '300';
 
-    final streamed = await req.send();
+    final streamed = await req.send().timeout(
+      const Duration(seconds: 90),
+      onTimeout: () {
+        throw TimeoutException('PDF split request timed out after 90 seconds');
+      },
+    );
     final resp = await http.Response.fromStream(streamed);
 
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
@@ -170,7 +174,14 @@ Future<Map<String, dynamic>> _checkFileQuality(File file) async {
         ),
       );
 
-    final streamed = await req.send();
+    final streamed = await req.send().timeout(
+      const Duration(seconds: 60),
+      onTimeout: () {
+        throw TimeoutException(
+          'Quality check request timed out after 60 seconds',
+        );
+      },
+    );
     final resp = await http.Response.fromStream(streamed);
 
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
@@ -217,7 +228,14 @@ Future<Map<String, dynamic>> _checkFileQualityBytes(
         ),
       );
 
-    final streamed = await req.send();
+    final streamed = await req.send().timeout(
+      const Duration(seconds: 60),
+      onTimeout: () {
+        throw TimeoutException(
+          'Quality check request timed out after 60 seconds',
+        );
+      },
+    );
     final resp = await http.Response.fromStream(streamed);
 
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
@@ -267,7 +285,12 @@ Future<List<_SplitMem>> _splitPdfViaApiBytes(
         ..fields['include_pdf'] = 'true'
         ..fields['initial_dpi'] = '300';
 
-  final streamed = await req.send();
+  final streamed = await req.send().timeout(
+    const Duration(seconds: 90),
+    onTimeout: () {
+      throw TimeoutException('PDF split request timed out after 90 seconds');
+    },
+  );
   final resp = await http.Response.fromStream(streamed);
 
   if (resp.statusCode < 200 || resp.statusCode >= 300) {
@@ -900,7 +923,6 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       );
 
       if (result != null && result.files.isNotEmpty) {
-        int added = 0;
         for (final f in result.files) {
           if (kIsWeb) {
             if (f.bytes == null) continue;
@@ -913,15 +935,6 @@ class _PODUploadScreenState extends State<PODUploadScreen>
             await _processAndAddDocumentFile(
               File(f.path!),
               isFromScanner: true,
-            );
-          }
-          added++;
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Added PDF $added/${result.files.length}'),
-                duration: const Duration(milliseconds: 400),
-              ),
             );
           }
         }
@@ -1194,126 +1207,164 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('authToken');
 
-      // Show initial upload message
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Uploading files to cloud storage...'),
-            duration: Duration(seconds: 3),
-          ),
-        );
-      }
-
-      // ✅ STEP 1: Upload files to Azure Blob Storage
-      final azureBlobService = AzureBlobService();
-      final filesToUpload = <FileUploadData>[];
-
-      // Prepare files for upload
-      for (final doc in validDocs) {
-        Uint8List bytes;
-        String fileName;
-
-        if (doc.webBytes != null) {
-          bytes = doc.webBytes!;
-          fileName = doc.displayName;
-        } else if (doc.file != null) {
-          bytes = await doc.file!.readAsBytes();
-          fileName = p.basename(doc.file!.path);
-        } else {
-          continue;
-        }
-
-        filesToUpload.add(
-          FileUploadData(
-            bytes: bytes,
-            fileName: fileName,
-            contentType: _inferContentTypeByName(fileName).mimeType,
-          ),
-        );
-      }
-
-      // Upload to Azure Blob Storage with progress
-      final blobUrls = await azureBlobService.uploadFiles(
-        files: filesToUpload,
-        onProgress: (current, total) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Uploading to cloud: $current/$total files...'),
-                duration: const Duration(milliseconds: 500),
-              ),
-            );
-          }
-        },
-      );
-
-      debugPrint(
-        '[UPLOAD] Uploaded ${blobUrls.length} files to Azure Blob Storage',
-      );
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Files uploaded! Sending data to server...'),
-            duration: Duration(seconds: 2),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-
-      // ✅ STEP 2: Send blob URLs to your backend API
       final uri = Uri.parse(Multi_Api_POD_UPLOAD_URL);
-      final requestBody = <String, dynamic>{
-        'blob_urls': blobUrls,
-        'doc_type': 'POD',
-        'document_count': validDocs.length,
-        'multi_page': validDocs.length > 1,
-        'ocr_enhanced': true,
-        'dpi': 300,
-      };
 
-      // Add file metadata
-      final fileMetadata = <Map<String, dynamic>>[];
-      for (int i = 0; i < validDocs.length; i++) {
-        final doc = validDocs[i];
-        fileMetadata.add({
-          'index': i,
-          'filename': doc.displayName,
-          'blob_url': blobUrls[i],
-          'qr_data': doc.qrData,
-          'is_valid': doc.isValid,
-          'is_good_for_extraction': doc.isGoodForExtraction ?? true,
-          'ocr_confidence': doc.ocrConfidence,
-        });
+      // Validate URL
+      if (!uri.isAbsolute) {
+        throw Exception(
+          'Invalid API URL: $Multi_Api_POD_UPLOAD_URL\n'
+          'URL must be absolute (start with http/https)',
+        );
       }
-      requestBody['file_metadata'] = fileMetadata;
 
-      // Add stockist ID
+      debugPrint('[UPLOAD] API Endpoint: $Multi_Api_POD_UPLOAD_URL');
+      debugPrint('[UPLOAD] Using URI: $uri');
+
+      final req = http.MultipartRequest('POST', uri);
+
+      // Attach files
+      for (final d in validDocs) {
+        if (d.file != null) {
+          // Mobile/desktop:  use file path
+          final filename = p.basename(d.file!.path);
+          final contentType = _inferContentTypeFile(d.file!);
+          req.files.add(
+            await http.MultipartFile.fromPath(
+              'files[]',
+              d.file!.path,
+              filename: filename,
+              contentType: contentType,
+            ),
+          );
+        } else if (d.webBytes != null) {
+          // Web: use bytes
+          final filename = d.displayName;
+          final contentType = _inferContentTypeByName(filename);
+          req.files.add(
+            await _multipartFromBytes(
+              fieldName: 'files[]',
+              filename: filename,
+              bytes: d.webBytes!,
+              contentType: contentType,
+            ),
+          );
+        }
+      }
+
+      // Attach original raw files if documents were split
+      // Collect unique original raw files
+      final Set<String> rawFilePaths = {};
+      for (final d in validDocs) {
+        if (d.originalRawFile != null && await d.originalRawFile!.exists()) {
+          rawFilePaths.add(d.originalRawFile!.path);
+        }
+      }
+
+      // Attach each unique raw file with key 'raw_file'
+      for (final rawFilePath in rawFilePaths) {
+        final rawFile = File(rawFilePath);
+        final filename = p.basename(rawFile.path);
+        final contentType = _inferContentTypeFile(rawFile);
+        req.files.add(
+          await http.MultipartFile.fromPath(
+            'raw_file',
+            rawFile.path,
+            filename: filename,
+            contentType: contentType,
+          ),
+        );
+        debugPrint('[UPLOAD] Attached original raw file: $filename');
+      }
+
+      if (token != null) {
+        req.headers['Authorization'] = 'Bearer $token';
+      }
+
+      final phpStyleJson = _buildPhpStyleJson(validDocs);
+      req.fields['file_einvoice_sequence'] = phpStyleJson;
+      req.fields['doc_type'] = 'POD';
+      req.fields['document_count'] = validDocs.length.toString();
+      req.fields['multi_page'] = (validDocs.length > 1).toString();
+      req.fields['ocr_enhanced'] = 'true';
+      req.fields['dpi'] = '300';
+
+      // ✅ FIX: Ensure stockist_id is sent as a STRING
       if (_selectedStockist != null) {
         final stockistIdStr = _selectedStockist!.id.trim();
-        requestBody['stockist_id'] = stockistIdStr;
-        requestBody['stockistId'] = stockistIdStr;
+        req.fields['stockist_id'] = stockistIdStr; // Send as string
+        req.fields['stockistId'] = stockistIdStr; // Send as string
         debugPrint('[UPLOAD] Stockist ID: $stockistIdStr');
       }
 
-      // Send JSON request to backend
-      final response = await http.post(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          if (token != null) 'Authorization': 'Bearer $token',
+      // Log request details for debugging
+      debugPrint('[UPLOAD] ======================');
+      debugPrint('[UPLOAD] Request ready to send:');
+      debugPrint('[UPLOAD]   Files: ${req.files.length}');
+      debugPrint('[UPLOAD]   Fields: ${req.fields.keys.join(", ")}');
+      debugPrint(
+        '[UPLOAD]   Has auth token: ${token != null && token.isNotEmpty}',
+      );
+      debugPrint('[UPLOAD] ======================');
+
+      final resp = await req.send().timeout(
+        const Duration(seconds: 60),
+        onTimeout: () {
+          throw TimeoutException(
+            'Upload request timed out. Server did not respond within 60 seconds.',
+          );
         },
-        body: jsonEncode(requestBody),
+      );
+      final responseBody = await resp.stream.bytesToString();
+
+      debugPrint('[UPLOAD] Response Status: ${resp.statusCode}');
+      debugPrint('[UPLOAD] Response Headers: ${resp.headers}');
+      debugPrint(
+        '[UPLOAD] Response Body (first 500 chars): ${responseBody.substring(0, math.min(500, responseBody.length))}',
       );
 
-      final responseBody = response.body;
+      // Check if response is HTML (error page) instead of JSON
+      if (responseBody.trim().startsWith('<') ||
+          responseBody.trim().startsWith('<!')) {
+        // HTML response - likely an error page
+        String errorMsg =
+            'Server returned an error page. This may indicate:\n'
+            '• CORS issues\n'
+            '• Server error or service unavailable\n'
+            '• Network redirect';
 
-      if (response.statusCode == 201) {
+        // Try to extract error from HTML
+        if (responseBody.contains('error')) {
+          final regex = RegExp(
+            r'<[^>]*>([^<]*error[^<]*)<[^>]*>',
+            caseSensitive: false,
+          );
+          final match = regex.firstMatch(responseBody);
+          if (match != null) {
+            errorMsg = match.group(1)?.trim() ?? errorMsg;
+          }
+        }
+
+        debugPrint('[UPLOAD] HTML Error Response detected');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                '✅ Uploaded ${validDocs.length} POD document(s) successfully. Data generated.',
+                'Upload failed: $errorMsg\n\nPlease check your internet connection.',
+              ),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+        return;
+      }
+
+      if (resp.statusCode == 201) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '✅ Uploaded ${validDocs.length} POD document(s) successfully.  Data generated.',
               ),
               backgroundColor: Colors.green,
             ),
@@ -1327,7 +1378,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         if (mounted) {
           Navigator.pop(context);
         }
-      } else if (response.statusCode == 202) {
+      } else if (resp.statusCode == 202) {
         try {
           final responseData = jsonDecode(responseBody);
 
@@ -1361,26 +1412,69 @@ class _PODUploadScreenState extends State<PODUploadScreen>
           }
         }
       } else {
-        debugPrint(
-          'POD upload failed: ${response.statusCode} ${responseBody.isNotEmpty ? "- $responseBody" : ""}',
-        );
+        // Try to parse JSON error
+        String errorMessage = 'Unknown error';
+        try {
+          final errorData = jsonDecode(responseBody);
+          errorMessage =
+              errorData['error'] ??
+              errorData['message'] ??
+              errorData['detail'] ??
+              'Server error (${resp.statusCode})';
+        } catch (_) {
+          // If not JSON, truncate and show partial response
+          errorMessage =
+              responseBody.isNotEmpty
+                  ? responseBody.length > 200
+                      ? '${responseBody.substring(0, 200)}...'
+                      : responseBody
+                  : 'Server error (${resp.statusCode})';
+        }
+
+        debugPrint('POD upload failed: ${resp.statusCode} - $errorMessage');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(
-                'POD upload failed: ${response.statusCode} ${responseBody.isNotEmpty ? "- $responseBody" : ""}',
-              ),
+              content: Text('POD upload failed: $errorMessage'),
               backgroundColor: Colors.red,
+              duration: const Duration(seconds: 4),
             ),
           );
         }
       }
     } catch (e) {
       debugPrint('Upload error: $e');
+
+      String errorMsg = 'Upload failed: $e';
+
+      // Handle specific errors
+      if (e is TimeoutException) {
+        errorMsg =
+            'Upload timed out. Server did not respond in time.\n\n'
+            'Please check:\n'
+            '• Your internet connection\n'
+            '• The server is running\n'
+            '• Try uploading again with smaller files';
+      } else if (e.toString().contains('Connection reset') ||
+          e.toString().contains('Connection refused')) {
+        errorMsg =
+            'Connection failed.\n\n'
+            'Please check:\n'
+            '• Your internet connection\n'
+            '• The API server is accessible\n'
+            '• Try again in a moment';
+      } else if (e.toString().contains('CORS') ||
+          e.toString().contains('No element at index')) {
+        errorMsg =
+            'Server connection issue detected.\n\n'
+            'This may be a CORS or network configuration issue.\n'
+            'Please contact support.';
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Upload failed: $e'),
+            content: Text(errorMsg),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 5),
           ),

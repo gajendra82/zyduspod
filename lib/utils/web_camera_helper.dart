@@ -1,6 +1,7 @@
 import 'dart:html' as html;
 import 'dart:typed_data';
 import 'dart:async';
+import 'dart:convert' show base64;
 
 class WebCameraHelper {
   Future<Uint8List?> captureFromCamera() async {
@@ -106,8 +107,21 @@ class WebCameraHelper {
       // Wait for video to be ready
       await video.onLoadedMetadata.first;
 
-      // Give time for camera to initialize
-      await Future.delayed(const Duration(milliseconds: 500));
+      // Give time for camera to initialize and video dimensions to be set
+      await Future.delayed(const Duration(milliseconds: 800));
+
+      // Ensure video dimensions are available (retry if needed)
+      int retries = 0;
+      while ((video.videoWidth == 0 || video.videoHeight == 0) && retries < 5) {
+        await Future.delayed(const Duration(milliseconds: 200));
+        retries++;
+      }
+
+      if (video.videoWidth == 0 || video.videoHeight == 0) {
+        throw Exception(
+          'Camera video stream not ready. Width: ${video.videoWidth}, Height: ${video.videoHeight}',
+        );
+      }
 
       // Create completer for user action
       final completer = Completer<Uint8List?>();
@@ -121,27 +135,61 @@ class WebCameraHelper {
             height: video.videoHeight,
           );
 
+          if (canvas.width == 0 || canvas.height == 0) {
+            throw Exception(
+              'Canvas dimensions invalid. Width: ${canvas.width}, Height: ${canvas.height}',
+            );
+          }
+
           // Draw video frame to canvas
           final context = canvas.context2D;
           context.drawImageScaled(video, 0, 0, canvas.width!, canvas.height!);
 
           // Convert to JPEG bytes
-          final dataUrl = canvas.toDataUrl('image/jpeg', 0.92);
-          final base64Data = dataUrl.split(',')[1];
+          try {
+            final dataUrl = canvas.toDataUrl('image/jpeg', 0.92);
 
-          // Decode base64
-          final bytes = html.window.atob(base64Data);
-          final uint8List = Uint8List.fromList(
-            List<int>.generate(bytes.length, (i) => bytes.codeUnitAt(i)),
-          );
+            // Extract base64 data safely
+            if (!dataUrl.contains(',')) {
+              throw Exception('Invalid data URL format');
+            }
 
-          // Stop all tracks
-          stream?.getTracks().forEach((track) => track.stop());
+            final base64Data = dataUrl.split(',')[1];
 
-          // Remove UI
-          container.remove();
+            // Decode base64 using dart:convert for better compatibility
+            final bytes = base64.decode(base64Data);
 
-          completer.complete(uint8List);
+            // Stop all tracks
+            stream?.getTracks().forEach((track) => track.stop());
+
+            // Remove UI
+            container.remove();
+
+            completer.complete(bytes);
+          } catch (decodeError) {
+            print('[Camera] Base64 decode error: $decodeError');
+            // Fallback: try the old method
+            try {
+              final dataUrl = canvas.toDataUrl('image/jpeg', 0.92);
+              final base64Data = dataUrl.split(',')[1];
+              final decodedStr = html.window.atob(base64Data);
+              final uint8List = Uint8List.fromList(
+                List<int>.generate(
+                  decodedStr.length,
+                  (i) => decodedStr.codeUnitAt(i),
+                ),
+              );
+
+              stream?.getTracks().forEach((track) => track.stop());
+              container.remove();
+              completer.complete(uint8List);
+            } catch (fallbackError) {
+              print('[Camera] Fallback decode error: $fallbackError');
+              stream?.getTracks().forEach((track) => track.stop());
+              container.remove();
+              completer.completeError(fallbackError);
+            }
+          }
         } catch (e) {
           print('[Camera] Capture error: $e');
           stream?.getTracks().forEach((track) => track.stop());
