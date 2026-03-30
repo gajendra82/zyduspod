@@ -1068,143 +1068,191 @@ class _PODUploadScreenState extends State<PODUploadScreen>
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('authToken');
+      final stockistId = int.parse(_selectedStockist!.id.trim());
+
+      const int maxRetries = 3;
+      const Duration connectTimeout = Duration(seconds: 45);
+      const Duration responseTimeout = Duration(minutes: 5);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Sending data to server...'),
+            content: Text('Sending files to server...'),
             duration: Duration(seconds: 2),
           ),
         );
       }
 
-      final uri = Uri.parse();
-      final req = http.MultipartRequest('POST', uri);
-
-      // ✅ Attach files directly - backend will handle PDF splitting
-      for (final d in validDocs) {
-        final filename = p.basename(d.file.path);
-        final contentType = _inferContentTypeFile(d.file);
-        req.files.add(
-          await http.MultipartFile.fromPath(
-            'files[]',
-            d.file.path,
-            filename: filename,
-            contentType: contentType,
-          ),
-        );
-      }
-
-      // ✅ Remove the originalRawFile logic - no longer needed since we're not splitting
-      // DELETE these lines:
-      // final Set<String> rawFilePaths = {};
-      // for (final d in validDocs) {
-      //   if (d.originalRawFile != null && await d.originalRawFile!. exists()) {
-      //     rawFilePaths.add(d. originalRawFile!.path);
-      //   }
-      // }
-      //
-      // for (final rawFilePath in rawFilePaths) {
-      //   final rawFile = File(rawFilePath);
-      //   final filename = p.basename(rawFile. path);
-      //   final contentType = _inferContentTypeFile(rawFile);
-      //   req.files.add(
-      //     await http.MultipartFile.fromPath(
-      //       'raw_file',
-      //       rawFile. path,
-      //       filename:  filename,
-      //       contentType: contentType,
-      //     ),
-      //   );
-      //   debugPrint('[UPLOAD] Attached original raw file: $filename');
-      // }
-
-      if (token != null) {
-        req.headers['Authorization'] = 'Bearer $token';
-      }
-
-      final phpStyleJson = _buildPhpStyleJson(validDocs);
-      req.fields['file_einvoice_sequence'] = phpStyleJson;
-      req.fields['doc_type'] = 'POD';
-      req.fields['document_count'] = validDocs.length.toString();
-      req.fields['multi_page'] = (validDocs.length > 1).toString();
-      req.fields['ocr_enhanced'] = 'true';
-      req.fields['dpi'] = '300';
-
-      if (_selectedStockist != null) {
-        final stockistId = int.parse(_selectedStockist!.id.trim());
-        req.fields['stockist_id'] = stockistId.toString();
-        req.fields['stockistId'] = stockistId.toString();
-      }
-
-      final resp = await req.send();
-      final responseBody = await resp.stream.bytesToString();
-
-      if (resp.statusCode == 201) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                '✅ Uploaded ${validDocs.length} POD document(s) successfully. Data generated.',
-              ),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-
-        setState(() {
-          _capturedDocuments.clear();
-        });
-
-        if (mounted) {
-          Navigator.pop(context);
-        }
-      } else if (resp.statusCode == 202) {
+      for (int attempt = 0; attempt < maxRetries; attempt++) {
         try {
-          final responseData = jsonDecode(responseBody);
+          final uri = Uri.parse(Multi_Api_POD_UPLOAD_URL);
+          final req = http.MultipartRequest('POST', uri);
 
-          if (mounted) {
-            Navigator.pushReplacementNamed(
-              context,
-              AppRoutes.uploadStatus,
-              arguments: {
-                'uploadData': responseData,
-                'totalFiles': validDocs.length,
-              },
+          for (final d in validDocs) {
+            final filename = p.basename(d.file.path);
+            final contentType = _inferContentTypeFile(d.file);
+
+            req.files.add(
+              await http.MultipartFile.fromPath(
+                'files[]',
+                d.file.path,
+                filename: filename,
+                contentType: contentType,
+              ),
+            );
+
+            debugPrint(
+              '[UPLOAD] Attached file: $filename (${contentType.mimeType})',
             );
           }
-        } catch (e) {
-          debugPrint('Error parsing 202 response: $e');
+
+          if (token != null) {
+            req.headers['Authorization'] = 'Bearer $token';
+          }
+
+          // Force fresh connection to reduce stale keep-alive socket aborts.
+          req.headers['Connection'] = 'close';
+
+          final phpStyleJson = _buildPhpStyleJson(validDocs);
+          req.fields['file_einvoice_sequence'] = phpStyleJson;
+          req.fields['doc_type'] = 'POD';
+          req.fields['document_count'] = validDocs.length.toString();
+          req.fields['multi_page'] = (validDocs.length > 1).toString();
+          req.fields['ocr_enhanced'] = 'true';
+          req.fields['dpi'] = '300';
+          req.fields['stockist_id'] = stockistId.toString();
+          req.fields['stockistId'] = stockistId.toString();
+
+          debugPrint(
+            '[UPLOAD] Attempt ${attempt + 1}/$maxRetries: sending ${validDocs.length} file(s)',
+          );
+          debugPrint(
+            '[UPLOAD] Files: ${validDocs.map((d) => d.displayName).join(', ')}',
+          );
+
+          final resp = await req.send().timeout(connectTimeout);
+          final responseBody = await resp.stream.bytesToString().timeout(
+            responseTimeout,
+          );
+
+          if (resp.statusCode == 201) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    '✅ Uploaded ${validDocs.length} file(s) successfully. Backend processing...',
+                  ),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            }
+
+            setState(() {
+              _capturedDocuments.clear();
+            });
+
+            if (mounted) {
+              Navigator.pop(context);
+            }
+            return;
+          }
+
+          if (resp.statusCode == 202) {
+            try {
+              final responseData = jsonDecode(responseBody);
+
+              if (mounted) {
+                Navigator.pushReplacementNamed(
+                  context,
+                  AppRoutes.uploadStatus,
+                  arguments: {
+                    'uploadData': responseData,
+                    'totalFiles': validDocs.length,
+                  },
+                );
+              }
+            } catch (e) {
+              debugPrint('Error parsing 202 response: $e');
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      '✅ Uploaded ${validDocs.length} file(s). Background processing initiated.',
+                    ),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
+              setState(() {
+                _capturedDocuments.clear();
+              });
+              if (mounted) {
+                Navigator.pop(context);
+              }
+            }
+            return;
+          }
+
+          if (_isRetryableUploadStatus(resp.statusCode) &&
+              attempt < maxRetries - 1) {
+            final wait = _uploadRetryDelay(attempt);
+            debugPrint(
+              '[UPLOAD] Retryable HTTP ${resp.statusCode}. Retrying in ${wait.inSeconds}s',
+            );
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Server is busy (HTTP ${resp.statusCode}). Retrying ${attempt + 2}/$maxRetries...',
+                  ),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            }
+
+            await Future.delayed(wait);
+            continue;
+          }
+
+          debugPrint(
+            'Upload failed: ${resp.statusCode} ${responseBody.isNotEmpty ? "- $responseBody" : ""}',
+          );
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
-                  '✅ Uploaded ${validDocs.length} POD document(s). Background processing initiated.',
+                  'Upload failed: ${resp.statusCode} ${responseBody.isNotEmpty ? "- $responseBody" : ""}',
                 ),
-                backgroundColor: Colors.green,
+                backgroundColor: Colors.red,
               ),
             );
           }
-          setState(() {
-            _capturedDocuments.clear();
-          });
-          if (mounted) {
-            Navigator.pop(context);
+          return;
+        } catch (e) {
+          final canRetry =
+              _isRetryableUploadError(e) && attempt < maxRetries - 1;
+          debugPrint('[UPLOAD] Attempt ${attempt + 1} failed: $e');
+
+          if (canRetry) {
+            final wait = _uploadRetryDelay(attempt);
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Network issue while uploading. Retrying ${attempt + 2}/$maxRetries...',
+                  ),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            }
+
+            await Future.delayed(wait);
+            continue;
           }
-        }
-      } else {
-        debugPrint(
-          'POD upload failed:  ${resp.statusCode} ${responseBody.isNotEmpty ? "- $responseBody" : ""}',
-        );
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'POD upload failed: ${resp.statusCode} ${responseBody.isNotEmpty ? "- $responseBody" : ""}',
-              ),
-              backgroundColor: Colors.red,
-            ),
-          );
+
+          rethrow;
         }
       }
     } catch (e) {
@@ -1225,6 +1273,32 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         });
       }
     }
+  }
+
+  Duration _uploadRetryDelay(int attempt) {
+    const baseSeconds = 2;
+    final seconds = baseSeconds * (attempt + 1);
+    return Duration(seconds: seconds);
+  }
+
+  bool _isRetryableUploadStatus(int statusCode) {
+    return statusCode == 408 || statusCode == 429 || statusCode >= 500;
+  }
+
+  bool _isRetryableUploadError(Object error) {
+    if (error is SocketException) return true;
+    if (error is TimeoutException) return true;
+
+    if (error is http.ClientException) {
+      final message = error.message.toLowerCase();
+      return message.contains('socketexception') ||
+          message.contains('connection abort') ||
+          message.contains('connection reset') ||
+          message.contains('timed out') ||
+          message.contains('connection closed');
+    }
+
+    return false;
   }
 
   MediaType _inferContentTypeFile(File file) {
