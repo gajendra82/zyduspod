@@ -3,7 +3,8 @@
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show File; // used only on mobile/desktop paths
+import 'dart:io'
+    show File, SocketException; // used only on mobile/desktop paths
 import 'dart:math' as math; // COMMENTED OUT: Used for QR processing
 import 'dart:typed_data';
 
@@ -1206,6 +1207,11 @@ class _PODUploadScreenState extends State<PODUploadScreen>
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('authToken');
+      final stockistIdStr = _selectedStockist!.id.trim();
+
+      const int maxRetries = 3;
+      const Duration connectTimeout = Duration(seconds: 45);
+      const Duration responseTimeout = Duration(minutes: 5);
 
       final uri = Uri.parse(Multi_Api_POD_UPLOAD_URL);
 
@@ -1218,228 +1224,278 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       }
 
       debugPrint('[UPLOAD] API Endpoint: $Multi_Api_POD_UPLOAD_URL');
-      debugPrint('[UPLOAD] Using URI: $uri');
 
-      final req = http.MultipartRequest('POST', uri);
-
-      // Attach files
-      for (final d in validDocs) {
-        if (d.file != null) {
-          // Mobile/desktop:  use file path
-          final filename = p.basename(d.file!.path);
-          final contentType = _inferContentTypeFile(d.file!);
-          req.files.add(
-            await http.MultipartFile.fromPath(
-              'files[]',
-              d.file!.path,
-              filename: filename,
-              contentType: contentType,
-            ),
-          );
-        } else if (d.webBytes != null) {
-          // Web: use bytes
-          final filename = d.displayName;
-          final contentType = _inferContentTypeByName(filename);
-          req.files.add(
-            await _multipartFromBytes(
-              fieldName: 'files[]',
-              filename: filename,
-              bytes: d.webBytes!,
-              contentType: contentType,
-            ),
-          );
-        }
-      }
-
-      // Attach original raw files if documents were split
-      // Collect unique original raw files
-      final Set<String> rawFilePaths = {};
-      for (final d in validDocs) {
-        if (d.originalRawFile != null && await d.originalRawFile!.exists()) {
-          rawFilePaths.add(d.originalRawFile!.path);
-        }
-      }
-
-      // Attach each unique raw file with key 'raw_file'
-      for (final rawFilePath in rawFilePaths) {
-        final rawFile = File(rawFilePath);
-        final filename = p.basename(rawFile.path);
-        final contentType = _inferContentTypeFile(rawFile);
-        req.files.add(
-          await http.MultipartFile.fromPath(
-            'raw_file',
-            rawFile.path,
-            filename: filename,
-            contentType: contentType,
-          ),
-        );
-        debugPrint('[UPLOAD] Attached original raw file: $filename');
-      }
-
-      if (token != null) {
-        req.headers['Authorization'] = 'Bearer $token';
-      }
-
-      final phpStyleJson = _buildPhpStyleJson(validDocs);
-      req.fields['file_einvoice_sequence'] = phpStyleJson;
-      req.fields['doc_type'] = 'POD';
-      req.fields['document_count'] = validDocs.length.toString();
-      req.fields['multi_page'] = (validDocs.length > 1).toString();
-      req.fields['ocr_enhanced'] = 'true';
-      req.fields['dpi'] = '300';
-
-      // ✅ FIX: Ensure stockist_id is sent as a STRING
-      if (_selectedStockist != null) {
-        final stockistIdStr = _selectedStockist!.id.trim();
-        req.fields['stockist_id'] = stockistIdStr; // Send as string
-        req.fields['stockistId'] = stockistIdStr; // Send as string
-        debugPrint('[UPLOAD] Stockist ID: $stockistIdStr');
-      }
-
-      // Log request details for debugging
-      debugPrint('[UPLOAD] ======================');
-      debugPrint('[UPLOAD] Request ready to send:');
-      debugPrint('[UPLOAD]   Files: ${req.files.length}');
-      debugPrint('[UPLOAD]   Fields: ${req.fields.keys.join(", ")}');
-      debugPrint(
-        '[UPLOAD]   Has auth token: ${token != null && token.isNotEmpty}',
-      );
-      debugPrint('[UPLOAD] ======================');
-
-      final resp = await req.send().timeout(
-        const Duration(seconds: 60),
-        onTimeout: () {
-          throw TimeoutException(
-            'Upload request timed out. Server did not respond within 60 seconds.',
-          );
-        },
-      );
-      final responseBody = await resp.stream.bytesToString();
-
-      debugPrint('[UPLOAD] Response Status: ${resp.statusCode}');
-      debugPrint('[UPLOAD] Response Headers: ${resp.headers}');
-      debugPrint(
-        '[UPLOAD] Response Body (first 500 chars): ${responseBody.substring(0, math.min(500, responseBody.length))}',
-      );
-
-      // Check if response is HTML (error page) instead of JSON
-      if (responseBody.trim().startsWith('<') ||
-          responseBody.trim().startsWith('<!')) {
-        // HTML response - likely an error page
-        String errorMsg =
-            'Server returned an error page. This may indicate:\n'
-            '• CORS issues\n'
-            '• Server error or service unavailable\n'
-            '• Network redirect';
-
-        // Try to extract error from HTML
-        if (responseBody.contains('error')) {
-          final regex = RegExp(
-            r'<[^>]*>([^<]*error[^<]*)<[^>]*>',
-            caseSensitive: false,
-          );
-          final match = regex.firstMatch(responseBody);
-          if (match != null) {
-            errorMsg = match.group(1)?.trim() ?? errorMsg;
-          }
-        }
-
-        debugPrint('[UPLOAD] HTML Error Response detected');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Upload failed: $errorMsg\n\nPlease check your internet connection.',
-              ),
-              backgroundColor: Colors.red,
-              duration: const Duration(seconds: 5),
-            ),
-          );
-        }
-        return;
-      }
-
-      if (resp.statusCode == 201) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                '✅ Uploaded ${validDocs.length} POD document(s) successfully.  Data generated.',
-              ),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-
-        setState(() {
-          _capturedDocuments.clear();
-        });
-
-        if (mounted) {
-          Navigator.pop(context);
-        }
-      } else if (resp.statusCode == 202) {
+      for (int attempt = 0; attempt < maxRetries; attempt++) {
         try {
-          final responseData = jsonDecode(responseBody);
+          debugPrint(
+            '[UPLOAD] Attempt ${attempt + 1}/$maxRetries: sending ${validDocs.length} file(s)',
+          );
 
-          if (mounted) {
-            Navigator.pushReplacementNamed(
-              context,
-              AppRoutes.uploadStatus,
-              arguments: {
-                'uploadData': responseData,
-                'totalFiles': validDocs.length,
-              },
-            );
+          final req = http.MultipartRequest('POST', uri);
+
+          // Attach files
+          for (final d in validDocs) {
+            if (d.file != null) {
+              // Mobile/desktop: use file path
+              final filename = p.basename(d.file!.path);
+              final contentType = _inferContentTypeFile(d.file!);
+              req.files.add(
+                await http.MultipartFile.fromPath(
+                  'files[]',
+                  d.file!.path,
+                  filename: filename,
+                  contentType: contentType,
+                ),
+              );
+            } else if (d.webBytes != null) {
+              // Web: use bytes
+              final filename = d.displayName;
+              final contentType = _inferContentTypeByName(filename);
+              req.files.add(
+                await _multipartFromBytes(
+                  fieldName: 'files[]',
+                  filename: filename,
+                  bytes: d.webBytes!,
+                  contentType: contentType,
+                ),
+              );
+            }
           }
-        } catch (e) {
-          debugPrint('Error parsing 202 response: $e');
+
+          // Attach original raw files if documents were split
+          final Set<String> rawFilePaths = {};
+          for (final d in validDocs) {
+            if (d.originalRawFile != null &&
+                await d.originalRawFile!.exists()) {
+              rawFilePaths.add(d.originalRawFile!.path);
+            }
+          }
+          for (final rawFilePath in rawFilePaths) {
+            final rawFile = File(rawFilePath);
+            final filename = p.basename(rawFile.path);
+            final contentType = _inferContentTypeFile(rawFile);
+            req.files.add(
+              await http.MultipartFile.fromPath(
+                'raw_file',
+                rawFile.path,
+                filename: filename,
+                contentType: contentType,
+              ),
+            );
+            debugPrint('[UPLOAD] Attached original raw file: $filename');
+          }
+
+          if (token != null) {
+            req.headers['Authorization'] = 'Bearer $token';
+          }
+
+          // Force fresh connection to reduce stale keep-alive socket aborts.
+          req.headers['Connection'] = 'close';
+
+          final phpStyleJson = _buildPhpStyleJson(validDocs);
+          req.fields['file_einvoice_sequence'] = phpStyleJson;
+          req.fields['doc_type'] = 'POD';
+          req.fields['document_count'] = validDocs.length.toString();
+          req.fields['multi_page'] = (validDocs.length > 1).toString();
+          req.fields['ocr_enhanced'] = 'true';
+          req.fields['dpi'] = '300';
+          req.fields['stockist_id'] = stockistIdStr;
+          req.fields['stockistId'] = stockistIdStr;
+
+          debugPrint('[UPLOAD] ======================');
+          debugPrint('[UPLOAD] Request ready to send:');
+          debugPrint('[UPLOAD]   Files: ${req.files.length}');
+          debugPrint('[UPLOAD]   Fields: ${req.fields.keys.join(", ")}');
+          debugPrint(
+            '[UPLOAD]   Has auth token: ${token != null && token.isNotEmpty}',
+          );
+          debugPrint('[UPLOAD] ======================');
+
+          final resp = await req.send().timeout(connectTimeout);
+          final responseBody = await resp.stream.bytesToString().timeout(
+            responseTimeout,
+          );
+
+          debugPrint('[UPLOAD] Response Status: ${resp.statusCode}');
+          debugPrint('[UPLOAD] Response Headers: ${resp.headers}');
+          debugPrint(
+            '[UPLOAD] Response Body (first 500 chars): ${responseBody.substring(0, math.min(500, responseBody.length))}',
+          );
+
+          // Check if response is HTML (error page) instead of JSON
+          if (responseBody.trim().startsWith('<') ||
+              responseBody.trim().startsWith('<!')) {
+            String errorMsg =
+                'Server returned an error page. This may indicate:\n'
+                '• CORS issues\n'
+                '• Server error or service unavailable\n'
+                '• Network redirect';
+
+            if (responseBody.contains('error')) {
+              final regex = RegExp(
+                r'<[^>]*>([^<]*error[^<]*)<[^>]*>',
+                caseSensitive: false,
+              );
+              final match = regex.firstMatch(responseBody);
+              if (match != null) {
+                errorMsg = match.group(1)?.trim() ?? errorMsg;
+              }
+            }
+
+            debugPrint('[UPLOAD] HTML Error Response detected');
+
+            // HTML errors from 5xx are retryable
+            if (_isRetryableUploadStatus(resp.statusCode) &&
+                attempt < maxRetries - 1) {
+              final wait = _uploadRetryDelay(attempt);
+              debugPrint('[UPLOAD] Retrying after HTML error response...');
+              await Future.delayed(wait);
+              continue;
+            }
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Upload failed: $errorMsg\n\nPlease check your internet connection.',
+                  ),
+                  backgroundColor: Colors.red,
+                  duration: const Duration(seconds: 5),
+                ),
+              );
+            }
+            return;
+          }
+
+          if (resp.statusCode == 201) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    '✅ Uploaded ${validDocs.length} POD document(s) successfully. Data generated.',
+                  ),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            }
+
+            setState(() {
+              _capturedDocuments.clear();
+            });
+
+            if (mounted) {
+              Navigator.pop(context);
+            }
+            return;
+          }
+
+          if (resp.statusCode == 202) {
+            try {
+              final responseData = jsonDecode(responseBody);
+
+              if (mounted) {
+                Navigator.pushReplacementNamed(
+                  context,
+                  AppRoutes.uploadStatus,
+                  arguments: {
+                    'uploadData': responseData,
+                    'totalFiles': validDocs.length,
+                  },
+                );
+              }
+            } catch (e) {
+              debugPrint('Error parsing 202 response: $e');
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      '✅ Uploaded ${validDocs.length} POD document(s). Background processing initiated.',
+                    ),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
+              setState(() {
+                _capturedDocuments.clear();
+              });
+              if (mounted) {
+                Navigator.pop(context);
+              }
+            }
+            return;
+          }
+
+          if (_isRetryableUploadStatus(resp.statusCode) &&
+              attempt < maxRetries - 1) {
+            final wait = _uploadRetryDelay(attempt);
+            debugPrint(
+              '[UPLOAD] Retryable HTTP ${resp.statusCode}. Retrying in ${wait.inSeconds}s',
+            );
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Server is busy (HTTP ${resp.statusCode}). Retrying ${attempt + 2}/$maxRetries...',
+                  ),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            }
+            await Future.delayed(wait);
+            continue;
+          }
+
+          // Non-retryable HTTP error — parse and surface the message
+          String errorMessage = 'Unknown error';
+          try {
+            final errorData = jsonDecode(responseBody);
+            errorMessage =
+                errorData['error'] ??
+                errorData['message'] ??
+                errorData['detail'] ??
+                'Server error (${resp.statusCode})';
+          } catch (_) {
+            errorMessage =
+                responseBody.isNotEmpty
+                    ? responseBody.length > 200
+                        ? '${responseBody.substring(0, 200)}...'
+                        : responseBody
+                    : 'Server error (${resp.statusCode})';
+          }
+
+          debugPrint('POD upload failed: ${resp.statusCode} - $errorMessage');
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text(
-                  '✅ Uploaded ${validDocs.length} POD document(s). Background processing initiated.',
-                ),
-                backgroundColor: Colors.green,
+                content: Text('POD upload failed: $errorMessage'),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 4),
               ),
             );
           }
-          setState(() {
-            _capturedDocuments.clear();
-          });
-          if (mounted) {
-            Navigator.pop(context);
-          }
-        }
-      } else {
-        // Try to parse JSON error
-        String errorMessage = 'Unknown error';
-        try {
-          final errorData = jsonDecode(responseBody);
-          errorMessage =
-              errorData['error'] ??
-              errorData['message'] ??
-              errorData['detail'] ??
-              'Server error (${resp.statusCode})';
-        } catch (_) {
-          // If not JSON, truncate and show partial response
-          errorMessage =
-              responseBody.isNotEmpty
-                  ? responseBody.length > 200
-                      ? '${responseBody.substring(0, 200)}...'
-                      : responseBody
-                  : 'Server error (${resp.statusCode})';
-        }
+          return;
+        } catch (e) {
+          final canRetry =
+              _isRetryableUploadError(e) && attempt < maxRetries - 1;
+          debugPrint('[UPLOAD] Attempt ${attempt + 1} error: $e');
 
-        debugPrint('POD upload failed: ${resp.statusCode} - $errorMessage');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('POD upload failed: $errorMessage'),
-              backgroundColor: Colors.red,
-              duration: const Duration(seconds: 4),
-            ),
-          );
+          if (canRetry) {
+            final wait = _uploadRetryDelay(attempt);
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Network issue while uploading. Retrying ${attempt + 2}/$maxRetries...',
+                  ),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            }
+            await Future.delayed(wait);
+            continue;
+          }
+
+          rethrow;
         }
       }
     } catch (e) {
@@ -1447,7 +1503,6 @@ class _PODUploadScreenState extends State<PODUploadScreen>
 
       String errorMsg = 'Upload failed: $e';
 
-      // Handle specific errors
       if (e is TimeoutException) {
         errorMsg =
             'Upload timed out. Server did not respond in time.\n\n'
@@ -1456,7 +1511,8 @@ class _PODUploadScreenState extends State<PODUploadScreen>
             '• The server is running\n'
             '• Try uploading again with smaller files';
       } else if (e.toString().contains('Connection reset') ||
-          e.toString().contains('Connection refused')) {
+          e.toString().contains('Connection refused') ||
+          e.toString().contains('connection abort')) {
         errorMsg =
             'Connection failed.\n\n'
             'Please check:\n'
@@ -1488,6 +1544,30 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         });
       }
     }
+  }
+
+  Duration _uploadRetryDelay(int attempt) {
+    return Duration(seconds: 2 * (attempt + 1));
+  }
+
+  bool _isRetryableUploadStatus(int statusCode) {
+    return statusCode == 408 || statusCode == 429 || statusCode >= 500;
+  }
+
+  bool _isRetryableUploadError(Object error) {
+    if (error is SocketException) return true;
+    if (error is TimeoutException) return true;
+
+    if (error is http.ClientException) {
+      final message = error.message.toLowerCase();
+      return message.contains('socketexception') ||
+          message.contains('connection abort') ||
+          message.contains('connection reset') ||
+          message.contains('timed out') ||
+          message.contains('connection closed');
+    }
+
+    return false;
   }
 
   MediaType _inferContentTypeByName(String filename, {File? fallbackFromFile}) {
