@@ -17,6 +17,13 @@ val keystoreProperties: Properties = Properties().apply {
     }
 }
 fun prop(key: String): String? = keystoreProperties.getProperty(key)
+fun requiredSigningProp(key: String): String {
+    val value = prop(key)?.trim()
+    if (value.isNullOrEmpty() || value.startsWith("REPLACE_WITH_")) {
+        throw GradleException("Invalid '$key' in android/key.properties. Set the real value, not a placeholder.")
+    }
+    return value
+}
 
 android {
     namespace = "com.globalspace.zyduspod"
@@ -46,9 +53,8 @@ android {
     // Create signing config only if key.properties exists
     signingConfigs {
         create("release") {
-            // Prefer values from key.properties if available, otherwise fall back to an absolute path.
-            val storeFileProp = prop("storeFile")
-            val storeFilePath = storeFileProp ?: "C:/Users/gajen/Downloads/zydus_alias.keystore"
+            // Always use key.properties so the selected upload key is explicit.
+            val storeFilePath = requiredSigningProp("storeFile")
 
             val sf = file(storeFilePath)
             if (!sf.exists()) {
@@ -57,9 +63,9 @@ android {
 
             // Kotlin DSL style assignments:
             storeFile = sf
-            storePassword = prop("storePassword") ?: "welcome"
-            keyAlias = prop("keyAlias") ?: "zydus_alias"
-            keyPassword = prop("keyPassword") ?: "welcome"
+            storePassword = requiredSigningProp("storePassword")
+            keyAlias = requiredSigningProp("keyAlias")
+            keyPassword = requiredSigningProp("keyPassword")
         }
     }
 
