@@ -1,4 +1,4 @@
-Zydus POD branding assets
+Zydus Vistaar branding assets
 
 Place your production logo files here. Expected filenames used by tooling:
 

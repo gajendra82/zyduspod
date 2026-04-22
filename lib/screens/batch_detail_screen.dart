@@ -1,5 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'package:zyduspod/Models/batch_model.dart';
+import 'package:zyduspod/config.dart';
 import 'package:zyduspod/services/batch_service.dart';
 import 'package:zyduspod/widgets/modern_ui_components.dart';
 
@@ -20,6 +26,11 @@ class _BatchDetailScreenState extends State<BatchDetailScreen> {
   bool _hasError = false;
   String _errorMessage = '';
 
+  List<Map<String, dynamic>> _failed = [];
+  final Set<String> _selectedFailed = {};
+  bool _failedLoading = false;
+  bool _retrying = false;
+
   @override
   void initState() {
     super.initState();
@@ -29,6 +40,109 @@ class _BatchDetailScreenState extends State<BatchDetailScreen> {
       _isLoading = false;
     } else {
       _loadBatchDetails();
+    }
+    _loadFailed();
+  }
+
+  Future<void> _loadFailed() async {
+    setState(() => _failedLoading = true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('authToken');
+      final uri = Uri.parse(
+        '${API_BASE_URL}pod/upload-batch/${widget.batchId}/failed',
+      );
+      final resp = await http.get(
+        uri,
+        headers: {
+          if (token != null) 'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        },
+      ).timeout(const Duration(seconds: 20));
+
+      if (resp.statusCode != 200) {
+        if (mounted) setState(() => _failed = []);
+        return;
+      }
+      final decoded = jsonDecode(resp.body);
+      final data = (decoded is Map) ? decoded['data'] : null;
+      final list = data is Map ? data['failed'] : null;
+      if (list is! List) {
+        if (mounted) setState(() => _failed = []);
+        return;
+      }
+      final rows = list
+          .whereType<Map>()
+          .map((m) => Map<String, dynamic>.from(m))
+          .toList();
+      if (!mounted) return;
+      setState(() {
+        _failed = rows;
+        _selectedFailed.removeWhere(
+          (inv) => !rows.any((r) => r['invoice_no']?.toString() == inv),
+        );
+      });
+    } catch (_) {
+      if (mounted) setState(() => _failed = []);
+    } finally {
+      if (mounted) setState(() => _failedLoading = false);
+    }
+  }
+
+  Future<void> _retrySelected({bool all = false}) async {
+    final targets = all
+        ? _failed.map((r) => r['invoice_no']?.toString()).whereType<String>().toList()
+        : _selectedFailed.toList();
+    if (targets.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select at least one failed POD to retry')),
+      );
+      return;
+    }
+
+    setState(() => _retrying = true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('authToken');
+      final uri = Uri.parse(
+        '${API_BASE_URL}pod/upload-batch/${widget.batchId}/retry-failed',
+      );
+      final resp = await http.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({'invoice_numbers': targets}),
+      ).timeout(const Duration(seconds: 30));
+
+      if (!mounted) return;
+      final decoded = jsonDecode(resp.body);
+      final msg = (decoded is Map && decoded['message'] != null)
+          ? decoded['message'].toString()
+          : (resp.statusCode >= 200 && resp.statusCode < 300
+              ? 'Retry dispatched'
+              : 'Retry failed (${resp.statusCode})');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(msg),
+          backgroundColor: resp.statusCode >= 200 && resp.statusCode < 300
+              ? Colors.green
+              : Colors.red,
+        ),
+      );
+      _selectedFailed.clear();
+      // Give workers a moment to pick up and start, then refresh.
+      await Future.delayed(const Duration(seconds: 2));
+      await _loadFailed();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Retry error: $e'), backgroundColor: Colors.red),
+      );
+    } finally {
+      if (mounted) setState(() => _retrying = false);
     }
   }
 
@@ -148,7 +262,10 @@ class _BatchDetailScreenState extends State<BatchDetailScreen> {
       return const Center(child: Text('Batch not found'));
     }
     return RefreshIndicator(
-      onRefresh: _loadBatchDetails,
+      onRefresh: () async {
+        await _loadBatchDetails();
+        await _loadFailed();
+      },
       color: const Color(0xFF1E88E5),
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -159,7 +276,208 @@ class _BatchDetailScreenState extends State<BatchDetailScreen> {
             const SizedBox(height: 24),
             _buildBatchInfo(_batch!),
             const SizedBox(height: 24),
+            _buildFailedSection(),
+            const SizedBox(height: 24),
             _buildStepsSection(_batch!),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFailedSection() {
+    if (_failedLoading && _failed.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.orange.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.orange.shade200),
+        ),
+        child: Row(
+          children: [
+            const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              'Checking for failed PODs…',
+              style: TextStyle(color: Colors.orange.shade700),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_failed.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.green.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.green.shade200),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.verified_rounded, color: Colors.green.shade700),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'No failed PODs in this batch',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: Colors.green.shade800,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: Card(
+        elevation: 1,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: Colors.red.shade200),
+        ),
+        child: ExpansionTile(
+          initiallyExpanded: true,
+          leading: Icon(Icons.error_outline_rounded, color: Colors.red.shade700),
+          title: Text(
+            'Failed PODs (${_failed.length})',
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: Colors.red.shade800,
+            ),
+          ),
+          subtitle: const Text('Retry will reuse already-extracted data'),
+          childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          children: [
+            ..._failed.map(_buildFailedRow),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _retrying ? null : () => _retrySelected(all: false),
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: Text(
+                      _selectedFailed.isEmpty
+                          ? 'Retry selected'
+                          : 'Retry ${_selectedFailed.length} selected',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _retrying ? null : () => _retrySelected(all: true),
+                    icon: _retrying
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation(Colors.white),
+                            ),
+                          )
+                        : const Icon(Icons.replay_circle_filled_rounded),
+                    label: Text(_retrying ? 'Retrying…' : 'Retry all'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red.shade600,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFailedRow(Map<String, dynamic> row) {
+    final invoiceNo = row['invoice_no']?.toString() ?? 'N/A';
+    final invoiceDate = row['invoice_date']?.toString();
+    final customer = row['customer_name']?.toString();
+    final amount = row['total_amount'];
+    final reason = (row['reason'] ?? 'pod_not_created').toString();
+    final isDuplicate = reason == 'duplicate_invoice';
+    final isSelected = _selectedFailed.contains(invoiceNo);
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      decoration: BoxDecoration(
+        color: isSelected ? Colors.red.shade50 : Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.red.shade100),
+      ),
+      child: CheckboxListTile(
+        controlAffinity: ListTileControlAffinity.leading,
+        dense: true,
+        value: isSelected,
+        onChanged: isDuplicate
+            ? null
+            : (v) {
+                setState(() {
+                  if (v == true) {
+                    _selectedFailed.add(invoiceNo);
+                  } else {
+                    _selectedFailed.remove(invoiceNo);
+                  }
+                });
+              },
+        title: Text(
+          invoiceNo,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (customer != null && customer.isNotEmpty)
+              Text(customer, maxLines: 1, overflow: TextOverflow.ellipsis),
+            Row(
+              children: [
+                if (invoiceDate != null && invoiceDate.isNotEmpty)
+                  Text(
+                    invoiceDate,
+                    style: const TextStyle(fontSize: 12, color: Colors.black54),
+                  ),
+                if (amount != null) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    '₹$amount',
+                    style: const TextStyle(fontSize: 12, color: Colors.black54),
+                  ),
+                ],
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: isDuplicate
+                        ? Colors.amber.shade100
+                        : Colors.red.shade100,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    isDuplicate ? 'DUPLICATE' : 'NOT CREATED',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: isDuplicate
+                          ? Colors.amber.shade900
+                          : Colors.red.shade900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
       ),

@@ -1,5 +1,12 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'package:zyduspod/Models/notification_model.dart';
+import 'package:zyduspod/config.dart';
+import 'package:zyduspod/routes.dart';
 import 'package:zyduspod/services/notification_service.dart';
 
 class NotificationsScreen extends StatefulWidget {
@@ -105,6 +112,127 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     super.dispose();
   }
 
+  Future<void> _handleTap(BuildContext context, AppNotification n) async {
+    final messenger0 = ScaffoldMessenger.of(context);
+    final data = n.data;
+    if (data == null || data.isEmpty) {
+      messenger0.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No linked action for this notification. Long-press for details.',
+          ),
+        ),
+      );
+      return;
+    }
+    final type = data['type']?.toString();
+    if (type != 'pod_batch_review') {
+      messenger0.showSnackBar(
+        SnackBar(
+          content: Text('Unsupported notification type: ${type ?? 'unknown'}'),
+        ),
+      );
+      return;
+    }
+
+    final batchDbId = data['batch_db_id'];
+    if (batchDbId == null) {
+      messenger0.showSnackBar(
+        const SnackBar(
+          content: Text('Notification is missing a batch reference.'),
+        ),
+      );
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    final rootNavigator = Navigator.of(context, rootNavigator: true);
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(
+        child: CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00A0A8)),
+        ),
+      ),
+    );
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('authToken');
+      final uri = Uri.parse('${API_BASE_URL}pod/upload-background/$batchDbId');
+      final resp = await http.get(
+        uri,
+        headers: {
+          if (token != null) 'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        },
+      ).timeout(const Duration(seconds: 20));
+
+      rootNavigator.pop(); // dismiss loader
+
+      if (resp.statusCode != 200) {
+        messenger.showSnackBar(
+          SnackBar(content: Text('Failed to load review: ${resp.statusCode}')),
+        );
+        return;
+      }
+
+      final decoded = jsonDecode(resp.body) as Map<String, dynamic>;
+      final payload = decoded['data'] as Map<String, dynamic>?;
+      final review = payload == null
+          ? null
+          : payload['review'] as Map<String, dynamic>?;
+
+      if (review == null ||
+          (review['hospitals'] as List? ?? []).isEmpty) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'PODs are still being processed. Please try again shortly.',
+            ),
+          ),
+        );
+        return;
+      }
+
+      navigator.pushNamed(
+        AppRoutes.podReview,
+        arguments: {'review': review},
+      );
+    } catch (e) {
+      rootNavigator.pop();
+      messenger.showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
+  /// Long-press handler: shows the raw notification payload so you can see
+  /// whether the `data.type` / `data.batch_db_id` fields arrived from the API.
+  void _showDebugInfo(BuildContext context, AppNotification n) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Notification payload'),
+        content: SingleChildScrollView(
+          child: SelectableText(
+            'id: ${n.id}\n'
+            'title: ${n.title}\n'
+            'status: ${n.status}\n'
+            'data: ${n.data}\n',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -168,7 +296,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             return const SizedBox.shrink();
           }
           final n = _notifications[index];
-          return _NotificationCard(notification: n);
+          return _NotificationCard(
+            notification: n,
+            onTap: () => _handleTap(context, n),
+            onLongPress: () => _showDebugInfo(context, n),
+          );
         },
         separatorBuilder: (_, __) => const SizedBox(height: 12),
         itemCount: _notifications.length + 1,
@@ -228,13 +360,26 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
 class _NotificationCard extends StatelessWidget {
   final AppNotification notification;
+  final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
 
-  const _NotificationCard({required this.notification});
+  const _NotificationCard({
+    required this.notification,
+    this.onTap,
+    this.onLongPress,
+  });
 
   @override
   Widget build(BuildContext context) {
     final Color color = notification.statusColor();
-    return Container(
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Container(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -336,6 +481,8 @@ class _NotificationCard extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
         ),
       ),
     );

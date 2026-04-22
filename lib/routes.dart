@@ -4,6 +4,7 @@ import 'package:zyduspod/screens/splash_screen.dart';
 import 'package:zyduspod/screens/main_navigation.dart';
 import 'package:zyduspod/screens/pod_upload_screen.dart';
 import 'package:zyduspod/screens/upload_status_screen.dart';
+import 'package:zyduspod/screens/pod_review_screen.dart';
 import 'package:zyduspod/screens/batch_detail_screen.dart';
 import 'package:zyduspod/screens/batches_list_screen.dart';
 import 'package:zyduspod/screens/notifications_screen.dart';
@@ -23,6 +24,7 @@ class AppRoutes {
   static const String mainNavigation = '/main';
   static const String podUpload = '/pod-upload';
   static const String uploadStatus = '/upload-status';
+  static const String podReview = '/pod-review';
   static const String batchDetail = '/batch-detail';
   static const String batchesList = '/batches-list';
   static const String notifications = '/notifications';
@@ -71,6 +73,16 @@ class RouteGenerator {
           );
         }
         return _errorRoute('UploadStatusScreen requires uploadData and totalFiles');
+
+      case AppRoutes.podReview:
+        if (args is Map<String, dynamic> && args['review'] is Map<String, dynamic>) {
+          return MaterialPageRoute(
+            builder: (_) => PodReviewScreen(
+              review: args['review'] as Map<String, dynamic>,
+            ),
+          );
+        }
+        return _errorRoute('PodReviewScreen requires review payload');
 
       case AppRoutes.batchDetail:
         if (args is Map<String, dynamic>) {

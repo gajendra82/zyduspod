@@ -1,6 +1,6 @@
-# Zydus Pod
+# Zydus Vistaar
 
-Zydus Pod is a powerful platform for managing and tracking the status of your shipments.
+Zydus Vistaar is a powerful platform for managing and tracking the status of your shipments.
 
 ## Features
 
@@ -46,9 +46,9 @@ To run the app on web:
 
 ## App Manifest
 
-- App name: **zyduspod**
+- App name: **Zydus Vistaar**
 - Theme color: `#0175C2`
-- Description: Zydus Pod is a platform for managing and tracking the status of your shipments.
+- Description: Zydus Vistaar is a platform for managing and tracking the status of your shipments.
 
 ## Development
 
@@ -60,4 +60,4 @@ This project is licensed under the MIT License.
 
 ---
 
-*Made with Flutter*
+_Made with Flutter_
