@@ -25,6 +25,7 @@ class _PodReviewScreenState extends State<PodReviewScreen> {
   late final int _batchDbId;
   late final Map<String, dynamic> _stockist;
   late final List<_HospitalRow> _rows;
+  late final List<Map<String, dynamic>> _failedFiles;
   bool _submitting = false;
 
   @override
@@ -36,6 +37,9 @@ class _PodReviewScreenState extends State<PodReviewScreen> {
     _rows = rawRows
         .whereType<Map<String, dynamic>>()
         .map(_HospitalRow.fromJson)
+        .toList();
+    _failedFiles = ((widget.review['failed_files'] as List?) ?? [])
+        .whereType<Map<String, dynamic>>()
         .toList();
   }
 
@@ -350,7 +354,7 @@ class _PodReviewScreenState extends State<PodReviewScreen> {
   }
 
   Widget _buildList() {
-    if (_rows.isEmpty) {
+    if (_rows.isEmpty && _failedFiles.isEmpty) {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(24),
@@ -362,10 +366,93 @@ class _PodReviewScreenState extends State<PodReviewScreen> {
       );
     }
 
+    final banner = _failedFiles.isEmpty ? null : _buildFailedFilesBanner();
+    final bannerOffset = banner == null ? 0 : 1;
+
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 100),
-      itemCount: _rows.length,
-      itemBuilder: (_, i) => _buildRowCard(_rows[i], i),
+      itemCount: _rows.length + bannerOffset,
+      itemBuilder: (_, i) {
+        if (banner != null && i == 0) return banner;
+        return _buildRowCard(_rows[i - bannerOffset], i - bannerOffset);
+      },
+    );
+  }
+
+  Widget _buildFailedFilesBanner() {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 1,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(color: Colors.red.shade200),
+      ),
+      color: Colors.red.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.error_outline, size: 18, color: Colors.red.shade700),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    '${_failedFiles.length} file${_failedFiles.length == 1 ? '' : 's'} failed to process',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: Colors.red.shade800,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            ..._failedFiles.map((f) {
+              final fileName = (f['file_name'] ?? 'unknown').toString();
+              final error = (f['error'] ?? '').toString();
+              return Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      fileName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    if (error.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          error,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.red.shade700,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            }),
+            const SizedBox(height: 6),
+            Text(
+              'Re-upload these files separately to process them.',
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.grey.shade700,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

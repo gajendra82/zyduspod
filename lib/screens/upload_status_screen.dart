@@ -126,9 +126,11 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
       final review = data['review'] as Map<String, dynamic>?;
       final hospitals = review == null ? null : review['hospitals'] as List?;
       final hasHospitals = hospitals != null && hospitals.isNotEmpty;
+      final failedFiles = review == null ? null : review['failed_files'] as List?;
+      final hasFailedFiles = failedFiles != null && failedFiles.isNotEmpty;
       final terminalResult = data['result']?.toString();
 
-      if (newStatus == 'completed' && hasHospitals) {
+      if (newStatus == 'completed' && (hasHospitals || hasFailedFiles)) {
         _navigatedToReview = true;
         _pollTimer?.cancel();
         if (!mounted) return;
