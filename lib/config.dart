@@ -1,8 +1,8 @@
-const String API_BASE_URL = "https://zydus.mediola.in/development/api/";
+// const String API_BASE_URL = "https://zydus.mediola.in/development/api/";
 
 // const String API_BASE_URL = "192.168.0.122:8000/api/";
 
-// const String API_BASE_URL = "http://127.0.0.1:8000/api/";
+const String API_BASE_URL = "http://127.0.0.1:8000/api/";
 
 // const String API_BASE_URL = "https://zydus.mediola.in/pod_dev/api/";
 // const String API_BASE_URL = "https://a83a5178e1bf.ngrok-free.app/api/";
