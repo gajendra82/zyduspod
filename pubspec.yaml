@@ -68,15 +68,15 @@ flutter:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: assets/branding/zydus_logo.png
+  image_path: assets/branding/logo1.png
   adaptive_icon_background: "#FFFFFF"
-  adaptive_icon_foreground: assets/branding/zydus_logo.png
+  adaptive_icon_foreground: assets/branding/logo1.png
   remove_alpha_ios: true
   min_sdk_android: 21
 
 flutter_native_splash:
   color: "#FFFFFF"
-  image: assets/branding/zydus_logo.png
+  image: assets/branding/logo1.png
   android_12:
-    image: assets/branding/zydus_logo.png
+    image: assets/branding/logo1.png
     icon_background_color: "#FFFFFF"

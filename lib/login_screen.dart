@@ -405,7 +405,7 @@ class _LoginScreenState extends State<LoginScreen>
                   ],
                 ),
                 child: Image.asset(
-                  'assets/branding/zydus_logo.png',
+                  'assets/branding/logo1.jpeg',
                   height: 140,
                   fit: BoxFit.contain,
                 ),

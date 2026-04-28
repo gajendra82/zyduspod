@@ -1,6 +1,6 @@
-# Zydus Vistaar
+# demo
 
-Zydus Vistaar is a powerful platform for managing and tracking the status of your shipments.
+demo is a powerful platform for managing and tracking the status of your shipments.
 
 ## Features
 
@@ -46,9 +46,9 @@ To run the app on web:
 
 ## App Manifest
 
-- App name: **Zydus Vistaar**
+- App name: **demo**
 - Theme color: `#0175C2`
-- Description: Zydus Vistaar is a platform for managing and tracking the status of your shipments.
+- Description: demo is a platform for managing and tracking the status of your shipments.
 
 ## Development
 

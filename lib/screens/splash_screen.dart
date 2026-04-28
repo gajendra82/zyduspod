@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zyduspod/routes.dart';
 
-const String _splashLogoAsset = 'assets/branding/zydus_logo.png';
+const String _splashLogoAsset = 'assets/branding/logo1.jpeg';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
