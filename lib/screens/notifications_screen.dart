@@ -369,6 +369,9 @@ class _NotificationCard extends StatelessWidget {
     this.onLongPress,
   });
 
+  bool get _isActionable =>
+      notification.data?['type']?.toString() == 'pod_batch_review';
+
   @override
   Widget build(BuildContext context) {
     final Color color = notification.statusColor();
@@ -377,7 +380,7 @@ class _NotificationCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
+        onTap: _isActionable ? onTap : null,
         onLongPress: onLongPress,
         child: Container(
       decoration: BoxDecoration(
@@ -460,26 +463,29 @@ class _NotificationCard extends StatelessWidget {
                 ),
               ),
             ],
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  notification.status.toUpperCase(),
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    color: color,
-                    letterSpacing: 0.6,
+            if (_isActionable) ...[
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    notification.status.toUpperCase(),
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: color,
+                      letterSpacing: 0.6,
+                    ),
                   ),
                 ),
               ),
-            ),
+            ],
           ],
         ),
       ),
