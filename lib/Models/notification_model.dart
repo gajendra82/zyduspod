@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 class AppNotification {
@@ -7,6 +9,7 @@ class AppNotification {
   final String status; // e.g., info, success, warning, error, unread/read
   final String? description;
   final DateTime? createdAt;
+  final Map<String, dynamic>? data;
 
   const AppNotification({
     required this.id,
@@ -15,6 +18,7 @@ class AppNotification {
     required this.status,
     this.description,
     this.createdAt,
+    this.data,
   });
 
   factory AppNotification.fromJson(Map<String, dynamic> json) {
@@ -25,7 +29,30 @@ class AppNotification {
       status: (json['status'] ?? json['type'] ?? 'info').toString(),
       description: (json['description'] ?? json['details'])?.toString(),
       createdAt: _tryParseDateTime(json['created_at'] ?? json['date']),
+      data: _parseData(json['data']),
     );
+  }
+
+  static Map<String, dynamic>? _parseData(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is Map) {
+      // jsonDecode returns nested maps typed as Map<String, dynamic> at runtime
+      // but the static `is Map<String, dynamic>` check can fail for nested
+      // maps, so normalize via Map.from.
+      return Map<String, dynamic>.from(raw);
+    }
+    if (raw is String && raw.isNotEmpty) {
+      // Some backends store notification.data as an encoded JSON string.
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          return Map<String, dynamic>.from(decoded);
+        }
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
   }
 
   static DateTime? _tryParseDateTime(dynamic value) {

@@ -1,7 +1,15 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:zyduspod/config.dart';
+import 'package:zyduspod/routes.dart';
 import 'package:zyduspod/widgets/modern_ui_components.dart';
 
-class UploadStatusScreen extends StatelessWidget {
+class UploadStatusScreen extends StatefulWidget {
   final Map<String, dynamic> uploadData;
   final int totalFiles;
 
@@ -12,22 +20,159 @@ class UploadStatusScreen extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final data = uploadData['data'] as Map<String, dynamic>?;
+  State<UploadStatusScreen> createState() => _UploadStatusScreenState();
+}
 
-    // ✅ FIX: Convert all values to strings to avoid type errors
-    final batchId = (data?['batch_id'] ?? 'N/A').toString();
-    final status = (data?['status'] ?? 'processing').toString();
-    final correlationId = (data?['correlation_id'] ?? 'N/A').toString();
-    final estimatedCompletion =
-        (data?['estimated_completion'] ?? 'N/A').toString();
-    final processingSteps =
-        data?['processing_steps'] as Map<String, dynamic>? ?? {};
+class _UploadStatusScreenState extends State<UploadStatusScreen> {
+  static const Duration _pollInterval = Duration(seconds: 4);
+  static const Duration _pollTimeout = Duration(minutes: 15);
+
+  Timer? _pollTimer;
+  DateTime? _pollStartedAt;
+  String _status = 'processing';
+  int _progressPercentage = 0;
+  int _blocksCompleted = 0;
+  int _blocksTotal = 0;
+  int _invoicesProcessed = 0;
+  String? _currentBlock;
+  String _batchId = 'N/A';
+  int? _batchDbId;
+  Map<String, dynamic> _steps = {};
+  bool _navigatedToReview = false;
+  String? _terminalResult; // e.g. 'no_new_pods'
+  String? _terminalMessage;
+
+  @override
+  void initState() {
+    super.initState();
+
+    final data = widget.uploadData['data'] as Map<String, dynamic>?;
+    _batchId = (data?['batch_id'] ?? 'N/A').toString();
+    _batchDbId = _coerceInt(data?['batch_db_id']) ?? _coerceInt(data?['id']);
+    _status = (data?['status'] ?? 'processing').toString();
+
+    _pollStartedAt = DateTime.now();
+    _pollTimer = Timer.periodic(_pollInterval, (_) => _pollStatus());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _pollStatus());
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
+  }
+
+  int? _coerceInt(dynamic v) {
+    if (v == null) return null;
+    if (v is int) return v;
+    if (v is String) return int.tryParse(v);
+    return null;
+  }
+
+  Future<void> _pollStatus() async {
+    if (_navigatedToReview) return;
+    if (_pollStartedAt != null &&
+        DateTime.now().difference(_pollStartedAt!) > _pollTimeout) {
+      _pollTimer?.cancel();
+      return;
+    }
+
+    final pollKey = _batchDbId?.toString() ?? _batchId;
+    if (pollKey.isEmpty || pollKey == 'N/A') {
+      return;
+    }
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('authToken');
+      final uri = Uri.parse('${API_BASE_URL}pod/upload-background/$pollKey');
+
+      final resp = await http
+          .get(
+            uri,
+            headers: {
+              if (token != null) 'Authorization': 'Bearer $token',
+              'Accept': 'application/json',
+            },
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (resp.statusCode != 200) return;
+
+      final decoded = jsonDecode(resp.body);
+      if (decoded is! Map<String, dynamic>) return;
+      final data = decoded['data'] as Map<String, dynamic>?;
+      if (data == null) return;
+
+      final newStatus = (data['status'] ?? _status).toString();
+      final rawProgress = _coerceInt(data['progress_percentage']) ?? _progressPercentage;
+      final newProgress = rawProgress.clamp(0, 100);
+      final blockProgress = data['block_progress'] as Map<String, dynamic>?;
+      final steps = data['steps'] as Map<String, dynamic>? ?? _steps;
+
+      if (!mounted) return;
+      setState(() {
+        _status = newStatus;
+        _progressPercentage = newProgress;
+        _steps = steps;
+        if (blockProgress != null) {
+          _blocksCompleted = _coerceInt(blockProgress['blocks_completed']) ?? 0;
+          _blocksTotal = _coerceInt(blockProgress['blocks_total']) ?? 0;
+          _invoicesProcessed = _coerceInt(blockProgress['invoices_processed']) ?? 0;
+          _currentBlock = blockProgress['current_block']?.toString();
+        }
+      });
+
+      final review = data['review'] as Map<String, dynamic>?;
+      final hospitals = review == null ? null : review['hospitals'] as List?;
+      final hasHospitals = hospitals != null && hospitals.isNotEmpty;
+      final failedFiles = review == null ? null : review['failed_files'] as List?;
+      final hasFailedFiles = failedFiles != null && failedFiles.isNotEmpty;
+      final terminalResult = data['result']?.toString();
+
+      if (newStatus == 'completed' && (hasHospitals || hasFailedFiles)) {
+        _navigatedToReview = true;
+        _pollTimer?.cancel();
+        if (!mounted) return;
+        Navigator.of(context).pushReplacementNamed(
+          AppRoutes.podReview,
+          arguments: {'review': review},
+        );
+      } else if (newStatus == 'completed' && terminalResult != null) {
+        // Terminal: batch finished but no new PODs were created (e.g. all
+        // invoices were already uploaded earlier). Stop polling; the UI will
+        // render a completion message.
+        _pollTimer?.cancel();
+        if (!mounted) return;
+        setState(() {
+          _terminalResult = terminalResult;
+          _terminalMessage = data['result_message']?.toString();
+        });
+      } else if (newStatus == 'failed') {
+        _pollTimer?.cancel();
+      }
+      // If status=completed but review is still empty, keep polling —
+      // child jobs may still be persisting POD records.
+    } on TimeoutException {
+      // ignore; next tick will retry
+    } catch (_) {
+      // ignore transient errors; polling continues
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasTerminal = _terminalResult != null;
+    final isProcessing = !hasTerminal && (_status == 'processing' || _status == 'pending');
+    final isCompleted = _status == 'completed' || hasTerminal;
+    final isFailed = _status == 'failed';
 
     return Scaffold(
       appBar: ModernUIComponents.buildModernAppBar(
         title: 'Upload Status',
-        subtitle: 'Background processing initiated',
+        subtitle: isCompleted
+            ? 'Extraction complete'
+            : (isFailed ? 'Extraction failed' : 'Processing…'),
         icon: Icons.cloud_upload,
         color: const Color(0xFF00A0A8),
       ),
@@ -44,53 +189,58 @@ class UploadStatusScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Success Header
-              _buildSuccessCard(),
+              _buildStatusHeader(isProcessing, isCompleted, isFailed),
               const SizedBox(height: 20),
-
-              // Upload Summary
               _buildSectionCard(
                 icon: Icons.info_outline,
                 title: 'Upload Summary',
                 child: Column(
                   children: [
-                    _buildInfoRow('Total Files', totalFiles.toString()),
-                    _buildInfoRow('Batch ID', batchId),
-                    _buildInfoRow('Status', status.toUpperCase()),
-                    _buildInfoRow('Correlation ID', correlationId),
-                    _buildInfoRow(
-                      'Estimated Completion',
-                      _formatDateTime(estimatedCompletion),
-                    ),
+                    _buildInfoRow('Total Files', widget.totalFiles.toString()),
+                    _buildInfoRow('Batch ID', _batchId),
+                    _buildInfoRow('Status', _status.toUpperCase()),
+                    if (_blocksTotal > 0)
+                      _buildInfoRow(
+                        'Blocks',
+                        '$_blocksCompleted / $_blocksTotal'
+                            '${_currentBlock != null ? '  •  $_currentBlock' : ''}',
+                      ),
+                    if (_invoicesProcessed > 0)
+                      _buildInfoRow('Invoices Extracted', _invoicesProcessed.toString()),
                   ],
                 ),
               ),
-
               const SizedBox(height: 16),
-
-              // Processing Steps
-              _buildSectionCard(
-                icon: Icons.timeline,
-                title: 'Processing Steps',
-                child: Column(
-                  children:
-                      processingSteps.entries.map((entry) {
-                        return _buildProcessingStep(
-                          entry.key,
-                          entry.value.toString(),
-                        );
-                      }).toList(),
-                ),
+              LinearProgressIndicator(
+                value: _progressPercentage > 0 ? _progressPercentage / 100 : null,
+                minHeight: 8,
+                backgroundColor: Colors.teal.withOpacity(0.15),
+                valueColor: const AlwaysStoppedAnimation(Color(0xFF00A0A8)),
               ),
-
+              const SizedBox(height: 8),
+              Text(
+                _progressPercentage > 0 ? '$_progressPercentage%' : 'Starting…',
+                style: const TextStyle(fontSize: 12, color: Colors.black54),
+              ),
+              const SizedBox(height: 16),
+              if (_steps.isNotEmpty)
+                _buildSectionCard(
+                  icon: Icons.timeline,
+                  title: 'Processing Steps',
+                  child: Column(
+                    children: _steps.entries
+                        .map((entry) => _buildProcessingStep(
+                              entry.key,
+                              entry.value is Map
+                                  ? (entry.value['status']?.toString() ?? '')
+                                  : entry.value.toString(),
+                            ))
+                        .toList(),
+                  ),
+                ),
               const SizedBox(height: 20),
-
-              // Important Notice
-              _buildNoticeCard(),
-
+              _buildNoticeCard(isCompleted, isFailed),
               const SizedBox(height: 20),
-
-              // Action Buttons
               _buildActionButtons(context),
             ],
           ),
@@ -99,7 +249,28 @@ class UploadStatusScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildSuccessCard() {
+  Widget _buildStatusHeader(bool isProcessing, bool isCompleted, bool isFailed) {
+    final color = isFailed
+        ? Colors.red
+        : (isCompleted ? Colors.green : Colors.teal);
+    final icon = isFailed
+        ? Icons.error
+        : (isCompleted ? Icons.check_circle : Icons.hourglass_top);
+    final isTerminalNoNew = _terminalResult == 'no_new_pods';
+    final title = isFailed
+        ? 'Extraction Failed'
+        : (isTerminalNoNew
+            ? 'No New Invoices'
+            : (isCompleted ? 'Extraction Complete' : 'Files Uploaded'));
+    final subtitle = isFailed
+        ? 'Something went wrong during processing. Try again.'
+        : (isTerminalNoNew
+            ? (_terminalMessage ??
+                'All invoices in this upload were already recorded earlier.')
+            : (isCompleted
+                ? 'Redirecting to the review screen…'
+                : 'Background processing is running. This screen auto-updates.'));
+
     return Card(
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -108,7 +279,7 @@ class UploadStatusScreen extends StatelessWidget {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
           gradient: LinearGradient(
-            colors: [Colors.green.shade400, Colors.green.shade600],
+            colors: [color.shade400, color.shade600],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -121,20 +292,16 @@ class UploadStatusScreen extends StatelessWidget {
                 color: Colors.white.withOpacity(0.2),
                 borderRadius: BorderRadius.circular(50),
               ),
-              child: const Icon(
-                Icons.check_circle,
-                color: Colors.white,
-                size: 32,
-              ),
+              child: Icon(icon, color: Colors.white, size: 32),
             ),
             const SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Files Uploaded Successfully! ',
-                    style: TextStyle(
+                  Text(
+                    title,
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -142,7 +309,7 @@ class UploadStatusScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Background processing has been initiated.  Your data will appear on the dashboard once processing is complete.',
+                    subtitle,
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.9),
                       fontSize: 14,
@@ -151,6 +318,15 @@ class UploadStatusScreen extends StatelessWidget {
                 ],
               ),
             ),
+            if (isProcessing)
+              const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation(Colors.white),
+                ),
+              ),
           ],
         ),
       ),
@@ -200,7 +376,7 @@ class UploadStatusScreen extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 120,
+            width: 130,
             child: Text(
               '$label:',
               style: TextStyle(
@@ -226,9 +402,6 @@ class UploadStatusScreen extends StatelessWidget {
   }
 
   Widget _buildProcessingStep(String stepKey, String stepValue) {
-    // Convert step keys to readable format
-    String readableStep = _getReadableStepName(stepKey);
-
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
@@ -253,9 +426,9 @@ class UploadStatusScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  readableStep,
+                  stepKey.replaceAll('_', ' ').toUpperCase(),
                   style: const TextStyle(
-                    fontSize: 14,
+                    fontSize: 13,
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF2C3E50),
                   ),
@@ -272,7 +445,20 @@ class UploadStatusScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildNoticeCard() {
+  Widget _buildNoticeCard(bool isCompleted, bool isFailed) {
+    final color = isFailed
+        ? Colors.red
+        : (isCompleted ? Colors.green : Colors.blue);
+    final isTerminalNoNew = _terminalResult == 'no_new_pods';
+    final text = isFailed
+        ? 'Processing failed. Please retry the upload or contact support.'
+        : (isTerminalNoNew
+            ? (_terminalMessage ??
+                'No new PODs were created — the invoices in this upload match records that already exist. Use the dashboard to review existing PODs.')
+            : (isCompleted
+                ? 'Extraction finished. You will be redirected to review the hospitals detected in the invoices.'
+                : 'Your files are being processed. This screen updates automatically every few seconds.'));
+
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -280,31 +466,17 @@ class UploadStatusScreen extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
-          color: Colors.blue.shade50,
-          border: Border.all(color: Colors.blue.shade200),
+          color: color.shade50,
+          border: Border.all(color: color.shade200),
         ),
         child: Row(
           children: [
-            Icon(Icons.info, color: Colors.blue.shade700, size: 24),
+            Icon(Icons.info, color: color.shade700, size: 24),
             const SizedBox(width: 12),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Important Notice',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blue.shade700,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Your files are being processed in the background. This may take a few minutes.  You can check the dashboard later to see the processed data.',
-                    style: TextStyle(fontSize: 14, color: Colors.blue.shade600),
-                  ),
-                ],
+              child: Text(
+                text,
+                style: TextStyle(fontSize: 14, color: color.shade700),
               ),
             ),
           ],
@@ -320,7 +492,6 @@ class UploadStatusScreen extends StatelessWidget {
           width: double.infinity,
           child: ElevatedButton.icon(
             onPressed: () {
-              // Navigate back to dashboard or main screen
               Navigator.of(context).popUntil((route) => route.isFirst);
             },
             icon: const Icon(Icons.dashboard),
@@ -335,65 +506,16 @@ class UploadStatusScreen extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            onPressed: () {
-              // Navigate back to upload screen
-              Navigator.of(context).pop();
-            },
-            icon: const Icon(Icons.upload),
-            label: const Text('Upload More Files'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: const Color(0xFF00A0A8),
-              side: const BorderSide(color: Color(0xFF00A0A8)),
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          ),
-        ),
       ],
     );
   }
 
-  String _formatDateTime(String dateTimeString) {
-    if (dateTimeString == 'N/A') return 'N/A';
-
-    try {
-      final dateTime = DateTime.parse(dateTimeString);
-      return '${dateTime.day}/${dateTime.month}/${dateTime.year} at ${dateTime.hour}: ${dateTime.minute.toString().padLeft(2, '0')}';
-    } catch (e) {
-      return dateTimeString;
-    }
-  }
-
-  String _getReadableStepName(String stepKey) {
-    switch (stepKey) {
-      case 'step_1':
-        return 'File Storage';
-      case 'step_2':
-        return 'Data Extraction';
-      case 'step_3':
-        return 'E-invoice Processing';
-      case 'step_4':
-        return 'Data Storage';
-      default:
-        return stepKey.replaceAll('_', ' ').toUpperCase();
-    }
-  }
-
   Color _getStepColor(String stepValue) {
-    if (stepValue.toLowerCase().contains('successfully')) {
-      return Colors.green;
-    } else if (stepValue.toLowerCase().contains('progress')) {
-      return Colors.orange;
-    } else if (stepValue.toLowerCase().contains('pending')) {
-      return Colors.grey;
-    } else {
-      return Colors.blue;
-    }
+    final v = stepValue.toLowerCase();
+    if (v.contains('completed') || v.contains('success')) return Colors.green;
+    if (v.contains('progress') || v.contains('processing')) return Colors.orange;
+    if (v.contains('pending')) return Colors.grey;
+    if (v.contains('failed') || v.contains('error')) return Colors.red;
+    return Colors.blue;
   }
 }

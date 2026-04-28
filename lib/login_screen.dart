@@ -150,10 +150,9 @@ class _LoginScreenState extends State<LoginScreen>
           ),
         );
 
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          AppRoutes.mainNavigation,
-          (route) => false,
-        );
+        Navigator.of(
+          context,
+        ).pushNamedAndRemoveUntil(AppRoutes.mainNavigation, (route) => false);
       } else {
         // Handle error responses
         _handleErrorResponse(response);
@@ -406,7 +405,7 @@ class _LoginScreenState extends State<LoginScreen>
                   ],
                 ),
                 child: Image.asset(
-                  'assets/branding/logo_1.jpeg',
+                  'assets/branding/logo1.jpeg',
                   height: 140,
                   fit: BoxFit.contain,
                 ),
@@ -431,7 +430,7 @@ class _LoginScreenState extends State<LoginScreen>
           ),
           const SizedBox(height: 8),
           Text(
-            'Sign in to continue to Zydus POD',
+            'Sign in to continue to Zydus Vistaar',
             style: TextStyle(
               color: Colors.white.withOpacity(0.9),
               fontSize: 16,
