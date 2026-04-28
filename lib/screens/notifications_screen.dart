@@ -372,9 +372,17 @@ class _NotificationCard extends StatelessWidget {
   bool get _isActionable =>
       notification.data?['type']?.toString() == 'pod_batch_review';
 
+  static const Color _actionableAccent = Color(0xFF00A0A8);
+
   @override
   Widget build(BuildContext context) {
     final Color color = notification.statusColor();
+    final Color cardColor =
+        _isActionable ? _actionableAccent.withOpacity(0.08) : Colors.white;
+    final Color borderColor = _isActionable
+        ? _actionableAccent.withOpacity(0.45)
+        : color.withOpacity(0.15);
+    final double borderWidth = _isActionable ? 1.5 : 1.0;
     return Material(
       color: Colors.transparent,
       borderRadius: BorderRadius.circular(16),
@@ -382,9 +390,15 @@ class _NotificationCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         onTap: _isActionable ? onTap : null,
         onLongPress: onLongPress,
+        splashColor: _isActionable
+            ? _actionableAccent.withOpacity(0.25)
+            : null,
+        highlightColor: _isActionable
+            ? _actionableAccent.withOpacity(0.18)
+            : null,
         child: Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: cardColor,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -393,7 +407,7 @@ class _NotificationCard extends StatelessWidget {
             offset: const Offset(0, 4),
           ),
         ],
-        border: Border.all(color: color.withOpacity(0.15)),
+        border: Border.all(color: borderColor, width: borderWidth),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
