@@ -15,7 +15,7 @@ class FirebaseService {
   FirebaseMessaging? _messaging;
   FirebaseAnalytics? _analytics;
   FlutterLocalNotificationsPlugin? _localNotifications;
-  
+
   // Notification token for sending targeted notifications
   String? _fcmToken;
 
@@ -24,25 +24,25 @@ class FirebaseService {
     try {
       // Initialize Firebase Core
       await Firebase.initializeApp();
-      
+
       // Initialize Firebase Analytics
       _analytics = FirebaseAnalytics.instance;
-      
+
       // Initialize Firebase Messaging
       _messaging = FirebaseMessaging.instance;
-      
+
       // Initialize Local Notifications
       await _initializeLocalNotifications();
-      
+
       // Request notification permissions
       await _requestNotificationPermissions();
-      
+
       // Get FCM token
       await _getFCMToken();
-      
+
       // Set up message handlers
       _setupMessageHandlers();
-      
+
       if (kDebugMode) {
         print('Firebase services initialized successfully');
       }
@@ -56,23 +56,23 @@ class FirebaseService {
   // Initialize Local Notifications
   Future<void> _initializeLocalNotifications() async {
     _localNotifications = FlutterLocalNotificationsPlugin();
-    
+
     const AndroidInitializationSettings initializationSettingsAndroid =
         AndroidInitializationSettings('@mipmap/ic_launcher');
-    
+
     const DarwinInitializationSettings initializationSettingsIOS =
         DarwinInitializationSettings(
-      requestAlertPermission: true,
-      requestBadgePermission: true,
-      requestSoundPermission: true,
-    );
-    
+          requestAlertPermission: true,
+          requestBadgePermission: true,
+          requestSoundPermission: true,
+        );
+
     const InitializationSettings initializationSettings =
         InitializationSettings(
-      android: initializationSettingsAndroid,
-      iOS: initializationSettingsIOS,
-    );
-    
+          android: initializationSettingsAndroid,
+          iOS: initializationSettingsIOS,
+        );
+
     await _localNotifications?.initialize(initializationSettings);
   }
 
@@ -80,9 +80,12 @@ class FirebaseService {
   Future<void> _requestNotificationPermissions() async {
     if (Platform.isAndroid) {
       // Request Android notification permissions
-      await _localNotifications?.resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>()?.requestNotificationsPermission();
-      
+      await _localNotifications
+          ?.resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >()
+          ?.requestNotificationsPermission();
+
       // Request FCM permissions
       await _messaging?.requestPermission(
         alert: true,
@@ -114,7 +117,7 @@ class FirebaseService {
       if (kDebugMode) {
         print('FCM Token: $_fcmToken');
       }
-      
+
       // You can send this token to your server for targeted notifications
       await _sendTokenToServer(_fcmToken);
     } catch (e) {
@@ -137,17 +140,17 @@ class FirebaseService {
   void _setupMessageHandlers() {
     // Handle background messages
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-    
+
     // Handle foreground messages
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       _handleForegroundMessage(message);
     });
-    
+
     // Handle notification tap when app is in background
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
       _handleNotificationTap(message);
     });
-    
+
     // Handle notification tap when app is terminated
     _messaging?.getInitialMessage().then((RemoteMessage? message) {
       if (message != null) {
@@ -163,7 +166,7 @@ class FirebaseService {
       print('Title: ${message.notification?.title}');
       print('Body: ${message.notification?.body}');
     }
-    
+
     // Show in-app notification or update UI
     _showInAppNotification(message);
   }
@@ -173,7 +176,7 @@ class FirebaseService {
     if (kDebugMode) {
       print('Notification tapped: ${message.messageId}');
     }
-    
+
     // Navigate to specific screen based on notification data
     _navigateFromNotification(message);
   }
@@ -183,37 +186,37 @@ class FirebaseService {
     if (message.notification != null) {
       const AndroidNotificationDetails androidPlatformChannelSpecifics =
           AndroidNotificationDetails(
-        'zyduspod_channel',
-        'ZydusPod Notifications',
-        channelDescription: 'Notifications for ZydusPod app',
-        importance: Importance.max,
-        priority: Priority.high,
-        showWhen: true,
-        enableVibration: true,
-        playSound: true,
-      );
-      
+            'zyduspod_channel',
+            'Zydus Vistaar Notifications',
+            channelDescription: 'Notifications for Zydus Vistaar app',
+            importance: Importance.max,
+            priority: Priority.high,
+            showWhen: true,
+            enableVibration: true,
+            playSound: true,
+          );
+
       const DarwinNotificationDetails iOSPlatformChannelSpecifics =
           DarwinNotificationDetails(
-        presentAlert: true,
-        presentBadge: true,
-        presentSound: true,
-        sound: 'default',
-      );
-      
+            presentAlert: true,
+            presentBadge: true,
+            presentSound: true,
+            sound: 'default',
+          );
+
       const NotificationDetails platformChannelSpecifics = NotificationDetails(
         android: androidPlatformChannelSpecifics,
         iOS: iOSPlatformChannelSpecifics,
       );
-      
+
       await _localNotifications?.show(
         message.hashCode,
-        message.notification?.title ?? 'ZydusPod',
+        message.notification?.title ?? 'Zydus Vistaar',
         message.notification?.body ?? '',
         platformChannelSpecifics,
         payload: message.data.toString(),
       );
-      
+
       if (kDebugMode) {
         print('System notification shown: ${message.notification!.title}');
       }
@@ -224,7 +227,7 @@ class FirebaseService {
   void _navigateFromNotification(RemoteMessage message) {
     // Extract navigation data from message.data
     final data = message.data;
-    
+
     if (data.containsKey('screen')) {
       final screen = data['screen'];
       // Navigate to specific screen based on the data
@@ -247,9 +250,13 @@ class FirebaseService {
     try {
       if (Platform.isAndroid) {
         // Request Android notification permissions
-        final result = await _localNotifications?.resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()?.requestNotificationsPermission();
-        
+        final result =
+            await _localNotifications
+                ?.resolvePlatformSpecificImplementation<
+                  AndroidFlutterLocalNotificationsPlugin
+                >()
+                ?.requestNotificationsPermission();
+
         // Also request FCM permissions
         final fcmSettings = await _messaging?.requestPermission(
           alert: true,
@@ -260,8 +267,10 @@ class FirebaseService {
           provisional: false,
           sound: true,
         );
-        
-        return (result == true) && (fcmSettings?.authorizationStatus == AuthorizationStatus.authorized);
+
+        return (result == true) &&
+            (fcmSettings?.authorizationStatus ==
+                AuthorizationStatus.authorized);
       } else if (Platform.isIOS) {
         // Request iOS notification permissions
         final settings = await _messaging?.requestPermission(
@@ -273,7 +282,7 @@ class FirebaseService {
           provisional: false,
           sound: true,
         );
-        
+
         return settings?.authorizationStatus == AuthorizationStatus.authorized;
       }
       return false;
@@ -306,43 +315,43 @@ class FirebaseService {
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
-  
+
   if (kDebugMode) {
     print('Handling background message: ${message.messageId}');
   }
-  
+
   // Show system notification for background messages
   if (message.notification != null) {
     const AndroidNotificationDetails androidPlatformChannelSpecifics =
         AndroidNotificationDetails(
-      'zyduspod_channel',
-      'ZydusPod Notifications',
-      channelDescription: 'Notifications for ZydusPod app',
-      importance: Importance.max,
-      priority: Priority.high,
-      showWhen: true,
-      enableVibration: true,
-      playSound: true,
-    );
-    
+          'zyduspod_channel',
+          'Zydus Vistaar Notifications',
+          channelDescription: 'Notifications for Zydus Vistaar app',
+          importance: Importance.max,
+          priority: Priority.high,
+          showWhen: true,
+          enableVibration: true,
+          playSound: true,
+        );
+
     const DarwinNotificationDetails iOSPlatformChannelSpecifics =
         DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-    );
-    
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+        );
+
     const NotificationDetails platformChannelSpecifics = NotificationDetails(
       android: androidPlatformChannelSpecifics,
       iOS: iOSPlatformChannelSpecifics,
     );
-    
+
     final FlutterLocalNotificationsPlugin localNotifications =
         FlutterLocalNotificationsPlugin();
-    
+
     await localNotifications.show(
       message.hashCode,
-      message.notification?.title ?? 'ZydusPod',
+      message.notification?.title ?? 'Zydus Vistaar',
       message.notification?.body ?? '',
       platformChannelSpecifics,
       payload: message.data.toString(),

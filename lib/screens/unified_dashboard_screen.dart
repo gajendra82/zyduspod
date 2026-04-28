@@ -59,7 +59,7 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
       child: Scaffold(
         backgroundColor: Colors.white,
         appBar: AppBar(
-          title: const Text('Vistaar'),
+          title: const Text('Zydus Vistaar'),
           backgroundColor: Colors.white,
           foregroundColor: const Color(0xFF2C3E50),
           elevation: 0,
