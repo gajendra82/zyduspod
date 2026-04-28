@@ -1,6 +1,4 @@
-<!DOCTYPE html>
-<html>
-<head>
+<!DOCTYPE html><html><head>
   <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
@@ -24,6 +22,9 @@
   <!-- Permissions Policy for camera access -->
   <meta http-equiv="Permissions-Policy" content="camera=*, microphone=*, geolocation=*">
   
+  
+  
+  
   <style id="splash-screen-style">
     html {
       height: 100%
@@ -33,7 +34,7 @@
       margin: 0;
       min-height: 100%;
       background-color: #FFFFFF;
-      background-size: 100% 100%;
+          background-size: 100% 100%;
     }
 
     .center {
@@ -81,91 +82,7 @@
       bottom: 0;
       right: 0;
     }
-
-    /* Camera Modal Styles */
-    #cameraModal {
-      display: none;
-      position: fixed;
-      z-index: 999999;
-      left: 0;
-      top: 0;
-      width: 100%;
-      height: 100%;
-      background-color: rgba(0, 0, 0, 0.95);
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-    }
-
-    #cameraModal.active {
-      display: flex;
-    }
-
-    #cameraContainer {
-      position: relative;
-      max-width: 90%;
-      max-height: 80vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-
-    #videoElement {
-      max-width: 100%;
-      max-height: 70vh;
-      border: 3px solid #00A0A8;
-      border-radius: 12px;
-      background: #000;
-    }
-
-    #cameraControls {
-      margin-top: 20px;
-      display: flex;
-      gap: 15px;
-      flex-wrap: wrap;
-      justify-content: center;
-    }
-
-    .camera-btn {
-      padding: 15px 35px;
-      font-size: 18px;
-      border: none;
-      border-radius: 12px;
-      cursor: pointer;
-      font-weight: bold;
-      transition: all 0. 3s ease;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .camera-btn:hover {
-      transform: scale(1.05);
-      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
-    }
-
-    .camera-btn:active {
-      transform: scale(0.98);
-    }
-
-    .camera-btn.capture {
-      background-color: #00A0A8;
-      color: white;
-    }
-
-    .camera-btn.cancel {
-      background-color: #dc3545;
-      color: white;
-    }
-
-    #cameraStatus {
-      margin-top: 10px;
-      color: white;
-      font-size: 14px;
-      text-align: center;
-    }
   </style>
-  
   <script id="splash-screen-script">
     function removeSplashFromWeb() {
       document.getElementById("splash")?.remove();
@@ -175,8 +92,13 @@
   </script>
 </head>
 <body>
-  <script src='https://cdn.jsdelivr.net/npm/pdfjs-dist@4.6.82/build/pdf.min.mjs' type='module'></script>
-  <script type='module'>
+  <picture id="splash">
+      <source srcset="splash/img/light-1x.png 1x, splash/img/light-2x.png 2x, splash/img/light-3x.png 3x, splash/img/light-4x.png 4x" media="(prefers-color-scheme: light)">
+      <source srcset="splash/img/dark-1x.png 1x, splash/img/dark-2x.png 2x, splash/img/dark-3x.png 3x, splash/img/dark-4x.png 4x" media="(prefers-color-scheme: dark)">
+      <img class="center" aria-hidden="true" src="splash/img/light-1x.png" alt="">
+  </picture>
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.6.82/build/pdf.min.mjs" type="module"></script>
+  <script type="module">
   var { pdfjsLib } = globalThis;
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.6.82/build/pdf.worker.mjs';
 
@@ -185,11 +107,7 @@
     cMapPacked: true,
   }
   </script>
-  <picture id="splash">
-      <source srcset="splash/img/light-1x.png 1x, splash/img/light-2x.png 2x, splash/img/light-3x. png 3x, splash/img/light-4x.png 4x" media="(prefers-color-scheme: light)">
-      <source srcset="splash/img/dark-1x. png 1x, splash/img/dark-2x.png 2x, splash/img/dark-3x.png 3x, splash/img/dark-4x.png 4x" media="(prefers-color-scheme: dark)">
-      <img class="center" aria-hidden="true" src="splash/img/light-1x.png" alt="">
-  </picture>
+  
   
   <script id="camera-capture-script">
     let stream = null;
@@ -373,5 +291,5 @@
   </script>
 
   <script src="flutter_bootstrap.js" async=""></script>
-</body>
-</html>
+
+</body></html>
