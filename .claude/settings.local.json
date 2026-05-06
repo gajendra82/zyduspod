@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Add-Type -AssemblyName System.Drawing; foreach \\($d in 'mdpi','hdpi','xhdpi','xxhdpi','xxxhdpi'\\) { $p = Resolve-Path \"android/app/src/main/res/drawable-$d/android12splash.png\"; $img = [System.Drawing.Image]::FromFile\\($p.Path\\); Write-Output \"${d}: $\\($img.Width\\)x$\\($img.Height\\)\"; $img.Dispose\\(\\) }; $img = [System.Drawing.Image]::FromFile\\(\\(Resolve-Path 'assets/branding/logo1.png'\\).Path\\); Write-Output \\(\"logo1: \" + $img.Width + \"x\" + $img.Height\\); $img.Dispose\\(\\))",
+      "Bash(git commit -m ' *)",
+      "Bash(flutter --version)",
+      "Bash(flutter pub *)",
+      "Bash(dart run *)",
+      "Bash(git restore *)"
+    ]
+  }
+}
