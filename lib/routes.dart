@@ -4,7 +4,12 @@ import 'package:zyduspod/screens/splash_screen.dart';
 import 'package:zyduspod/screens/main_navigation.dart';
 import 'package:zyduspod/screens/pod_upload_screen.dart';
 import 'package:zyduspod/screens/upload_status_screen.dart';
-import 'package:zyduspod/screens/pod_review_screen.dart';
+// Hospital mapping is now handled exclusively from the web "Hospital Mapping
+// Review" tool. Keeping the import commented (and the screen file in the
+// repo) so the work can be revived without git archaeology if the product
+// ever wants in-app review again.
+// import 'package:zyduspod/screens/pod_review_screen.dart';
+import 'package:zyduspod/screens/stockist_pod_upload_screen.dart';
 import 'package:zyduspod/screens/batch_detail_screen.dart';
 import 'package:zyduspod/screens/batches_list_screen.dart';
 import 'package:zyduspod/screens/notifications_screen.dart';
@@ -23,6 +28,7 @@ class AppRoutes {
   static const String login = '/login';
   static const String mainNavigation = '/main';
   static const String podUpload = '/pod-upload';
+  static const String stockistUpload = '/stockist-upload';
   static const String uploadStatus = '/upload-status';
   static const String podReview = '/pod-review';
   static const String batchDetail = '/batch-detail';
@@ -63,6 +69,11 @@ class RouteGenerator {
           builder: (_) => const PODUploadScreen(),
         );
 
+      case AppRoutes.stockistUpload:
+        return MaterialPageRoute(
+          builder: (_) => const StockistPodUploadScreen(),
+        );
+
       case AppRoutes.uploadStatus:
         if (args is Map<String, dynamic>) {
           return MaterialPageRoute(
@@ -75,14 +86,33 @@ class RouteGenerator {
         return _errorRoute('UploadStatusScreen requires uploadData and totalFiles');
 
       case AppRoutes.podReview:
-        if (args is Map<String, dynamic> && args['review'] is Map<String, dynamic>) {
-          return MaterialPageRoute(
-            builder: (_) => PodReviewScreen(
-              review: args['review'] as Map<String, dynamic>,
+        // Disabled — hospital mapping moved to the web portal. If something
+        // still tries to push this route we silently bounce it to the upload
+        // status screen (or main nav) so the app doesn't hard-fail.
+        return MaterialPageRoute(
+          builder: (_) => Scaffold(
+            appBar: AppBar(title: const Text('Mapping moved')),
+            body: const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  'Hospital mapping is now done from the web portal. '
+                  'Please use the Hospital Mapping Review screen on the web.',
+                  textAlign: TextAlign.center,
+                ),
+              ),
             ),
-          );
-        }
-        return _errorRoute('PodReviewScreen requires review payload');
+          ),
+        );
+        // Original navigation kept here for rollback:
+        // if (args is Map<String, dynamic> && args['review'] is Map<String, dynamic>) {
+        //   return MaterialPageRoute(
+        //     builder: (_) => PodReviewScreen(
+        //       review: args['review'] as Map<String, dynamic>,
+        //     ),
+        //   );
+        // }
+        // return _errorRoute('PodReviewScreen requires review payload');
 
       case AppRoutes.batchDetail:
         if (args is Map<String, dynamic>) {

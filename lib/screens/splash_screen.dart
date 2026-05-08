@@ -62,8 +62,15 @@ class _SplashScreenState extends State<SplashScreen>
     if (!mounted) return;
 
     if (token != null && token.isNotEmpty) {
-      // User is logged in, go to main navigation
-      Navigator.of(context).pushReplacementNamed(AppRoutes.mainNavigation);
+      // Stockist users land on the dedicated stockist upload screen — same
+      // routing rule the login flow applies, so a refresh keeps them on
+      // their portal instead of bouncing them into the KAM main navigation.
+      final isStockist = prefs.getBool('isStockist') ?? false;
+      final stockistId = prefs.getInt('stockistId') ?? 0;
+      final landing = (isStockist && stockistId > 0)
+          ? AppRoutes.stockistUpload
+          : AppRoutes.mainNavigation;
+      Navigator.of(context).pushReplacementNamed(landing);
     } else {
       // User is not logged in, go to login screen
       Navigator.of(context).pushReplacementNamed(AppRoutes.login);

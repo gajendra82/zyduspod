@@ -139,6 +139,28 @@ class _LoginScreenState extends State<LoginScreen>
               .join(' '),
         );
 
+        // Stockist context — set on every login. When the logged-in user is
+        // a stockist, the backend returns is_stockist:true plus the stockist
+        // record so the upload screen knows which stockist to upload as
+        // without an extra round-trip.
+        final isStockist = body is Map && body['is_stockist'] == true;
+        await prefs.setBool('isStockist', isStockist);
+        if (isStockist) {
+          final stockist = body['stockist'];
+          if (stockist is Map) {
+            await prefs.setInt(
+              'stockistId',
+              (stockist['id'] is int) ? stockist['id'] : int.tryParse('${stockist['id'] ?? ''}') ?? 0,
+            );
+            await prefs.setString('stockistName', '${stockist['name'] ?? ''}');
+            await prefs.setString('stockistCode', '${stockist['code'] ?? ''}');
+          }
+        } else {
+          await prefs.remove('stockistId');
+          await prefs.remove('stockistName');
+          await prefs.remove('stockistCode');
+        }
+
         if (!mounted) return;
 
         // Show success message
@@ -150,9 +172,15 @@ class _LoginScreenState extends State<LoginScreen>
           ),
         );
 
+        // Stockist users land on a dedicated upload screen that pre-fills
+        // their stockist and lets them pick an optional hospital + invoice.
+        // Everyone else continues to the existing main navigation.
+        final landingRoute = isStockist
+            ? AppRoutes.stockistUpload
+            : AppRoutes.mainNavigation;
         Navigator.of(
           context,
-        ).pushNamedAndRemoveUntil(AppRoutes.mainNavigation, (route) => false);
+        ).pushNamedAndRemoveUntil(landingRoute, (route) => false);
       } else {
         // Handle error responses
         _handleErrorResponse(response);

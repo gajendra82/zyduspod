@@ -468,8 +468,14 @@ class _PodReviewScreenState extends State<PodReviewScreen> {
 
   void _applyLinkedMaster(_HospitalGroup group, _HospitalSnapshot picked) {
     setState(() {
-      group.representative.linked = picked;
-      group.representative.warnings.remove('hospital_not_mapped');
+      final r = group.representative;
+      r.linked = picked;
+      r.warnings.remove('hospital_not_mapped');
+      // The "Auto-mapped" badge only describes the original automatic pick.
+      // The moment the user maps to something different, drop the flag.
+      if (r.suggested == null || picked.hospitalId != r.suggested!.hospitalId) {
+        r.autoMapped = false;
+      }
     });
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -728,6 +734,35 @@ class _PodReviewScreenState extends State<PodReviewScreen> {
                     color: color,
                   ),
                 ),
+                if (row.autoMapped) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.green.shade300),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.auto_awesome, size: 10, color: Colors.green.shade800),
+                        const SizedBox(width: 3),
+                        Text(
+                          'Auto-mapped',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.green.shade800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
             ),
             const SizedBox(height: 6),
@@ -739,6 +774,17 @@ class _PodReviewScreenState extends State<PodReviewScreen> {
                 _kvLine('Address', linked.joinedAddress),
               if (linked.gstin.isNotEmpty) _kvLine('GSTIN', linked.gstin),
               if (linked.phone.isNotEmpty) _kvLine('Phone', linked.phone),
+              if (row.autoMapped) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'High-confidence match — pre-selected for upload. Use "Change master" to override.',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.green.shade800,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
             ] else
               Text(
                 'Use "Change master" to pick the correct hospital from the master list.',
@@ -1097,6 +1143,12 @@ class _HospitalRow {
   // suggestion); the record itself is never edited in place.
   _HospitalSnapshot linked;
 
+  // True when the initial `linked` snapshot came from a high-confidence master
+  // suggestion — drives the "Auto-mapped" badge. Cleared the moment the user
+  // picks a different master, so the badge only ever advertises the original
+  // automatic mapping decision.
+  bool autoMapped;
+
   bool selected;
 
   _HospitalRow({
@@ -1111,6 +1163,7 @@ class _HospitalRow {
     required this.suggestedScore,
     required this.suggestedConfidence,
     required this.linked,
+    required this.autoMapped,
     required this.selected,
   });
 
@@ -1145,6 +1198,15 @@ class _HospitalRow {
         ? suggestedSnap
         : extracted;
 
+    // Auto-map only on a HIGH-confidence suggestion: the row is pre-linked,
+    // pre-selected, and shows an "Auto-mapped" badge. Medium-confidence rows
+    // are pre-linked but stay unchecked so the user actively confirms them
+    // before submit. The user can always swap the master via "Change master".
+    final isAutoMapped = suggestedSnap != null
+        && conf == 'high'
+        && suggestedSnap.hasId
+        && linked.hospitalId == suggestedSnap.hospitalId;
+
     return _HospitalRow(
       podId: (json['pod_id'] as num).toInt(),
       invoiceNumber: (json['invoice_number'] ?? '').toString(),
@@ -1157,7 +1219,8 @@ class _HospitalRow {
       suggestedScore: d(suggestedMap?['score']),
       suggestedConfidence: conf,
       linked: linked,
-      selected: json['selected'] == true,
+      autoMapped: isAutoMapped,
+      selected: isAutoMapped || json['selected'] == true,
     );
   }
 

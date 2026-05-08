@@ -1209,9 +1209,35 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       final token = prefs.getString('authToken');
       final stockistIdStr = _selectedStockist!.id.trim();
 
-      const int maxRetries = 3;
-      const Duration connectTimeout = Duration(seconds: 45);
+      const int maxRetries = 4;
+
+      // Compute the upload timeout from the actual payload — `req.send()`
+      // covers TCP connect + TLS + ALL multipart bytes + first response
+      // byte, so a flat 45s timed out on slow links the moment the user
+      // queued more than a few PDFs. Formula:
+      //   base 60s + 20s per file + 1s per 50 KB total, capped at 12 min.
+      int totalBytesEstimate = 0;
+      for (final d in validDocs) {
+        try {
+          if (d.file != null) {
+            totalBytesEstimate += await d.file!.length();
+          } else if (d.webBytes != null) {
+            totalBytesEstimate += d.webBytes!.length;
+          }
+        } catch (_) {
+          // best-effort; missing size doesn't break the timeout calc
+        }
+      }
+      final int dynamicSendSeconds = (60
+              + (validDocs.length * 20)
+              + (totalBytesEstimate / 50000).ceil())
+          .clamp(120, 12 * 60);
+      final Duration connectTimeout = Duration(seconds: dynamicSendSeconds);
       const Duration responseTimeout = Duration(minutes: 5);
+      debugPrint(
+        '[UPLOAD] Computed send timeout: ${connectTimeout.inSeconds}s '
+        '(files: ${validDocs.length}, ~${(totalBytesEstimate / 1024).toStringAsFixed(0)} KB)',
+      );
 
       final uri = Uri.parse(Multi_Api_POD_UPLOAD_URL);
 
@@ -1311,10 +1337,46 @@ class _PODUploadScreenState extends State<PODUploadScreen>
           );
           debugPrint('[UPLOAD] ======================');
 
+          // Long-running upload: keep the user informed while the bytes
+          // travel. Without this the screen looks frozen on slow links.
+          ScaffoldMessengerState? messenger;
+          if (mounted) {
+            messenger = ScaffoldMessenger.of(context);
+            messenger.hideCurrentSnackBar();
+            messenger.showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation(Colors.white),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Uploading ${validDocs.length} POD(s)… '
+                        'attempt ${attempt + 1}/$maxRetries',
+                      ),
+                    ),
+                  ],
+                ),
+                duration: connectTimeout, // visible for the whole window
+              ),
+            );
+          }
+
           final resp = await req.send().timeout(connectTimeout);
           final responseBody = await resp.stream.bytesToString().timeout(
             responseTimeout,
           );
+
+          if (messenger != null) {
+            messenger.hideCurrentSnackBar();
+          }
 
           debugPrint('[UPLOAD] Response Status: ${resp.statusCode}');
           debugPrint('[UPLOAD] Response Headers: ${resp.headers}');
@@ -1547,7 +1609,11 @@ class _PODUploadScreenState extends State<PODUploadScreen>
   }
 
   Duration _uploadRetryDelay(int attempt) {
-    return Duration(seconds: 2 * (attempt + 1));
+    // Longer, exponential-ish backoff so a real network glitch has time to
+    // clear before the next retry: 4s, 8s, 16s, 30s.
+    const ladder = [4, 8, 16, 30];
+    final idx = attempt.clamp(0, ladder.length - 1);
+    return Duration(seconds: ladder[idx]);
   }
 
   bool _isRetryableUploadStatus(int statusCode) {

@@ -6,7 +6,9 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:zyduspod/config.dart';
-import 'package:zyduspod/routes.dart';
+// AppRoutes import dropped along with the in-app review navigation —
+// hospital mapping now happens on the web portal.
+// import 'package:zyduspod/routes.dart';
 import 'package:zyduspod/widgets/modern_ui_components.dart';
 
 class UploadStatusScreen extends StatefulWidget {
@@ -123,36 +125,43 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
         }
       });
 
-      final review = data['review'] as Map<String, dynamic>?;
-      final hospitals = review == null ? null : review['hospitals'] as List?;
-      final hasHospitals = hospitals != null && hospitals.isNotEmpty;
-      final failedFiles = review == null ? null : review['failed_files'] as List?;
-      final hasFailedFiles = failedFiles != null && failedFiles.isNotEmpty;
+      // Hospital mapping is now handled exclusively from the web backend's
+      // "Hospital Mapping Review" tool. The Flutter app no longer navigates
+      // to the in-app review screen on completion — once extraction finishes,
+      // we drop into the same terminal state used for "all duplicates" uploads
+      // and tell the user the mapping work happens on the web portal.
+      //
+      // Original navigation kept here, commented, in case we need to roll back:
+      //   final review = data['review'] as Map<String, dynamic>?;
+      //   final hospitals = review == null ? null : review['hospitals'] as List?;
+      //   final hasHospitals = hospitals != null && hospitals.isNotEmpty;
+      //   final failedFiles = review == null ? null : review['failed_files'] as List?;
+      //   final hasFailedFiles = failedFiles != null && failedFiles.isNotEmpty;
+      //   if (newStatus == 'completed' && (hasHospitals || hasFailedFiles)) {
+      //     _navigatedToReview = true;
+      //     _pollTimer?.cancel();
+      //     Navigator.of(context).pushReplacementNamed(
+      //       AppRoutes.podReview,
+      //       arguments: {'review': review},
+      //     );
+      //   }
+
       final terminalResult = data['result']?.toString();
 
-      if (newStatus == 'completed' && (hasHospitals || hasFailedFiles)) {
-        _navigatedToReview = true;
-        _pollTimer?.cancel();
-        if (!mounted) return;
-        Navigator.of(context).pushReplacementNamed(
-          AppRoutes.podReview,
-          arguments: {'review': review},
-        );
-      } else if (newStatus == 'completed' && terminalResult != null) {
-        // Terminal: batch finished but no new PODs were created (e.g. all
-        // invoices were already uploaded earlier). Stop polling; the UI will
-        // render a completion message.
+      if (newStatus == 'completed') {
         _pollTimer?.cancel();
         if (!mounted) return;
         setState(() {
-          _terminalResult = terminalResult;
-          _terminalMessage = data['result_message']?.toString();
+          // Use the backend-supplied terminal label when present (e.g.
+          // "no_new_pods" for all-duplicate batches); otherwise advertise
+          // the new web-handoff message.
+          _terminalResult = terminalResult ?? 'completed_review_on_web';
+          _terminalMessage = data['result_message']?.toString()
+              ?? 'Extraction complete. Hospital mapping is handled in the web portal — your administrator will verify these PODs there.';
         });
       } else if (newStatus == 'failed') {
         _pollTimer?.cancel();
       }
-      // If status=completed but review is still empty, keep polling —
-      // child jobs may still be persisting POD records.
     } on TimeoutException {
       // ignore; next tick will retry
     } catch (_) {
@@ -257,19 +266,25 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
         ? Icons.error
         : (isCompleted ? Icons.check_circle : Icons.hourglass_top);
     final isTerminalNoNew = _terminalResult == 'no_new_pods';
+    final isTerminalReviewOnWeb = _terminalResult == 'completed_review_on_web';
     final title = isFailed
         ? 'Extraction Failed'
         : (isTerminalNoNew
             ? 'No New Invoices'
-            : (isCompleted ? 'Extraction Complete' : 'Files Uploaded'));
+            : (isTerminalReviewOnWeb
+                ? 'Upload Complete'
+                : (isCompleted ? 'Extraction Complete' : 'Files Uploaded')));
     final subtitle = isFailed
         ? 'Something went wrong during processing. Try again.'
         : (isTerminalNoNew
             ? (_terminalMessage ??
                 'All invoices in this upload were already recorded earlier.')
-            : (isCompleted
-                ? 'Redirecting to the review screen…'
-                : 'Background processing is running. This screen auto-updates.'));
+            : (isTerminalReviewOnWeb
+                ? (_terminalMessage ??
+                    'Extraction complete. Hospital mapping is handled in the web portal.')
+                : (isCompleted
+                    ? 'Finishing up…'
+                    : 'Background processing is running. This screen auto-updates.')));
 
     return Card(
       elevation: 4,
@@ -450,14 +465,18 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
         ? Colors.red
         : (isCompleted ? Colors.green : Colors.blue);
     final isTerminalNoNew = _terminalResult == 'no_new_pods';
+    final isTerminalReviewOnWeb = _terminalResult == 'completed_review_on_web';
     final text = isFailed
         ? 'Processing failed. Please retry the upload or contact support.'
         : (isTerminalNoNew
             ? (_terminalMessage ??
                 'No new PODs were created — the invoices in this upload match records that already exist. Use the dashboard to review existing PODs.')
-            : (isCompleted
-                ? 'Extraction finished. You will be redirected to review the hospitals detected in the invoices.'
-                : 'Your files are being processed. This screen updates automatically every few seconds.'));
+            : (isTerminalReviewOnWeb
+                ? (_terminalMessage ??
+                    'Extraction complete. Hospital mapping is handled in the web portal — your administrator will verify these PODs there.')
+                : (isCompleted
+                    ? 'Extraction finished. The web portal will handle hospital mapping.'
+                    : 'Your files are being processed. This screen updates automatically every few seconds.')));
 
     return Card(
       elevation: 2,

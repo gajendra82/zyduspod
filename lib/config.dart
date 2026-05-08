@@ -1,16 +1,13 @@
-// const String API_BASE_URL = "https://zydus.mediola.in/development/api/";
+//const String API_BASE_URL = "https://zydus.mediola.in/pod_dev/api/";
+//const String API_BASE_URL = "https://zydus.mediola.in/development/api/";
+// const String API_BASE_URL = "http://192.168.1.19:8000/api/";
+const String API_BASE_URL = "http://192.168.0.122:8000/api/";
 
-// const String API_BASE_URL = "192.168.0.122:8000/api/";
-
-// const String API_BASE_URL = "http://127.0.0.1:8001/api/";
-
-const String API_BASE_URL = "https://zydus.mediola.in/pod_dev/api/";
-// const String API_BASE_URL = "https://a83a5178e1bf.ngrok-free.app/api/";
 const String API_DOC_UPLOAD_URL = "${API_BASE_URL}grn/upload-pdf";
 const String API_POD_UPLOAD_URL = "${API_BASE_URL}pod/upload-pdf";
 // const String Multi_Api_POD_UPLOAD_URL = "${API_BASE_URL}pod/multi-upload-pdf";
 const String Multi_Api_POD_UPLOAD_URL =
-    "${API_BASE_URL}split-file-processor/process-split-extract";
+    "${API_BASE_URL}split-file-processor/process";
 
 const String API_GRNS_URL = "${API_BASE_URL}grns";
 const String API_EINV_JSON_URL = "${API_BASE_URL}einv/json";
