@@ -9,7 +9,7 @@ import 'package:zyduspod/screens/upload_status_screen.dart';
 // repo) so the work can be revived without git archaeology if the product
 // ever wants in-app review again.
 // import 'package:zyduspod/screens/pod_review_screen.dart';
-import 'package:zyduspod/screens/stockist_pod_upload_screen.dart';
+import 'package:zyduspod/screens/stockist_main_navigation.dart';
 import 'package:zyduspod/screens/batch_detail_screen.dart';
 import 'package:zyduspod/screens/batches_list_screen.dart';
 import 'package:zyduspod/screens/notifications_screen.dart';
@@ -70,8 +70,10 @@ class RouteGenerator {
         );
 
       case AppRoutes.stockistUpload:
+        // Stockist shell: bottom-nav with Upload + Profile (mirrors KAM
+        // MainNavigation so stockists can reach the Profile/logout screen).
         return MaterialPageRoute(
-          builder: (_) => const StockistPodUploadScreen(),
+          builder: (_) => const StockistMainNavigation(),
         );
 
       case AppRoutes.uploadStatus:
