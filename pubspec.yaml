@@ -50,6 +50,9 @@ dependencies:
   google_mlkit_document_scanner: ^0.4.0
   flutter_doc_scanner: ^0.0.16
 
+  # Sales Analytics Dashboard
+  fl_chart: ^0.69.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

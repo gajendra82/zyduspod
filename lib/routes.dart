@@ -15,6 +15,7 @@ import 'package:zyduspod/screens/pod_details_screen.dart';
 import 'package:zyduspod/screens/e_invoice_data_screen.dart';
 import 'package:zyduspod/screens/profile_screen.dart';
 import 'package:zyduspod/screens/pod_upload_screen.dart' as pod_upload;
+import 'package:zyduspod/screens/sales_dashboard_screen.dart';
 import 'package:zyduspod/widgets/notification_handler.dart';
 import 'package:zyduspod/widgets/pdf_preview_bytes_screen.dart';
 
@@ -36,6 +37,7 @@ class AppRoutes {
   static const String profile = '/profile';
   static const String pdfPreview = '/pdf-preview';
   static const String notificationSettings = '/notification-settings';
+  static const String salesAnalytics = '/sales-analytics';
 }
 
 /// Route generator function
@@ -55,6 +57,9 @@ class RouteGenerator {
 
       case AppRoutes.podUpload:
         return MaterialPageRoute(builder: (_) => const PODUploadScreen());
+
+      case AppRoutes.salesAnalytics:
+        return MaterialPageRoute(builder: (_) => const SalesDashboardScreen());
 
       case AppRoutes.uploadStatus:
         if (args is Map<String, dynamic>) {

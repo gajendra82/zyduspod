@@ -7,7 +7,11 @@ import 'package:zyduspod/Bloc/sales_bloc.dart';
 import 'package:zyduspod/Bloc/sales_event.dart';
 import 'package:zyduspod/Bloc/sales_state.dart';
 import 'package:zyduspod/DocumentUploadScreen.dart';
-import 'package:zyduspod/screens/hospital_sales_screen.dart';
+// HospitalSalesScreen is intentionally left importable but no longer
+// rendered here — the "Hospital Sales" tab was replaced by the embeddable
+// Sales Analytics dashboard (SalesDashboardBody). Keep the file in the repo
+// for backward compatibility and any deep-links that still point at it.
+import 'package:zyduspod/screens/sales_dashboard_screen.dart';
 import 'package:zyduspod/screens/documents_list_screen.dart';
 import 'package:zyduspod/screens/modern_document_upload_screen.dart';
 import 'package:zyduspod/screens/notifications_screen.dart';
@@ -85,7 +89,7 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
             indicatorColor: const Color(0xFF00A0A8),
             tabs: const [
               Tab(icon: Icon(Icons.dashboard), text: 'Overview'),
-              Tab(icon: Icon(Icons.local_hospital), text: 'Hospital Sales'),
+              Tab(icon: Icon(Icons.insights_rounded), text: 'Sales Analytics'),
               Tab(icon: Icon(Icons.description), text: 'All Documents'),
             ],
           ),
@@ -94,8 +98,10 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
           controller: _tabController,
           children: [
             _buildOverviewTab(),
-            // _buildAnalyticsTab(),
-            const HospitalSalesScreen(),
+            // Sales Analytics replaces the old Hospital Sales tab in-place.
+            // SalesDashboardBody owns its own BLoC, so this tab is fully
+            // self-contained and lazy-loads on first focus.
+            const SalesDashboardBody(),
             const DocumentsListScreen(),
           ],
         ),
@@ -778,15 +784,15 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
                     () => _tabController.animateTo(2),
                   ),
                   _buildActionButton(
-                    'Hospital Sales',
-                    Icons.local_hospital,
-                    const Color(0xFF2196F3),
+                    'Sales Analytics',
+                    Icons.insights_rounded,
+                    const Color(0xFF00A0A8),
                     () => _tabController.animateTo(1),
                   ),
                   _buildActionButton(
-                    'Analytics',
-                    Icons.analytics,
-                    const Color(0xFF00A0A8),
+                    'Target vs Achievement',
+                    Icons.flag_rounded,
+                    const Color(0xFF6366F1),
                     () => _tabController.animateTo(1),
                   ),
                   _buildActionButton(

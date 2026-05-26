@@ -1,0 +1,1019 @@
+import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:intl/intl.dart';
+
+import 'package:zyduspod/Bloc/sales_dashboard_bloc.dart';
+import 'package:zyduspod/Bloc/sales_dashboard_event.dart';
+import 'package:zyduspod/Bloc/sales_dashboard_state.dart';
+import 'package:zyduspod/Models/sales_dashboard_models.dart';
+import 'package:zyduspod/services/sales_dashboard_service.dart';
+
+/// Premium "executive BI" Sales Analytics Dashboard.
+///
+/// Layout (top → bottom):
+///  1. Filter bar (date range, zone, leaderboard type, refresh)
+///  2. KPI grid — 8 large cards (Target / Achievement / Achievement % /
+///     Gap / Growth / Active KAMs / Hospitals / Stockists)
+///  3. Target vs Achievement Trend line chart (last 12 months)
+///  4. Top Performers leaderboard with a tab strip for the eight types
+///
+/// Responsive: switches between 1/2/4-column KPI grid based on width.
+///
+/// Two entry points:
+///   * [SalesDashboardScreen] — standalone full-screen route at
+///     `/sales-analytics`, wraps the body in its own Scaffold + AppBar.
+///   * [SalesDashboardBody] — embeddable widget that owns its own BLoC
+///     but renders NO Scaffold. Use this when slotting the analytics view
+///     into an existing tab/page (e.g. the dashboard's "Sales Analytics"
+///     tab) so we don't nest two app bars.
+class SalesDashboardScreen extends StatelessWidget {
+  const SalesDashboardScreen({super.key});
+
+  static const routeName = '/sales-analytics';
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF6F8FB),
+      appBar: AppBar(
+        title: const Text('Sales Analytics'),
+        elevation: 0,
+        backgroundColor: const Color(0xFF00A0A8),
+        foregroundColor: Colors.white,
+      ),
+      body: const SalesDashboardBody(),
+    );
+  }
+}
+
+/// Embeddable variant — drops the Scaffold/AppBar so it can be slotted into
+/// an existing tab without nesting app bars. Refresh is surfaced inline on
+/// the filter bar and via pull-to-refresh.
+class SalesDashboardBody extends StatelessWidget {
+  const SalesDashboardBody({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocProvider<SalesDashboardBloc>(
+      create: (_) => SalesDashboardBloc(SalesDashboardService())
+        ..add(const SalesDashboardLoadRequested()),
+      child: const _SalesDashboardView(),
+    );
+  }
+}
+
+class _SalesDashboardView extends StatelessWidget {
+  const _SalesDashboardView();
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: const Color(0xFFF6F8FB),
+      child: BlocBuilder<SalesDashboardBloc, SalesDashboardState>(
+        builder: (context, state) {
+          if (state is SalesDashboardInitial || state is SalesDashboardLoading) {
+            return const _SkeletonView();
+          }
+          if (state is SalesDashboardError) {
+            return _ErrorView(message: state.message);
+          }
+          if (state is SalesDashboardLoaded) {
+            return RefreshIndicator(
+              onRefresh: () async => context
+                  .read<SalesDashboardBloc>()
+                  .add(const SalesDashboardRefreshRequested()),
+              child: _LoadedView(state: state),
+            );
+          }
+          return const SizedBox.shrink();
+        },
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LOADED VIEW
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _LoadedView extends StatelessWidget {
+  const _LoadedView({required this.state});
+  final SalesDashboardLoaded state;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+      physics: const AlwaysScrollableScrollPhysics(),
+      children: [
+        _FilterBar(filters: state.filters),
+        const SizedBox(height: 16),
+        if (state.isRefreshing) const LinearProgressIndicator(minHeight: 2),
+        const SizedBox(height: 8),
+        _KpiGrid(summary: state.summary),
+        const SizedBox(height: 20),
+        _TrendCard(points: state.trend),
+        const SizedBox(height: 20),
+        _LeaderboardCard(
+          performers: state.topPerformers,
+          selectedType: state.topPerformerType,
+          isLoading: state.isLeaderboardLoading,
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FILTER BAR — minimal in Phase 2; expand with more dropdowns as needed
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _FilterBar extends StatelessWidget {
+  const _FilterBar({required this.filters});
+  final SalesDashboardFilters filters;
+
+  @override
+  Widget build(BuildContext context) {
+    final dateFmt = DateFormat('d MMM yyyy');
+    final fromLabel = filters.dateFrom != null && filters.dateFrom!.isNotEmpty
+        ? dateFmt.format(DateTime.tryParse(filters.dateFrom!) ?? DateTime.now())
+        : 'From';
+    final toLabel = filters.dateTo != null && filters.dateTo!.isNotEmpty
+        ? dateFmt.format(DateTime.tryParse(filters.dateTo!) ?? DateTime.now())
+        : 'To';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          _FilterChip(
+            icon: Icons.calendar_today_rounded,
+            label: fromLabel,
+            onTap: () => _pickDate(context, isFrom: true),
+          ),
+          const Icon(Icons.arrow_forward_rounded, size: 16, color: Colors.black45),
+          _FilterChip(
+            icon: Icons.event_rounded,
+            label: toLabel,
+            onTap: () => _pickDate(context, isFrom: false),
+          ),
+          if (filters.zone != null && filters.zone!.isNotEmpty)
+            _ActiveFilterChip(
+              label: 'Zone: ${filters.zone}',
+              onClear: () => context
+                  .read<SalesDashboardBloc>()
+                  .add(SalesDashboardFiltersChanged(filters.copyWith(clearZone: true))),
+            ),
+          // Spacer pushes the action group to the right when the row is wide
+          // enough; on narrow widths it just wraps to the next line via Wrap.
+          const SizedBox(width: 4),
+          _FilterChip(
+            icon: Icons.refresh_rounded,
+            label: 'Refresh',
+            onTap: () => context
+                .read<SalesDashboardBloc>()
+                .add(const SalesDashboardRefreshRequested()),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _pickDate(BuildContext context, {required bool isFrom}) async {
+    final now = DateTime.now();
+    final initial = isFrom
+        ? (DateTime.tryParse(filters.dateFrom ?? '') ?? DateTime(now.year, now.month, 1))
+        : (DateTime.tryParse(filters.dateTo ?? '') ?? now);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(now.year + 1, 12, 31),
+    );
+    if (picked == null || !context.mounted) return;
+    final iso = DateFormat('yyyy-MM-dd').format(picked);
+    final updated = isFrom
+        ? filters.copyWith(dateFrom: iso)
+        : filters.copyWith(dateTo: iso);
+    context.read<SalesDashboardBloc>().add(SalesDashboardFiltersChanged(updated));
+  }
+}
+
+class _FilterChip extends StatelessWidget {
+  const _FilterChip({required this.icon, required this.label, required this.onTap});
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF1F4F8),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: const Color(0xFF00A0A8)),
+            const SizedBox(width: 6),
+            Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ActiveFilterChip extends StatelessWidget {
+  const _ActiveFilterChip({required this.label, required this.onClear});
+  final String label;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      label: Text(label),
+      onDeleted: onClear,
+      backgroundColor: const Color(0xFFE0F4F5),
+      labelStyle: const TextStyle(color: Color(0xFF00858C), fontWeight: FontWeight.w600),
+      deleteIconColor: const Color(0xFF00858C),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// KPI GRID
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _KpiGrid extends StatelessWidget {
+  const _KpiGrid({required this.summary});
+  final SalesSummaryCards summary;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 1100
+            ? 4
+            : constraints.maxWidth >= 720
+                ? 3
+                : constraints.maxWidth >= 480
+                    ? 2
+                    : 1;
+        final cards = _buildCards();
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            mainAxisSpacing: 14,
+            crossAxisSpacing: 14,
+            childAspectRatio: columns >= 3 ? 1.55 : (columns == 2 ? 1.7 : 2.4),
+          ),
+          itemCount: cards.length,
+          itemBuilder: (_, i) => cards[i],
+        );
+      },
+    );
+  }
+
+  List<Widget> _buildCards() {
+    return [
+      _KpiCard(
+        title: 'Total Target',
+        value: _inr(summary.totalTargetAmount),
+        subtitle: 'Sum of hospital targets in window',
+        icon: Icons.flag_rounded,
+        gradient: const [Color(0xFF6366F1), Color(0xFF818CF8)],
+      ),
+      _KpiCard(
+        title: 'Total Achievement',
+        value: _inr(summary.netSalesAmount),
+        subtitle: 'Net sales (sales − returns)',
+        icon: Icons.trending_up_rounded,
+        gradient: const [Color(0xFF10B981), Color(0xFF34D399)],
+      ),
+      _KpiCard(
+        title: 'Achievement %',
+        value: '${summary.achievementPercentage.toStringAsFixed(1)}%',
+        subtitle: 'vs target',
+        icon: Icons.percent_rounded,
+        gradient: _pctGradient(summary.achievementPercentage),
+        progress: (summary.achievementPercentage / 100).clamp(0.0, 1.0),
+      ),
+      _KpiCard(
+        title: 'Gap to Target',
+        value: _inr(summary.gapToTarget),
+        subtitle: summary.gapToTarget <= 0 ? 'Target met or exceeded' : 'Still to achieve',
+        icon: Icons.south_rounded,
+        gradient: summary.gapToTarget <= 0
+            ? const [Color(0xFF059669), Color(0xFF10B981)]
+            : const [Color(0xFFEF4444), Color(0xFFF87171)],
+      ),
+      _KpiCard(
+        title: 'Growth vs Last Year',
+        value: '${summary.growthPercentage >= 0 ? '+' : ''}${summary.growthPercentage.toStringAsFixed(1)}%',
+        subtitle: 'YoY net sales',
+        icon: summary.growthPercentage >= 0
+            ? Icons.trending_up_rounded
+            : Icons.trending_down_rounded,
+        gradient: summary.growthPercentage >= 0
+            ? const [Color(0xFF0EA5E9), Color(0xFF38BDF8)]
+            : const [Color(0xFFF59E0B), Color(0xFFFBBF24)],
+      ),
+      _KpiCard(
+        title: 'Active KAMs',
+        value: _int(summary.activeKamsCount),
+        subtitle: 'Unique employees with sales',
+        icon: Icons.people_alt_rounded,
+        gradient: const [Color(0xFF8B5CF6), Color(0xFFA78BFA)],
+      ),
+      _KpiCard(
+        title: 'Active Hospitals',
+        value: _int(summary.activeHospitalsCount),
+        subtitle: 'Unique hospitals served',
+        icon: Icons.local_hospital_rounded,
+        gradient: const [Color(0xFFEC4899), Color(0xFFF472B6)],
+      ),
+      _KpiCard(
+        title: 'Active Stockists',
+        value: _int(summary.activeStockistsCount),
+        subtitle: 'Unique stockists in window',
+        icon: Icons.warehouse_rounded,
+        gradient: const [Color(0xFF14B8A6), Color(0xFF2DD4BF)],
+      ),
+    ];
+  }
+
+  List<Color> _pctGradient(double pct) {
+    if (pct >= 100) return const [Color(0xFF059669), Color(0xFF10B981)];
+    if (pct >= 75) return const [Color(0xFF0EA5E9), Color(0xFF38BDF8)];
+    if (pct >= 50) return const [Color(0xFFF59E0B), Color(0xFFFBBF24)];
+    return const [Color(0xFFEF4444), Color(0xFFF87171)];
+  }
+}
+
+class _KpiCard extends StatelessWidget {
+  const _KpiCard({
+    required this.title,
+    required this.value,
+    required this.subtitle,
+    required this.icon,
+    required this.gradient,
+    this.progress,
+  });
+
+  final String title;
+  final String value;
+  final String subtitle;
+  final IconData icon;
+  final List<Color> gradient;
+  final double? progress;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: gradient,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: gradient.first.withOpacity(0.28),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.22),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: Colors.white, size: 20),
+              ),
+              const Spacer(),
+              if (progress != null)
+                SizedBox(
+                  width: 38,
+                  height: 38,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      CircularProgressIndicator(
+                        value: progress,
+                        strokeWidth: 4,
+                        backgroundColor: Colors.white.withOpacity(0.25),
+                        valueColor: const AlwaysStoppedAnimation(Colors.white),
+                      ),
+                      Text(
+                        '${((progress ?? 0) * 100).round()}%',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+          const Spacer(),
+          Text(
+            title,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.9),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.3,
+            ),
+          ),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 26,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.5,
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.78),
+              fontSize: 11,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TARGET vs ACHIEVEMENT TREND
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _TrendCard extends StatelessWidget {
+  const _TrendCard({required this.points});
+  final List<TrendPoint> points;
+
+  @override
+  Widget build(BuildContext context) {
+    if (points.isEmpty) {
+      return _SectionCard(
+        title: 'Target vs Achievement Trend',
+        subtitle: 'Last 12 months',
+        child: const _EmptyState(message: 'No data in the selected window.'),
+      );
+    }
+
+    final maxY = points
+        .map((p) => p.target > p.achievement ? p.target : p.achievement)
+        .fold<double>(0, (a, b) => a > b ? a : b);
+    final niceMax = maxY <= 0 ? 1.0 : maxY * 1.15;
+
+    return _SectionCard(
+      title: 'Target vs Achievement Trend',
+      subtitle: 'Last ${points.length} months — hierarchy-scoped',
+      child: SizedBox(
+        height: 260,
+        child: LineChart(
+          LineChartData(
+            minY: 0,
+            maxY: niceMax,
+            gridData: FlGridData(
+              show: true,
+              drawVerticalLine: false,
+              getDrawingHorizontalLine: (value) =>
+                  FlLine(color: Colors.black.withOpacity(0.06), strokeWidth: 1),
+            ),
+            titlesData: FlTitlesData(
+              show: true,
+              topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+              rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+              leftTitles: AxisTitles(
+                sideTitles: SideTitles(
+                  showTitles: true,
+                  reservedSize: 52,
+                  getTitlesWidget: (value, _) => Text(
+                    _compactInr(value),
+                    style: const TextStyle(fontSize: 10, color: Colors.black54),
+                  ),
+                ),
+              ),
+              bottomTitles: AxisTitles(
+                sideTitles: SideTitles(
+                  showTitles: true,
+                  reservedSize: 28,
+                  interval: 1,
+                  getTitlesWidget: (value, _) {
+                    final i = value.toInt();
+                    if (i < 0 || i >= points.length) return const SizedBox.shrink();
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text(
+                        points[i].label,
+                        style: const TextStyle(fontSize: 10, color: Colors.black54),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+            borderData: FlBorderData(show: false),
+            lineBarsData: [
+              LineChartBarData(
+                isCurved: true,
+                color: const Color(0xFF6366F1),
+                barWidth: 3,
+                dotData: const FlDotData(show: false),
+                spots: [
+                  for (var i = 0; i < points.length; i++) FlSpot(i.toDouble(), points[i].target),
+                ],
+                belowBarData: BarAreaData(
+                  show: true,
+                  color: const Color(0xFF6366F1).withOpacity(0.06),
+                ),
+              ),
+              LineChartBarData(
+                isCurved: true,
+                color: const Color(0xFF10B981),
+                barWidth: 3,
+                dotData: const FlDotData(show: false),
+                spots: [
+                  for (var i = 0; i < points.length; i++) FlSpot(i.toDouble(), points[i].achievement),
+                ],
+                belowBarData: BarAreaData(
+                  show: true,
+                  color: const Color(0xFF10B981).withOpacity(0.08),
+                ),
+              ),
+            ],
+            lineTouchData: LineTouchData(
+              touchTooltipData: LineTouchTooltipData(
+                getTooltipColor: (_) => Colors.black87,
+                getTooltipItems: (spots) => spots.map((s) {
+                  final isTarget = s.barIndex == 0;
+                  return LineTooltipItem(
+                    '${isTarget ? 'Target' : 'Achievement'}\n${_inr(s.y)}',
+                    TextStyle(
+                      color: isTarget ? const Color(0xFFC7D2FE) : const Color(0xFFA7F3D0),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+        ),
+      ),
+      extra: Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: Row(
+          children: const [
+            _LegendDot(color: Color(0xFF6366F1), label: 'Target'),
+            SizedBox(width: 16),
+            _LegendDot(color: Color(0xFF10B981), label: 'Achievement'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LegendDot extends StatelessWidget {
+  const _LegendDot({required this.color, required this.label});
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
+        Text(label, style: const TextStyle(fontSize: 12, color: Colors.black87)),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LEADERBOARD
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _LeaderboardCard extends StatelessWidget {
+  const _LeaderboardCard({
+    required this.performers,
+    required this.selectedType,
+    required this.isLoading,
+  });
+
+  final List<TopPerformer> performers;
+  final TopPerformerType selectedType;
+  final bool isLoading;
+
+  @override
+  Widget build(BuildContext context) {
+    final maxValue = performers.isEmpty
+        ? 1.0
+        : performers.map((p) => p.achievement).reduce((a, b) => a > b ? a : b);
+
+    return _SectionCard(
+      title: selectedType.label,
+      subtitle: 'Hierarchy-scoped to your role',
+      headerTrailing: _TypeSwitcher(selected: selectedType),
+      child: isLoading
+          ? const Padding(
+              padding: EdgeInsets.symmetric(vertical: 40),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          : performers.isEmpty
+              ? const _EmptyState(message: 'No performers for this leaderboard.')
+              : Column(
+                  children: [
+                    for (var i = 0; i < performers.length; i++)
+                      _LeaderboardRow(
+                        rank: i + 1,
+                        performer: performers[i],
+                        maxValue: maxValue,
+                      ),
+                  ],
+                ),
+    );
+  }
+}
+
+class _TypeSwitcher extends StatelessWidget {
+  const _TypeSwitcher({required this.selected});
+  final TopPerformerType selected;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<TopPerformerType>(
+      tooltip: 'Switch leaderboard',
+      initialValue: selected,
+      onSelected: (t) => context
+          .read<SalesDashboardBloc>()
+          .add(SalesDashboardTopPerformerTypeChanged(t)),
+      itemBuilder: (_) => TopPerformerType.values
+          .map((t) => PopupMenuItem(value: t, child: Text(t.label)))
+          .toList(),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF1F4F8),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              selected.label,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(width: 6),
+            const Icon(Icons.unfold_more_rounded, size: 16),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LeaderboardRow extends StatelessWidget {
+  const _LeaderboardRow({
+    required this.rank,
+    required this.performer,
+    required this.maxValue,
+  });
+
+  final int rank;
+  final TopPerformer performer;
+  final double maxValue;
+
+  @override
+  Widget build(BuildContext context) {
+    final pct = maxValue <= 0 ? 0.0 : (performer.achievement / maxValue).clamp(0.0, 1.0);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              _RankBadge(rank: rank),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  performer.name,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Text(
+                _inr(performer.achievement),
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF111827),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: pct,
+              minHeight: 6,
+              backgroundColor: const Color(0xFFEEF2F7),
+              valueColor: const AlwaysStoppedAnimation(Color(0xFF00A0A8)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RankBadge extends StatelessWidget {
+  const _RankBadge({required this.rank});
+  final int rank;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = rank == 1
+        ? const [Color(0xFFFFD700), Color(0xFFFFA500)]
+        : rank == 2
+            ? const [Color(0xFFC0C0C0), Color(0xFF9CA3AF)]
+            : rank == 3
+                ? const [Color(0xFFCD7F32), Color(0xFFA85C28)]
+                : const [Color(0xFFE5E7EB), Color(0xFFD1D5DB)];
+    final textColor = rank <= 3 ? Colors.white : const Color(0xFF374151);
+    return Container(
+      width: 28,
+      height: 28,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: colors),
+        shape: BoxShape.circle,
+      ),
+      child: Text(
+        '$rank',
+        style: TextStyle(
+          color: textColor,
+          fontWeight: FontWeight.w800,
+          fontSize: 12,
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SHARED WIDGETS
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _SectionCard extends StatelessWidget {
+  const _SectionCard({
+    required this.title,
+    this.subtitle,
+    this.headerTrailing,
+    required this.child,
+    this.extra,
+  });
+
+  final String title;
+  final String? subtitle;
+  final Widget? headerTrailing;
+  final Widget child;
+  final Widget? extra;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF111827),
+                      ),
+                    ),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle!,
+                        style: const TextStyle(fontSize: 12, color: Colors.black54),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (headerTrailing != null) headerTrailing!,
+            ],
+          ),
+          const SizedBox(height: 14),
+          child,
+          if (extra != null) extra!,
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({required this.message});
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 40),
+      child: Center(
+        child: Column(
+          children: [
+            Icon(Icons.inbox_rounded, size: 36, color: Colors.black.withOpacity(0.2)),
+            const SizedBox(height: 8),
+            Text(message, style: const TextStyle(color: Colors.black54)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SkeletonView extends StatelessWidget {
+  const _SkeletonView();
+
+  @override
+  Widget build(BuildContext context) {
+    Widget box({double height = 100, double width = double.infinity}) => Container(
+          height: height,
+          width: width,
+          decoration: BoxDecoration(
+            color: const Color(0xFFE5E7EB),
+            borderRadius: BorderRadius.circular(16),
+          ),
+        );
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        box(height: 56),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(child: box(height: 110)),
+            const SizedBox(width: 12),
+            Expanded(child: box(height: 110)),
+            const SizedBox(width: 12),
+            Expanded(child: box(height: 110)),
+            const SizedBox(width: 12),
+            Expanded(child: box(height: 110)),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: box(height: 110)),
+            const SizedBox(width: 12),
+            Expanded(child: box(height: 110)),
+            const SizedBox(width: 12),
+            Expanded(child: box(height: 110)),
+            const SizedBox(width: 12),
+            Expanded(child: box(height: 110)),
+          ],
+        ),
+        const SizedBox(height: 16),
+        box(height: 280),
+        const SizedBox(height: 16),
+        box(height: 360),
+      ],
+    );
+  }
+}
+
+class _ErrorView extends StatelessWidget {
+  const _ErrorView({required this.message});
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline_rounded, size: 48, color: Color(0xFFEF4444)),
+            const SizedBox(height: 12),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 14, color: Colors.black87),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              icon: const Icon(Icons.refresh),
+              label: const Text('Try again'),
+              onPressed: () => context
+                  .read<SalesDashboardBloc>()
+                  .add(const SalesDashboardLoadRequested()),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FORMATTING HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+String _inr(double v) {
+  // Indian rupee with Cr/L suffixes for compactness.
+  if (v.abs() >= 10000000) return '₹${(v / 10000000).toStringAsFixed(2)} Cr';
+  if (v.abs() >= 100000) return '₹${(v / 100000).toStringAsFixed(2)} L';
+  if (v.abs() >= 1000) return '₹${(v / 1000).toStringAsFixed(1)}K';
+  return '₹${v.toStringAsFixed(0)}';
+}
+
+String _compactInr(double v) {
+  if (v.abs() >= 10000000) return '${(v / 10000000).toStringAsFixed(1)}Cr';
+  if (v.abs() >= 100000) return '${(v / 100000).toStringAsFixed(1)}L';
+  if (v.abs() >= 1000) return '${(v / 1000).toStringAsFixed(0)}K';
+  return v.toStringAsFixed(0);
+}
+
+String _int(int v) => NumberFormat.decimalPattern('en_IN').format(v);
