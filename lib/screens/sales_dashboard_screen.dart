@@ -10,6 +10,22 @@ import 'package:zyduspod/Models/sales_dashboard_models.dart';
 import 'package:zyduspod/services/sales_dashboard_service.dart';
 import 'package:zyduspod/utils/export_download.dart';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Responsive helpers — used throughout to tighten paddings, font sizes and
+// chart dimensions on phones without redesigning the premium look. Breakpoints
+// match the conventional Material 3 / web-app tiers.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const double _bpMobile = 600;   // < 600px = phone
+const double _bpTablet = 1024;  // < 1024px = tablet
+
+bool _isMobile(BuildContext context) =>
+    MediaQuery.of(context).size.width < _bpMobile;
+bool _isTablet(BuildContext context) {
+  final w = MediaQuery.of(context).size.width;
+  return w >= _bpMobile && w < _bpTablet;
+}
+
 /// Premium "executive BI" Sales Analytics Dashboard.
 ///
 /// Layout (top → bottom):
@@ -104,18 +120,22 @@ class _LoadedView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final mobile = _isMobile(context);
+    final hPad = mobile ? 10.0 : 16.0;
+    final vPad = mobile ? 12.0 : 16.0;
+    final sectionGap = mobile ? 14.0 : 20.0;
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+      padding: EdgeInsets.fromLTRB(hPad, vPad, hPad, mobile ? 24 : 32),
       physics: const AlwaysScrollableScrollPhysics(),
       children: [
         _FilterBar(filters: state.filters),
-        const SizedBox(height: 16),
+        SizedBox(height: mobile ? 12 : 16),
         if (state.isRefreshing) const LinearProgressIndicator(minHeight: 2),
-        const SizedBox(height: 8),
+        SizedBox(height: mobile ? 6 : 8),
         _KpiGrid(summary: state.summary),
-        const SizedBox(height: 20),
+        SizedBox(height: sectionGap),
         _TrendCard(points: state.trend),
-        const SizedBox(height: 20),
+        SizedBox(height: sectionGap),
         _LeaderboardCard(
           performers: state.topPerformers,
           selectedType: state.topPerformerType,
@@ -430,22 +450,35 @@ class _KpiGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final columns = constraints.maxWidth >= 1100
+        // 4 cards on desktop, 3 on small desktops, 2 on tablets/large
+        // phones, 1 on phones. Aspect ratio tuned per column count so cards
+        // don't look squashed at narrow widths (the single-column "wide
+        // banner" shape at 2.4 looked particularly bad on phones).
+        final w = constraints.maxWidth;
+        final columns = w >= 1100
             ? 4
-            : constraints.maxWidth >= 720
+            : w >= 720
                 ? 3
-                : constraints.maxWidth >= 480
+                : w >= 480
                     ? 2
                     : 1;
+        final aspect = columns == 4
+            ? 1.55
+            : columns == 3
+                ? 1.5
+                : columns == 2
+                    ? 1.55
+                    : 1.95; // single column on phone — taller card, breathing room
+        final spacing = columns >= 3 ? 14.0 : 10.0;
         final cards = _buildCards();
         return GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: columns,
-            mainAxisSpacing: 14,
-            crossAxisSpacing: 14,
-            childAspectRatio: columns >= 3 ? 1.55 : (columns == 2 ? 1.7 : 2.4),
+            mainAxisSpacing: spacing,
+            crossAxisSpacing: spacing,
+            childAspectRatio: aspect,
           ),
           itemCount: cards.length,
           itemBuilder: (_, i) => cards[i],
@@ -549,20 +582,29 @@ class _KpiCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final mobile = _isMobile(context);
+    final cardPad = mobile ? 14.0 : 18.0;
+    final iconSize = mobile ? 18.0 : 20.0;
+    final iconBoxPad = mobile ? 7.0 : 8.0;
+    final progressDim = mobile ? 32.0 : 38.0;
+    final titleSize = mobile ? 11.0 : 12.0;
+    final valueSize = mobile ? 22.0 : 26.0; // FittedBox still scales down further if needed
+    final subtitleSize = mobile ? 10.0 : 11.0;
+
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: EdgeInsets.all(cardPad),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: gradient,
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(mobile ? 16 : 20),
         boxShadow: [
           BoxShadow(
             color: gradient.first.withOpacity(0.28),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
+            blurRadius: mobile ? 12 : 18,
+            offset: Offset(0, mobile ? 5 : 8),
           ),
         ],
       ),
@@ -572,32 +614,32 @@ class _KpiCard extends StatelessWidget {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(8),
+                padding: EdgeInsets.all(iconBoxPad),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.22),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(icon, color: Colors.white, size: 20),
+                child: Icon(icon, color: Colors.white, size: iconSize),
               ),
               const Spacer(),
               if (progress != null)
                 SizedBox(
-                  width: 38,
-                  height: 38,
+                  width: progressDim,
+                  height: progressDim,
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
                       CircularProgressIndicator(
                         value: progress,
-                        strokeWidth: 4,
+                        strokeWidth: mobile ? 3.5 : 4,
                         backgroundColor: Colors.white.withOpacity(0.25),
                         valueColor: const AlwaysStoppedAnimation(Colors.white),
                       ),
                       Text(
                         '${((progress ?? 0) * 100).round()}%',
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: Colors.white,
-                          fontSize: 9,
+                          fontSize: mobile ? 8 : 9,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -611,10 +653,12 @@ class _KpiCard extends StatelessWidget {
             title,
             style: TextStyle(
               color: Colors.white.withOpacity(0.9),
-              fontSize: 12,
+              fontSize: titleSize,
               fontWeight: FontWeight.w600,
               letterSpacing: 0.3,
             ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
           const SizedBox(height: 4),
           FittedBox(
@@ -622,9 +666,9 @@ class _KpiCard extends StatelessWidget {
             alignment: Alignment.centerLeft,
             child: Text(
               value,
-              style: const TextStyle(
+              style: TextStyle(
                 color: Colors.white,
-                fontSize: 26,
+                fontSize: valueSize,
                 fontWeight: FontWeight.w800,
                 letterSpacing: -0.5,
               ),
@@ -635,9 +679,9 @@ class _KpiCard extends StatelessWidget {
             subtitle,
             style: TextStyle(
               color: Colors.white.withOpacity(0.78),
-              fontSize: 11,
+              fontSize: subtitleSize,
             ),
-            maxLines: 1,
+            maxLines: mobile ? 2 : 1,
             overflow: TextOverflow.ellipsis,
           ),
         ],
@@ -673,7 +717,8 @@ class _TrendCard extends StatelessWidget {
       title: 'Target vs Achievement Trend',
       subtitle: 'Last ${points.length} months — hierarchy-scoped',
       child: SizedBox(
-        height: 260,
+        // Tighter on phones so the chart doesn't hog the viewport.
+        height: _isMobile(context) ? 200 : 260,
         child: LineChart(
           LineChartData(
             minY: 0,
@@ -691,10 +736,15 @@ class _TrendCard extends StatelessWidget {
               leftTitles: AxisTitles(
                 sideTitles: SideTitles(
                   showTitles: true,
-                  reservedSize: 52,
+                  // Narrower axis gutter on phones — gives the line ~10px
+                  // more horizontal room for the same chart width.
+                  reservedSize: _isMobile(context) ? 38 : 52,
                   getTitlesWidget: (value, _) => Text(
                     _compactInr(value),
-                    style: const TextStyle(fontSize: 10, color: Colors.black54),
+                    style: TextStyle(
+                      fontSize: _isMobile(context) ? 9 : 10,
+                      color: Colors.black54,
+                    ),
                   ),
                 ),
               ),
@@ -995,11 +1045,15 @@ class _SectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final mobile = _isMobile(context);
+    final pad = mobile
+        ? const EdgeInsets.fromLTRB(14, 12, 14, 14)
+        : const EdgeInsets.fromLTRB(18, 16, 18, 18);
     return Container(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+      padding: pad,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(mobile ? 16 : 20),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.04),
@@ -1020,17 +1074,20 @@ class _SectionCard extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: const TextStyle(
-                        fontSize: 15,
+                      style: TextStyle(
+                        fontSize: mobile ? 14 : 15,
                         fontWeight: FontWeight.w700,
-                        color: Color(0xFF111827),
+                        color: const Color(0xFF111827),
                       ),
                     ),
                     if (subtitle != null) ...[
                       const SizedBox(height: 2),
                       Text(
                         subtitle!,
-                        style: const TextStyle(fontSize: 12, color: Colors.black54),
+                        style: TextStyle(
+                          fontSize: mobile ? 11 : 12,
+                          color: Colors.black54,
+                        ),
                       ),
                     ],
                   ],
@@ -1039,7 +1096,7 @@ class _SectionCard extends StatelessWidget {
               if (headerTrailing != null) headerTrailing!,
             ],
           ),
-          const SizedBox(height: 14),
+          SizedBox(height: mobile ? 12 : 14),
           child,
           if (extra != null) extra!,
         ],
