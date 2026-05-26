@@ -1239,17 +1239,27 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         '(files: ${validDocs.length}, ~${(totalBytesEstimate / 1024).toStringAsFixed(0)} KB)',
       );
 
-      final uri = Uri.parse(Multi_Api_POD_UPLOAD_URL);
+      // The default endpoint runs an external split-pdf pipeline and rejects
+      // anything other than application/pdf. If the batch contains any image
+      // (JPG/JPEG/PNG/etc.), route to the image-friendly endpoint so it
+      // doesn't get rejected by the server's `extensions:pdf` validation.
+      final bool hasNonPdf = validDocs.any(
+        (d) => p.extension(d.displayName).toLowerCase() != '.pdf',
+      );
+      final String uploadUrl = hasNonPdf
+          ? Multi_Api_POD_UPLOAD_URL_IMAGES
+          : Multi_Api_POD_UPLOAD_URL;
+      final uri = Uri.parse(uploadUrl);
 
       // Validate URL
       if (!uri.isAbsolute) {
         throw Exception(
-          'Invalid API URL: $Multi_Api_POD_UPLOAD_URL\n'
+          'Invalid API URL: $uploadUrl\n'
           'URL must be absolute (start with http/https)',
         );
       }
 
-      debugPrint('[UPLOAD] API Endpoint: $Multi_Api_POD_UPLOAD_URL');
+      debugPrint('[UPLOAD] API Endpoint: $uploadUrl (hasNonPdf=$hasNonPdf)');
 
       for (int attempt = 0; attempt < maxRetries; attempt++) {
         try {
