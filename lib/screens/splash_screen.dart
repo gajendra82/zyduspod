@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zyduspod/routes.dart';
+import 'package:zyduspod/services/app_version_service.dart';
+import 'package:zyduspod/widgets/version_update_dialog.dart';
 
 const String _splashLogoAsset = 'assets/branding/logo1.jpeg';
 
@@ -55,6 +57,13 @@ class _SplashScreenState extends State<SplashScreen>
 
     if (!mounted) return;
 
+    // Compare the bundled version against the backend `app_versions` row.
+    // If the running bundle is older, show a blocking "Update available"
+    // dialog and do not proceed — the Refresh button is the only exit and
+    // triggers a platform-appropriate hard reload.
+    final outdated = await _checkVersionAndPromptIfStale();
+    if (outdated) return;
+
     // Check if user is already logged in
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('authToken');
@@ -75,6 +84,24 @@ class _SplashScreenState extends State<SplashScreen>
       // User is not logged in, go to login screen
       Navigator.of(context).pushReplacementNamed(AppRoutes.login);
     }
+  }
+
+  /// Returns true when the backend reports a newer version than what is
+  /// bundled in this build (and the prompt was shown). Caller must abort
+  /// further navigation in that case.
+  Future<bool> _checkVersionAndPromptIfStale() async {
+    final svc = AppVersionService();
+    final latest = await svc.fetchLatest();
+    if (latest == null) return false; // network/server failure → skip silently
+    final current = await svc.getCurrent();
+    if (!svc.isOutdated(current, latest)) return false;
+    if (!mounted) return true;
+    await VersionUpdateDialog.show(
+      context,
+      currentVersion: current.display,
+      latestVersion: latest.display,
+    );
+    return true;
   }
 
   @override
