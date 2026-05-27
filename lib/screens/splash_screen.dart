@@ -156,16 +156,13 @@ class _SplashScreenState extends State<SplashScreen>
       // Handoff is initiated from the Blade dashboard (web users only) —
       // stockist auto-routing never applies here, so leave isStockist as-is.
 
-      // Pick landing route from the optional `to` param.
-      final to = (params['to'] ?? '').trim();
-      switch (to) {
-        case 'upload':
-          return AppRoutes.podUpload;
-        case 'sales-analytics':
-          return AppRoutes.salesAnalytics;
-        default:
-          return AppRoutes.mainNavigation;
-      }
+      // Always land on the normal dashboard after a successful handoff —
+      // matches the standard Flutter login flow with only the password
+      // prompt skipped. The `to` query param is still accepted by the
+      // backend redirect URL for future deep-link use, but we no longer
+      // honour it here so users aren't unexpectedly thrown straight into
+      // the POD Upload screen.
+      return AppRoutes.mainNavigation;
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[HANDOFF] exchange failed: $e');
