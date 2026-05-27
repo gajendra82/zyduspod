@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:zyduspod/config.dart';
 
@@ -26,6 +27,11 @@ class AppVersionInfo {
 /// Flutter bundle is stale. The splash calls this on every launch.
 class AppVersionService {
   static String get _endpoint => '${API_BASE_URL}app-version';
+
+  // SharedPreferences key for the per-device "I have already acknowledged
+  // this backend version" record. Kept here so callers don't drift on the
+  // string literal.
+  static const String _ackPrefsKey = 'app_version_acknowledged';
 
   Future<AppVersionInfo?> fetchLatest({String platform = 'flutter'}) async {
     try {
@@ -62,9 +68,9 @@ class AppVersionService {
     );
   }
 
-  /// True when [latest] is different from [current]. Any change to either
-  /// the semantic version OR the build number triggers a prompt — a rebuild
-  /// bump alone is enough to invalidate the cached web bundle.
+  /// True when [latest] differs from the running [current] bundle. Any
+  /// mismatch (semver or build number) triggers a prompt — a rebuild bump
+  /// alone is enough to invalidate the cached web bundle.
   bool isOutdated(AppVersionInfo current, AppVersionInfo latest) {
     final v = latest.version.trim();
     if (v.isEmpty) return false;
@@ -75,5 +81,37 @@ class AppVersionService {
       return true;
     }
     return false;
+  }
+
+  /// Returns the backend version this device has already acknowledged via
+  /// the Refresh button, or null if nothing recorded yet. Used to break the
+  /// re-prompt loop when the browser cache keeps serving the same stale
+  /// bundle after a hard-reload.
+  Future<String?> getAcknowledgedVersion() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final v = prefs.getString(_ackPrefsKey);
+      if (v == null || v.trim().isEmpty) return null;
+      return v;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[AppVersionService] getAcknowledgedVersion failed: $e');
+      }
+      return null;
+    }
+  }
+
+  /// Persists the backend [latest] as "user has tapped Refresh for this
+  /// version on this device". The splash skips the prompt next launch if
+  /// the backend version still matches this value.
+  Future<void> acknowledge(AppVersionInfo latest) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_ackPrefsKey, latest.display);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[AppVersionService] acknowledge failed: $e');
+      }
+    }
   }
 }
