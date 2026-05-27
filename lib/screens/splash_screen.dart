@@ -2,8 +2,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zyduspod/routes.dart';
-import 'package:zyduspod/services/app_version_service.dart';
-import 'package:zyduspod/widgets/version_update_dialog.dart';
 
 const String _splashLogoAsset = 'assets/branding/logo1.jpeg';
 
@@ -57,12 +55,9 @@ class _SplashScreenState extends State<SplashScreen>
 
     if (!mounted) return;
 
-    // Compare the bundled version against the backend `app_versions` row.
-    // If the running bundle is older, show a blocking "Update available"
-    // dialog and do not proceed — the Refresh button is the only exit and
-    // triggers a platform-appropriate hard reload.
-    final outdated = await _checkVersionAndPromptIfStale();
-    if (outdated) return;
+    // No in-app version-update prompt on Android — APK / Play Store updates
+    // are handled by the OS / store. A web-style "refresh to get the new
+    // bundle" dialog doesn't apply to a native build and was removed.
 
     // Check if user is already logged in
     final prefs = await SharedPreferences.getInstance();
@@ -77,38 +72,6 @@ class _SplashScreenState extends State<SplashScreen>
       // User is not logged in, go to login screen
       Navigator.of(context).pushReplacementNamed(AppRoutes.login);
     }
-  }
-
-  /// Returns true when the backend reports a different version than what is
-  /// bundled (and the prompt was shown). Caller must abort further
-  /// navigation in that case.
-  ///
-  /// Per-device acknowledgement: once the user has tapped Refresh for a
-  /// given backend version, that value is persisted in SharedPreferences.
-  /// On subsequent launches we skip the prompt as long as the backend still
-  /// advertises the same version — this breaks the re-prompt loop when the
-  /// browser cache (or a stale service worker) keeps serving the old bundle
-  /// even after a hard-reload.
-  Future<bool> _checkVersionAndPromptIfStale() async {
-    final svc = AppVersionService();
-    final latest = await svc.fetchLatest();
-    if (latest == null) return false; // network/server failure → skip silently
-    final current = await svc.getCurrent();
-    if (!svc.isOutdated(current, latest)) return false;
-    final ack = await svc.getAcknowledgedVersion();
-    if (ack != null && ack == latest.display) {
-      // User already refreshed for this exact backend version on this device;
-      // don't trap them in a loop if the cache still serves the old bundle.
-      return false;
-    }
-    if (!mounted) return true;
-    await VersionUpdateDialog.show(
-      context,
-      currentVersion: current.display,
-      latestVersion: latest.display,
-      latestInfo: latest,
-    );
-    return true;
   }
 
   @override
