@@ -7,7 +7,7 @@ import 'package:zyduspod/Bloc/sales_bloc.dart';
 import 'package:zyduspod/Bloc/sales_event.dart';
 import 'package:zyduspod/Bloc/sales_state.dart';
 import 'package:zyduspod/DocumentUploadScreen.dart';
-import 'package:zyduspod/screens/hospital_sales_screen.dart';
+import 'package:zyduspod/screens/sales_dashboard_screen.dart';
 import 'package:zyduspod/screens/documents_list_screen.dart';
 import 'package:zyduspod/screens/modern_document_upload_screen.dart';
 import 'package:zyduspod/screens/notifications_screen.dart';
@@ -85,7 +85,7 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
             indicatorColor: const Color(0xFF00A0A8),
             tabs: const [
               Tab(icon: Icon(Icons.dashboard), text: 'Overview'),
-              Tab(icon: Icon(Icons.local_hospital), text: 'Hospital Sales'),
+              Tab(icon: Icon(Icons.insights_rounded), text: 'Sales Analytics'),
               Tab(icon: Icon(Icons.description), text: 'All Documents'),
             ],
           ),
@@ -95,7 +95,7 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
           children: [
             _buildOverviewTab(),
             // _buildAnalyticsTab(),
-            const HospitalSalesScreen(),
+            const SalesDashboardBody(),
             const DocumentsListScreen(),
           ],
         ),
@@ -778,8 +778,8 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
                     () => _tabController.animateTo(2),
                   ),
                   _buildActionButton(
-                    'Hospital Sales',
-                    Icons.local_hospital,
+                    'Sales Analytics',
+                    Icons.insights_rounded,
                     const Color(0xFF2196F3),
                     () => _tabController.animateTo(1),
                   ),

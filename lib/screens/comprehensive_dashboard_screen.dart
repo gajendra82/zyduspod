@@ -3,7 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:zyduspod/Bloc/sales_bloc.dart';
 import 'package:zyduspod/Bloc/sales_event.dart';
 import 'package:zyduspod/Bloc/sales_state.dart';
-import 'package:zyduspod/screens/hospital_sales_screen.dart';
+import 'package:zyduspod/screens/sales_dashboard_screen.dart';
 import 'package:zyduspod/screens/stockist_sales_screen.dart';
 import 'package:zyduspod/screens/upload_sales_screen.dart';
 import 'package:zyduspod/screens/documents_list_screen.dart';
@@ -55,7 +55,7 @@ class _ComprehensiveDashboardScreenState extends State<ComprehensiveDashboardScr
           indicatorColor: const Color(0xFF00A0A8),
           tabs: const [
             Tab(icon: Icon(Icons.dashboard), text: 'Overview'),
-            Tab(icon: Icon(Icons.local_hospital), text: 'Hospital Sales'),
+            Tab(icon: Icon(Icons.insights_rounded), text: 'Sales Analytics'),
             Tab(icon: Icon(Icons.store), text: 'Stockist Sales'),
             Tab(icon: Icon(Icons.cloud_upload), text: 'Upload Sales'),
             Tab(icon: Icon(Icons.description), text: 'Documents'),
@@ -66,7 +66,7 @@ class _ComprehensiveDashboardScreenState extends State<ComprehensiveDashboardScr
         controller: _tabController,
         children: [
           _buildOverviewTab(),
-          const HospitalSalesScreen(),
+          const SalesDashboardBody(),
           const StockistSalesScreen(),
           const UploadSalesScreen(),
           const DocumentsListScreen(),
@@ -371,8 +371,8 @@ class _ComprehensiveDashboardScreenState extends State<ComprehensiveDashboardScr
                     () => _tabController.animateTo(4),
                   ),
                   _buildActionButton(
-                    'Hospital Sales',
-                    Icons.local_hospital,
+                    'Sales Analytics',
+                    Icons.insights_rounded,
                     const Color(0xFF2196F3),
                     () => _tabController.animateTo(1),
                   ),
