@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zyduspod/DocumentUploadScreen.dart';
 import 'package:zyduspod/screens/notifications_screen.dart';
 import 'package:zyduspod/screens/pod_upload_screen.dart';
@@ -159,9 +160,21 @@ class _PODUploadPageState extends State<PODUploadPage> {
             subtitle: 'Select and upload your POD files',
             icon: Icons.upload_file,
             color: const Color(0xFF00A0A8),
-            onTap: () {
-              // Navigate to dedicated POD upload screen
-              Navigator.pushNamed(context, AppRoutes.podUpload);
+            onTap: () async {
+              // Role-aware routing: stockists must land on their dedicated
+              // upload page (optional hospital/invoice selection), not the
+              // KAM upload flow. Login + splash already route stockists
+              // straight to StockistMainNavigation, but this card is also
+              // reachable from the KAM dashboard FAB — defensive check
+              // here ensures any session mix-up still lands them correctly.
+              final prefs = await SharedPreferences.getInstance();
+              final isStockist = prefs.getBool('isStockist') ?? false;
+              final stockistId = prefs.getInt('stockistId') ?? 0;
+              if (!context.mounted) return;
+              final route = (isStockist && stockistId > 0)
+                  ? AppRoutes.stockistUpload
+                  : AppRoutes.podUpload;
+              Navigator.pushNamed(context, route);
             },
           ),
           const SizedBox(height: 16),
