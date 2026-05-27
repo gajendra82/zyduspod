@@ -1,25 +1,36 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import 'package:zyduspod/services/app_version_service.dart';
 import 'package:zyduspod/utils/app_hard_reload.dart'
     if (dart.library.io) 'package:zyduspod/utils/app_hard_reload_stub.dart';
 
 /// "A new version is available" prompt. Non-dismissible — the only exit is
-/// the Refresh action, which calls the platform-appropriate hard-reload.
+/// the Refresh action, which records the acknowledgement (so a stuck
+/// browser cache doesn't keep re-firing the dialog) and then calls the
+/// platform-appropriate hard-reload.
 class VersionUpdateDialog extends StatelessWidget {
   const VersionUpdateDialog({
     super.key,
     this.currentVersion,
     this.latestVersion,
+    this.latestInfo,
   });
 
   final String? currentVersion;
   final String? latestVersion;
 
+  /// The full backend version DTO. When provided, tapping Refresh persists
+  /// it via [AppVersionService.acknowledge] before the hard-reload so the
+  /// dialog won't re-fire on the next splash even if the cache still serves
+  /// the old bundle.
+  final AppVersionInfo? latestInfo;
+
   static Future<void> show(
     BuildContext context, {
     String? currentVersion,
     String? latestVersion,
+    AppVersionInfo? latestInfo,
   }) {
     return showDialog<void>(
       context: context,
@@ -29,6 +40,7 @@ class VersionUpdateDialog extends StatelessWidget {
         child: VersionUpdateDialog(
           currentVersion: currentVersion,
           latestVersion: latestVersion,
+          latestInfo: latestInfo,
         ),
       ),
     );
@@ -77,6 +89,9 @@ class VersionUpdateDialog extends StatelessWidget {
       actions: [
         ElevatedButton.icon(
           onPressed: () async {
+            if (latestInfo != null) {
+              await AppVersionService().acknowledge(latestInfo!);
+            }
             await hardReloadApp();
           },
           icon: const Icon(Icons.refresh, size: 18),
