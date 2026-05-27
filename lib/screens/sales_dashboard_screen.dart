@@ -176,7 +176,11 @@ class _FilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dateFmt = DateFormat('d MMM yyyy');
+    final mobile = _isMobile(context);
+    // Drop the year on phones: "1 May" instead of "1 May 2026" — the
+    // Month dropdown already shows the year so it's redundant on the
+    // From/To chips and was the main reason the bar overflowed.
+    final dateFmt = DateFormat(mobile ? 'd MMM' : 'd MMM yyyy');
     final fromLabel = filters.dateFrom != null && filters.dateFrom!.isNotEmpty
         ? dateFmt.format(DateTime.tryParse(filters.dateFrom!) ?? DateTime.now())
         : 'From';
@@ -185,7 +189,10 @@ class _FilterBar extends StatelessWidget {
         : 'To';
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: EdgeInsets.symmetric(
+        horizontal: mobile ? 10 : 14,
+        vertical: mobile ? 8 : 10,
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -589,26 +596,30 @@ class _KpiGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // 4 cards on desktop, 3 on small desktops, 2 on tablets/large
-        // phones, 1 on phones. Aspect ratio tuned per column count so cards
-        // don't look squashed at narrow widths (the single-column "wide
-        // banner" shape at 2.4 looked particularly bad on phones).
+        // Column rules:
+        //   • ≥ 1100 px  → 4 cards/row (full desktop)
+        //   • ≥ 720 px   → 3 cards/row (small desktop / large tablet)
+        //   • else       → 2 cards/row, including phones in portrait.
+        // Phones used to drop to a single column which felt web-oriented:
+        // 8 KPIs × 1 col = 8 vertical scroll units. Two columns halves that
+        // and keeps each card readable since the value uses FittedBox.
         final w = constraints.maxWidth;
         final columns = w >= 1100
             ? 4
             : w >= 720
                 ? 3
-                : w >= 480
-                    ? 2
-                    : 1;
+                : 2;
+        // Aspect (width / height). For narrow 2-col on phones we keep the
+        // cards almost square so the value, subtitle, and progress badge
+        // all fit without a horizontal stretch.
         final aspect = columns == 4
             ? 1.55
             : columns == 3
                 ? 1.5
-                : columns == 2
-                    ? 1.55
-                    : 1.95; // single column on phone — taller card, breathing room
-        final spacing = columns >= 3 ? 14.0 : 10.0;
+                : w >= 480
+                    ? 1.55     // tablet / wide phone landscape
+                    : 1.1;     // narrow phone portrait — taller, square-ish
+        final spacing = columns >= 3 ? 14.0 : (w >= 480 ? 10.0 : 8.0);
         final cards = _buildCards();
         return GridView.builder(
           shrinkWrap: true,
@@ -721,32 +732,47 @@ class _KpiCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final mobile = _isMobile(context);
-    final cardPad = mobile ? 14.0 : 18.0;
-    final iconSize = mobile ? 18.0 : 20.0;
-    final iconBoxPad = mobile ? 7.0 : 8.0;
-    final progressDim = mobile ? 32.0 : 38.0;
-    final titleSize = mobile ? 11.0 : 12.0;
-    final valueSize = mobile ? 22.0 : 26.0; // FittedBox still scales down further if needed
-    final subtitleSize = mobile ? 10.0 : 11.0;
+    // Size off the card's actual rendered width rather than screen width —
+    // a 2-col phone places cards at ~180px while a 2-col tablet places
+    // them at ~340px. The phone case needs noticeably tighter padding and
+    // smaller chrome to keep the value + subtitle from getting squeezed.
+    return LayoutBuilder(builder: (context, c) {
+      final w = c.maxWidth;
+      final narrow = w < 200;  // 2-col phone bucket
+      final compact = w < 260; // small phone or large phone landscape pair
 
-    return Container(
-      padding: EdgeInsets.all(cardPad),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: gradient,
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(mobile ? 16 : 20),
-        boxShadow: [
-          BoxShadow(
-            color: gradient.first.withOpacity(0.28),
-            blurRadius: mobile ? 12 : 18,
-            offset: Offset(0, mobile ? 5 : 8),
+      final cardPad = narrow ? 11.0 : (compact ? 13.0 : 18.0);
+      final iconSize = narrow ? 16.0 : (compact ? 18.0 : 20.0);
+      final iconBoxPad = narrow ? 6.0 : (compact ? 7.0 : 8.0);
+      final progressDim = narrow ? 28.0 : (compact ? 32.0 : 38.0);
+      final titleSize = narrow ? 10.0 : (compact ? 11.0 : 12.0);
+      final valueSize = narrow ? 18.0 : (compact ? 21.0 : 26.0);
+      final subtitleSize = narrow ? 9.0 : (compact ? 10.0 : 11.0);
+      final radius = narrow ? 14.0 : (compact ? 16.0 : 20.0);
+      final blur = narrow ? 8.0 : (compact ? 12.0 : 18.0);
+      final yShadow = narrow ? 4.0 : (compact ? 5.0 : 8.0);
+      // On the narrowest tiles drop the subtitle entirely — value +
+      // title + (optional) progress badge are the priorities; the
+      // explanatory subtitle is the first thing to sacrifice.
+      final showSubtitle = !narrow;
+
+      return Container(
+        padding: EdgeInsets.all(cardPad),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: gradient,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
-        ],
-      ),
+          borderRadius: BorderRadius.circular(radius),
+          boxShadow: [
+            BoxShadow(
+              color: gradient.first.withOpacity(0.28),
+              blurRadius: blur,
+              offset: Offset(0, yShadow),
+            ),
+          ],
+        ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -770,7 +796,7 @@ class _KpiCard extends StatelessWidget {
                     children: [
                       CircularProgressIndicator(
                         value: progress,
-                        strokeWidth: mobile ? 3.5 : 4,
+                        strokeWidth: narrow ? 3.0 : (compact ? 3.5 : 4.0),
                         backgroundColor: Colors.white.withOpacity(0.25),
                         valueColor: const AlwaysStoppedAnimation(Colors.white),
                       ),
@@ -778,7 +804,7 @@ class _KpiCard extends StatelessWidget {
                         '${((progress ?? 0) * 100).round()}%',
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: mobile ? 8 : 9,
+                          fontSize: narrow ? 7.5 : (compact ? 8.0 : 9.0),
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -799,7 +825,7 @@ class _KpiCard extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
-          const SizedBox(height: 4),
+          SizedBox(height: narrow ? 2 : 4),
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
@@ -813,19 +839,22 @@ class _KpiCard extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.78),
-              fontSize: subtitleSize,
+          if (showSubtitle) ...[
+            SizedBox(height: narrow ? 2 : 4),
+            Text(
+              subtitle,
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.78),
+                fontSize: subtitleSize,
+              ),
+              maxLines: compact ? 2 : 1,
+              overflow: TextOverflow.ellipsis,
             ),
-            maxLines: mobile ? 2 : 1,
-            overflow: TextOverflow.ellipsis,
-          ),
+          ],
         ],
       ),
     );
+    });
   }
 }
 
@@ -857,7 +886,7 @@ class _TrendCard extends StatelessWidget {
       subtitle: 'Last ${points.length} months — hierarchy-scoped',
       child: SizedBox(
         // Tighter on phones so the chart doesn't hog the viewport.
-        height: _isMobile(context) ? 200 : 260,
+        height: _isMobile(context) ? 180 : 260,
         child: LineChart(
           LineChartData(
             minY: 0,
