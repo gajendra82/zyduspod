@@ -20,3 +20,11 @@ const String API_LOGIN_URL = "${API_BASE_URL}session/create";
 const String API_PODS_URL = "${API_BASE_URL}pods";
 const String API_NOTIFICATIONS_URL = "${API_BASE_URL}notifications";
 const String API_BATCHES_URL = "${API_BASE_URL}batches";
+
+// App Store listing URL used by the iOS in-app "Update Available" dialog.
+// Replace <APP_ID> with the numeric Apple ID once the app is on the Store
+// (format: https://apps.apple.com/app/idXXXXXXXXX or itms-apps://...).
+// While empty, the "Update Now" button shows a SnackBar instead of
+// launching, so the dialog stays safe to ship pre-release.
+const String IOS_APP_STORE_URL = "";
+

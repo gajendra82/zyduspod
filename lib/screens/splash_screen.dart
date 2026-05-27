@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zyduspod/routes.dart';
@@ -57,12 +58,15 @@ class _SplashScreenState extends State<SplashScreen>
 
     if (!mounted) return;
 
-    // Compare the bundled version against the backend `app_versions` row.
-    // If the running bundle is older, show a blocking "Update available"
-    // dialog and do not proceed — the Refresh button is the only exit and
-    // triggers a platform-appropriate hard reload.
-    final outdated = await _checkVersionAndPromptIfStale();
-    if (outdated) return;
+    // iOS only: prompt the user to update via the App Store when the
+    // backend advertises a newer version. The dialog is dismissible — App
+    // Store updates can't be forced from inside the app, so we don't lock
+    // the UI; tap "Later" persists an ack to avoid re-prompting on every
+    // cold start until the admin bumps the row again.
+    if (Platform.isIOS) {
+      await _checkVersionAndPromptIfStale();
+      if (!mounted) return;
+    }
 
     // Check if user is already logged in
     final prefs = await SharedPreferences.getInstance();
@@ -79,36 +83,27 @@ class _SplashScreenState extends State<SplashScreen>
     }
   }
 
-  /// Returns true when the backend reports a different version than what is
-  /// bundled (and the prompt was shown). Caller must abort further
-  /// navigation in that case.
-  ///
-  /// Per-device acknowledgement: once the user has tapped Refresh for a
-  /// given backend version, that value is persisted in SharedPreferences.
-  /// On subsequent launches we skip the prompt as long as the backend still
-  /// advertises the same version — this breaks the re-prompt loop when the
-  /// browser cache (or a stale service worker) keeps serving the old bundle
-  /// even after a hard-reload.
-  Future<bool> _checkVersionAndPromptIfStale() async {
+  /// Compare bundled version against the backend `app_versions` row. If
+  /// outdated, surface the iOS "Update Available" dialog (dismissible —
+  /// App Store updates can't be forced from inside the app, so we don't
+  /// block the user). Per-device ack prevents re-prompting on every cold
+  /// start for the same backend version; admin bumping the row again
+  /// re-fires the dialog because the ack no longer matches.
+  Future<void> _checkVersionAndPromptIfStale() async {
     final svc = AppVersionService();
     final latest = await svc.fetchLatest();
-    if (latest == null) return false; // network/server failure → skip silently
+    if (latest == null) return;
     final current = await svc.getCurrent();
-    if (!svc.isOutdated(current, latest)) return false;
+    if (!svc.isOutdated(current, latest)) return;
     final ack = await svc.getAcknowledgedVersion();
-    if (ack != null && ack == latest.display) {
-      // User already refreshed for this exact backend version on this device;
-      // don't trap them in a loop if the cache still serves the old bundle.
-      return false;
-    }
-    if (!mounted) return true;
+    if (ack != null && ack == latest.display) return;
+    if (!mounted) return;
     await VersionUpdateDialog.show(
       context,
       currentVersion: current.display,
       latestVersion: latest.display,
       latestInfo: latest,
     );
-    return true;
   }
 
   @override
