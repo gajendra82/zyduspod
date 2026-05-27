@@ -74,11 +74,31 @@ class SalesDashboardBody extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocProvider<SalesDashboardBloc>(
       create: (_) => SalesDashboardBloc(SalesDashboardService())
-        ..add(const SalesDashboardLoadRequested()),
+        // Bootstrap with the current month pre-selected — matches the
+        // default of the Month dropdown on the filter bar so the user sees
+        // a populated dashboard immediately on open and KPI cards (incl.
+        // "Growth vs Last Year") are anchored on a real window.
+        ..add(SalesDashboardFiltersChanged(_currentMonthFilters())),
       child: const _SalesDashboardView(),
     );
   }
 }
+
+/// First day → last day of the current month as ISO yyyy-MM-dd strings.
+/// Exposed as a top-level helper so the filter bar can compare against it
+/// (to highlight "this month" vs. a custom range).
+SalesDashboardFilters _currentMonthFilters() {
+  final now = DateTime.now();
+  return SalesDashboardFilters(
+    dateFrom: _monthFirstIso(now),
+    dateTo: _monthLastIso(now),
+  );
+}
+
+String _monthFirstIso(DateTime d) =>
+    DateFormat('yyyy-MM-dd').format(DateTime(d.year, d.month, 1));
+String _monthLastIso(DateTime d) =>
+    DateFormat('yyyy-MM-dd').format(DateTime(d.year, d.month + 1, 0));
 
 class _SalesDashboardView extends StatelessWidget {
   const _SalesDashboardView();
@@ -182,6 +202,7 @@ class _FilterBar extends StatelessWidget {
         runSpacing: 10,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
+          _MonthDropdown(filters: filters),
           _FilterChip(
             icon: Icons.calendar_today_rounded,
             label: fromLabel,
@@ -233,6 +254,124 @@ class _FilterBar extends StatelessWidget {
         ? filters.copyWith(dateFrom: iso)
         : filters.copyWith(dateTo: iso);
     context.read<SalesDashboardBloc>().add(SalesDashboardFiltersChanged(updated));
+  }
+}
+
+/// Month dropdown for the filter bar.
+///
+/// Lists the last 24 calendar months (newest first) plus a synthetic
+/// "Custom" entry that is auto-selected when the From/To pickers produce a
+/// range that doesn't line up with a whole calendar month. Picking a month
+/// rewrites both [dateFrom] and [dateTo] to that month's first/last day —
+/// the existing pickers stay fully functional for users who want a finer
+/// granularity.
+class _MonthDropdown extends StatelessWidget {
+  const _MonthDropdown({required this.filters});
+  final SalesDashboardFilters filters;
+
+  static const String _customKey = '__custom__';
+
+  @override
+  Widget build(BuildContext context) {
+    final months = _generateMonths();
+    final selected = _selectedKey(months);
+    final labels = _MonthDropdown._labelMap(months);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F4F8),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.date_range_rounded, size: 16, color: Color(0xFF00A0A8)),
+          const SizedBox(width: 6),
+          DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: selected,
+              isDense: true,
+              borderRadius: BorderRadius.circular(12),
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF2C3E50),
+              ),
+              items: [
+                for (final m in months)
+                  DropdownMenuItem<String>(
+                    value: _monthKey(m),
+                    child: Text(labels[_monthKey(m)] ?? _monthKey(m)),
+                  ),
+                if (selected == _customKey)
+                  const DropdownMenuItem<String>(
+                    value: _customKey,
+                    child: Text('Custom range'),
+                  ),
+              ],
+              onChanged: (v) {
+                if (v == null || v == _customKey) return;
+                final parts = v.split('-');
+                final y = int.parse(parts[0]);
+                final m = int.parse(parts[1]);
+                final first = DateTime(y, m, 1);
+                final last = DateTime(y, m + 1, 0);
+                final updated = filters.copyWith(
+                  dateFrom: _monthFirstIso(first),
+                  dateTo: _monthLastIso(last),
+                );
+                context
+                    .read<SalesDashboardBloc>()
+                    .add(SalesDashboardFiltersChanged(updated));
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Last 24 months including the current month, newest first.
+  List<DateTime> _generateMonths() {
+    final now = DateTime.now();
+    return List<DateTime>.generate(
+      24,
+      (i) => DateTime(now.year, now.month - i, 1),
+    );
+  }
+
+  /// yyyy-MM key used as the DropdownButton value (so equality is stable).
+  static String _monthKey(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}';
+
+  static Map<String, String> _labelMap(List<DateTime> months) {
+    final fmt = DateFormat('MMM yyyy');
+    return {for (final m in months) _monthKey(m): fmt.format(m)};
+  }
+
+  /// Return the dropdown value that matches the current filter window. If
+  /// the user has set a custom range via the From/To pickers (date_from ≠
+  /// first-of-month or date_to ≠ last-of-month), fall back to the synthetic
+  /// "__custom__" key so the dropdown doesn't lie about what's selected.
+  String _selectedKey(List<DateTime> months) {
+    final from = DateTime.tryParse(filters.dateFrom ?? '');
+    final to = DateTime.tryParse(filters.dateTo ?? '');
+    if (from == null || to == null) {
+      // Nothing selected yet — point at the current month so the very first
+      // build shows a sensible default before BLoC bootstrap finishes.
+      return _monthKey(months.first);
+    }
+    final firstOfMonth = DateTime(from.year, from.month, 1);
+    final lastOfMonth = DateTime(from.year, from.month + 1, 0);
+    final aligned = from.year == firstOfMonth.year &&
+        from.month == firstOfMonth.month &&
+        from.day == 1 &&
+        to.year == lastOfMonth.year &&
+        to.month == lastOfMonth.month &&
+        to.day == lastOfMonth.day;
+    if (!aligned) return _customKey;
+    return _monthKey(firstOfMonth);
   }
 }
 
@@ -871,10 +1010,13 @@ class _LeaderboardCard extends StatelessWidget {
     final maxValue = performers.isEmpty
         ? 1.0
         : performers.map((p) => p.achievement).reduce((a, b) => a > b ? a : b);
+    final isKams = selectedType == TopPerformerType.kams;
 
     return _SectionCard(
       title: selectedType.label,
-      subtitle: 'Hierarchy-scoped to your role',
+      subtitle: isKams
+          ? 'Sales, target, achievement % and gap — hierarchy-scoped'
+          : 'Hierarchy-scoped to your role',
       headerTrailing: _TypeSwitcher(selected: selectedType),
       child: isLoading
           ? const Padding(
@@ -886,11 +1028,17 @@ class _LeaderboardCard extends StatelessWidget {
               : Column(
                   children: [
                     for (var i = 0; i < performers.length; i++)
-                      _LeaderboardRow(
-                        rank: i + 1,
-                        performer: performers[i],
-                        maxValue: maxValue,
-                      ),
+                      if (isKams)
+                        _KamLeaderboardRow(
+                          rank: i + 1,
+                          performer: performers[i],
+                        )
+                      else
+                        _LeaderboardRow(
+                          rank: i + 1,
+                          performer: performers[i],
+                          maxValue: maxValue,
+                        ),
                   ],
                 ),
     );
@@ -982,6 +1130,182 @@ class _LeaderboardRow extends StatelessWidget {
               minHeight: 6,
               backgroundColor: const Color(0xFFEEF2F7),
               valueColor: const AlwaysStoppedAnimation(Color(0xFF00A0A8)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Richer leaderboard row used for the "All KAMs" section.
+///
+/// Layout adapts to width:
+///   • mobile (< 600px): name + sales on the top line, the three secondary
+///     metrics (Target / Achievement % / Gap) wrap into pill chips below,
+///     then the progress bar. No horizontal scroll needed.
+///   • wider screens (≥ 600px): the row stays compact and the metrics
+///     render as a single right-aligned strip beside the name.
+///
+/// Achievement % drives the progress bar so the user can eyeball who is
+/// behind / on track / over-target. Bar capped at 100% visually; the
+/// numeric % stays unbounded.
+class _KamLeaderboardRow extends StatelessWidget {
+  const _KamLeaderboardRow({required this.rank, required this.performer});
+
+  final int rank;
+  final TopPerformer performer;
+
+  Color _statusColor(double pct) {
+    if (pct >= 100) return const Color(0xFF16A34A); // green — over target
+    if (pct >= 75) return const Color(0xFF00A0A8);  // teal — on track
+    if (pct >= 50) return const Color(0xFFF59E0B);  // amber — behind
+    return const Color(0xFFEF4444);                 // red — far behind
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mobile = _isMobile(context);
+    final pct = performer.achievementPct;
+    final barFraction = (pct / 100).clamp(0.0, 1.0);
+    final statusColor = _statusColor(pct);
+
+    final metrics = [
+      _MetricPill(label: 'Target', value: _inr(performer.target)),
+      _MetricPill(
+        label: 'Ach %',
+        value: '${pct.toStringAsFixed(1)}%',
+        color: statusColor,
+      ),
+      _MetricPill(
+        label: 'Gap',
+        value: _inr(performer.targetGap),
+        color: performer.targetGap > 0 ? const Color(0xFFB91C1C) : null,
+      ),
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              _RankBadge(rank: rank),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      performer.name,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (performer.code != null && performer.code!.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          performer.code!,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF6B7280),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              // Sales value lives on the top-right corner on every breakpoint
+              // so the most-important number is always visible without scroll.
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  const Text(
+                    'Sales',
+                    style: TextStyle(fontSize: 10, color: Color(0xFF6B7280)),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _inr(performer.achievement),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF111827),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          // Metric strip — pills wrap onto a second row on narrow phones.
+          Padding(
+            padding: EdgeInsets.only(left: mobile ? 0 : 40),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              alignment: mobile ? WrapAlignment.start : WrapAlignment.end,
+              children: metrics,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: barFraction,
+              minHeight: 6,
+              backgroundColor: const Color(0xFFEEF2F7),
+              valueColor: AlwaysStoppedAnimation(statusColor),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Small label-over-value chip used on the KAM row's metric strip. Keeps
+/// the row readable at mobile widths without overflowing.
+class _MetricPill extends StatelessWidget {
+  const _MetricPill({required this.label, required this.value, this.color});
+
+  final String label;
+  final String value;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE5E7EB), width: 0.8),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 10,
+              color: Color(0xFF6B7280),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: color ?? const Color(0xFF111827),
             ),
           ),
         ],

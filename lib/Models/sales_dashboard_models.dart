@@ -129,6 +129,11 @@ class TopPerformer {
     required this.achievementPct,
   });
 
+  /// Positive "still to achieve" amount, clamped to zero when the performer
+  /// is already above target. Negative gap (over-achievement) is reported as
+  /// 0 because the UI tile is meant to highlight remaining work.
+  double get targetGap => target > achievement ? (target - achievement) : 0.0;
+
   factory TopPerformer.fromJson(Map<String, dynamic> json) {
     double d(dynamic v) => (v ?? 0) is num ? (v as num).toDouble() : 0.0;
     return TopPerformer(
@@ -218,7 +223,7 @@ enum TopPerformerType {
   String get label {
     switch (this) {
       case TopPerformerType.kams:
-        return 'Top KAMs';
+        return 'All KAMs';
       case TopPerformerType.managers:
         return 'Top Managers';
       case TopPerformerType.hqs:
