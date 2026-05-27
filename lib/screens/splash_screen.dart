@@ -153,15 +153,43 @@ class _SplashScreenState extends State<SplashScreen>
       if (user['id'] != null) {
         await prefs.setInt('userId', int.tryParse(user['id'].toString()) ?? 0);
       }
-      // Handoff is initiated from the Blade dashboard (web users only) —
-      // stockist auto-routing never applies here, so leave isStockist as-is.
 
-      // Always land on the normal dashboard after a successful handoff —
-      // matches the standard Flutter login flow with only the password
-      // prompt skipped. The `to` query param is still accepted by the
-      // backend redirect URL for future deep-link use, but we no longer
-      // honour it here so users aren't unexpectedly thrown straight into
-      // the POD Upload screen.
+      // Mirror the regular login flow's stockist handling: the SSO handoff
+      // response uses the same backend user-resolution path, so it carries
+      // is_stockist + stockist payload for stockist accounts. Without
+      // persisting these, a stockist who clicks "Upload POD" on the Blade
+      // dashboard lands in the KAM MainNavigation and gets the wrong
+      // upload screen. Accept the fields from either the top-level body or
+      // the nested data block to stay tolerant of response shape.
+      final isStockist = (data['is_stockist'] == true) ||
+          (body['is_stockist'] == true);
+      await prefs.setBool('isStockist', isStockist);
+      if (isStockist) {
+        final stockist = (data['stockist'] ?? body['stockist']);
+        if (stockist is Map) {
+          await prefs.setInt(
+            'stockistId',
+            (stockist['id'] is int)
+                ? stockist['id']
+                : int.tryParse('${stockist['id'] ?? ''}') ?? 0,
+          );
+          await prefs.setString('stockistName', '${stockist['name'] ?? ''}');
+          await prefs.setString('stockistCode', '${stockist['code'] ?? ''}');
+        }
+      } else {
+        await prefs.remove('stockistId');
+        await prefs.remove('stockistName');
+        await prefs.remove('stockistCode');
+      }
+
+      // Route by role. KAMs continue landing on the normal dashboard
+      // (matches the standard Flutter login flow with only the password
+      // prompt skipped). Stockists go to the dedicated stockist upload
+      // shell — same rule as the regular login flow.
+      final stockistId = prefs.getInt('stockistId') ?? 0;
+      if (isStockist && stockistId > 0) {
+        return AppRoutes.stockistUpload;
+      }
       return AppRoutes.mainNavigation;
     } catch (e) {
       if (kDebugMode) {
