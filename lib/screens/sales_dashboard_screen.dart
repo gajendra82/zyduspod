@@ -866,24 +866,34 @@ class _TrendCard extends StatelessWidget {
   const _TrendCard({required this.points});
   final List<TrendPoint> points;
 
+  /// Hard floor — never render trend points from before this month. The
+  /// backend also clamps to Jan 2026; this is a defensive safety net so a
+  /// stale cached response can't show pre-2026 history. TrendPoint.month
+  /// is the 'YYYY-MM' string the API returns, so a lex compare is correct.
+  static const String _trendFloorYm = '2026-01';
+
   @override
   Widget build(BuildContext context) {
-    if (points.isEmpty) {
+    final visible = points
+        .where((p) => p.month.compareTo(_trendFloorYm) >= 0)
+        .toList(growable: false);
+
+    if (visible.isEmpty) {
       return _SectionCard(
         title: 'Target vs Achievement Trend',
-        subtitle: 'Last 12 months',
+        subtitle: 'From Jan 2026',
         child: const _EmptyState(message: 'No data in the selected window.'),
       );
     }
 
-    final maxY = points
+    final maxY = visible
         .map((p) => p.target > p.achievement ? p.target : p.achievement)
         .fold<double>(0, (a, b) => a > b ? a : b);
     final niceMax = maxY <= 0 ? 1.0 : maxY * 1.15;
 
     return _SectionCard(
       title: 'Target vs Achievement Trend',
-      subtitle: 'Last ${points.length} months — hierarchy-scoped',
+      subtitle: 'From Jan 2026 (${visible.length} months) — hierarchy-scoped',
       child: SizedBox(
         // Tighter on phones so the chart doesn't hog the viewport.
         height: _isMobile(context) ? 180 : 260,
@@ -923,11 +933,11 @@ class _TrendCard extends StatelessWidget {
                   interval: 1,
                   getTitlesWidget: (value, _) {
                     final i = value.toInt();
-                    if (i < 0 || i >= points.length) return const SizedBox.shrink();
+                    if (i < 0 || i >= visible.length) return const SizedBox.shrink();
                     return Padding(
                       padding: const EdgeInsets.only(top: 6),
                       child: Text(
-                        points[i].label,
+                        visible[i].label,
                         style: const TextStyle(fontSize: 10, color: Colors.black54),
                       ),
                     );
@@ -943,7 +953,7 @@ class _TrendCard extends StatelessWidget {
                 barWidth: 3,
                 dotData: const FlDotData(show: false),
                 spots: [
-                  for (var i = 0; i < points.length; i++) FlSpot(i.toDouble(), points[i].target),
+                  for (var i = 0; i < visible.length; i++) FlSpot(i.toDouble(), visible[i].target),
                 ],
                 belowBarData: BarAreaData(
                   show: true,
@@ -956,7 +966,7 @@ class _TrendCard extends StatelessWidget {
                 barWidth: 3,
                 dotData: const FlDotData(show: false),
                 spots: [
-                  for (var i = 0; i < points.length; i++) FlSpot(i.toDouble(), points[i].achievement),
+                  for (var i = 0; i < visible.length; i++) FlSpot(i.toDouble(), visible[i].achievement),
                 ],
                 belowBarData: BarAreaData(
                   show: true,
