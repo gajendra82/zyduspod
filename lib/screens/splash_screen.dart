@@ -1,6 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:zyduspod/config.dart';
 import 'package:zyduspod/routes.dart';
 import 'package:zyduspod/services/app_version_service.dart';
 import 'package:zyduspod/widgets/version_update_dialog.dart';
@@ -64,6 +68,19 @@ class _SplashScreenState extends State<SplashScreen>
     final outdated = await _checkVersionAndPromptIfStale();
     if (outdated) return;
 
+    // SSO handoff: Laravel-side redirects in here with
+    //   ?auth_handoff=<single-use-token>[&to=upload]
+    // when the user clicks "Upload POD" while logged into the Blade
+    // dashboard. Exchange the token for a Sanctum bearer BEFORE the normal
+    // token-presence check so we land logged-in even if SharedPreferences
+    // is empty.
+    final handoff = await _consumeHandoffTokenIfPresent();
+    if (!mounted) return;
+    if (handoff != null) {
+      Navigator.of(context).pushReplacementNamed(handoff);
+      return;
+    }
+
     // Check if user is already logged in
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('authToken');
@@ -83,6 +100,77 @@ class _SplashScreenState extends State<SplashScreen>
     } else {
       // User is not logged in, go to login screen
       Navigator.of(context).pushReplacementNamed(AppRoutes.login);
+    }
+  }
+
+  /// Read `?auth_handoff=...&to=...` from the current URL (web only — on
+  /// mobile this is always null because the user can't reach the splash
+  /// via a deep-link with these params). POST the token to the backend's
+  /// exchange endpoint. On success, store the returned Sanctum bearer in
+  /// SharedPreferences (same key the regular login uses) and return the
+  /// route the caller should navigate to. Returns null when there is no
+  /// handoff token, or when the exchange failed and we want to fall
+  /// through to the regular login flow.
+  Future<String?> _consumeHandoffTokenIfPresent() async {
+    final params = Uri.base.queryParameters;
+    final handoffToken = params['auth_handoff'];
+    if (handoffToken == null || handoffToken.isEmpty) {
+      return null;
+    }
+
+    try {
+      final uri = Uri.parse('${API_BASE_URL}auth/handoff/exchange');
+      final resp = await http.post(
+        uri,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({'handoff_token': handoffToken}),
+      ).timeout(const Duration(seconds: 12));
+
+      if (resp.statusCode != 200) {
+        if (kDebugMode) {
+          debugPrint('[HANDOFF] exchange HTTP ${resp.statusCode}: ${resp.body}');
+        }
+        return null;
+      }
+      final body = jsonDecode(resp.body) as Map<String, dynamic>;
+      if (body['success'] != true) return null;
+      final data = body['data'] as Map<String, dynamic>;
+      final bearer = (data['token'] ?? '').toString();
+      if (bearer.isEmpty) return null;
+
+      final user = (data['user'] as Map?)?.cast<String, dynamic>() ?? const {};
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('authToken', bearer);
+      if (user['name'] != null) {
+        await prefs.setString('userName', user['name'].toString());
+      }
+      if (user['email'] != null) {
+        await prefs.setString('userEmail', user['email'].toString());
+      }
+      if (user['id'] != null) {
+        await prefs.setInt('userId', int.tryParse(user['id'].toString()) ?? 0);
+      }
+      // Handoff is initiated from the Blade dashboard (web users only) —
+      // stockist auto-routing never applies here, so leave isStockist as-is.
+
+      // Pick landing route from the optional `to` param.
+      final to = (params['to'] ?? '').trim();
+      switch (to) {
+        case 'upload':
+          return AppRoutes.podUpload;
+        case 'sales-analytics':
+          return AppRoutes.salesAnalytics;
+        default:
+          return AppRoutes.mainNavigation;
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[HANDOFF] exchange failed: $e');
+      }
+      return null;
     }
   }
 
