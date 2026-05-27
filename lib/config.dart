@@ -6,6 +6,11 @@ const String API_POD_UPLOAD_URL = "${API_BASE_URL}pod/upload-pdf";
 // const String Multi_Api_POD_UPLOAD_URL = "${API_BASE_URL}pod/multi-upload-pdf";
 const String Multi_Api_POD_UPLOAD_URL =
     "${API_BASE_URL}split-file-processor/process";
+// Image-friendly endpoint used when the batch contains any non-PDF file
+// (JPG/JPEG/PNG). The default endpoint above is PDF-only because it calls
+// an external split-pdf API.
+const String Multi_Api_POD_UPLOAD_URL_IMAGES =
+    "${API_BASE_URL}pod/upload-multi-allow-images";
 
 const String API_GRNS_URL = "${API_BASE_URL}grns";
 const String API_EINV_JSON_URL = "${API_BASE_URL}einv/json";
