@@ -1,7 +1,7 @@
 name: zyduspod
 description: "Zydus Pod is a platform for managing and tracking the status of your shipments."
 publish_to: "none"
-version: 1.0.23+33
+version: 1.0.24+34
 
 environment:
   sdk: ^3.7.0
