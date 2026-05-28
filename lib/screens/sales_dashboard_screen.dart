@@ -637,17 +637,19 @@ class _KpiGrid extends StatelessWidget {
             : w >= 720
                 ? 3
                 : 2;
-        // Aspect (width / height). For narrow 2-col on phones we keep the
-        // cards almost square so the value, subtitle, and progress badge
-        // all fit without a horizontal stretch.
+        // Aspect (width / height). Tighter than before — the old phone
+        // bucket (1.1) made cards nearly square with a stretched-out
+        // empty middle. Compact buckets put more KPIs in the viewport
+        // and reduce wasted whitespace. _KpiCard internals were trimmed
+        // (padding, icon size, gaps) to match.
         final aspect = columns == 4
-            ? 1.55
+            ? 1.75
             : columns == 3
-                ? 1.5
+                ? 1.65
                 : w >= 480
-                    ? 1.55     // tablet / wide phone landscape
-                    : 1.1;     // narrow phone portrait — taller, square-ish
-        final spacing = columns >= 3 ? 14.0 : (w >= 480 ? 10.0 : 8.0);
+                    ? 1.7      // tablet / wide phone landscape
+                    : 1.5;     // narrow phone portrait — short + dense
+        final spacing = columns >= 3 ? 12.0 : (w >= 480 ? 9.0 : 8.0);
         final cards = _buildCards();
         return GridView.builder(
           shrinkWrap: true,
@@ -769,16 +771,20 @@ class _KpiCard extends StatelessWidget {
       final narrow = w < 200;  // 2-col phone bucket
       final compact = w < 260; // small phone or large phone landscape pair
 
-      final cardPad = narrow ? 11.0 : (compact ? 13.0 : 18.0);
-      final iconSize = narrow ? 16.0 : (compact ? 18.0 : 20.0);
-      final iconBoxPad = narrow ? 6.0 : (compact ? 7.0 : 8.0);
-      final progressDim = narrow ? 28.0 : (compact ? 32.0 : 38.0);
+      // Trimmed from the previous values to kill empty whitespace —
+      // padding, icon, badge dim, radius, and shadow were sized for a
+      // taller card; with the grid's larger aspect ratio (shorter cell)
+      // the old chrome made the cards look swollen.
+      final cardPad = narrow ? 9.0 : (compact ? 11.0 : 13.0);
+      final iconSize = narrow ? 14.0 : (compact ? 16.0 : 18.0);
+      final iconBoxPad = narrow ? 5.0 : (compact ? 6.0 : 7.0);
+      final progressDim = narrow ? 26.0 : (compact ? 30.0 : 34.0);
       final titleSize = narrow ? 10.0 : (compact ? 11.0 : 12.0);
-      final valueSize = narrow ? 18.0 : (compact ? 21.0 : 26.0);
+      final valueSize = narrow ? 17.0 : (compact ? 20.0 : 24.0);
       final subtitleSize = narrow ? 9.0 : (compact ? 10.0 : 11.0);
-      final radius = narrow ? 14.0 : (compact ? 16.0 : 20.0);
-      final blur = narrow ? 8.0 : (compact ? 12.0 : 18.0);
-      final yShadow = narrow ? 4.0 : (compact ? 5.0 : 8.0);
+      final radius = narrow ? 12.0 : (compact ? 14.0 : 16.0);
+      final blur = narrow ? 6.0 : (compact ? 9.0 : 14.0);
+      final yShadow = narrow ? 3.0 : (compact ? 4.0 : 6.0);
       // On the narrowest tiles drop the subtitle entirely — value +
       // title + (optional) progress badge are the priorities; the
       // explanatory subtitle is the first thing to sacrifice.
