@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
+import 'package:shimmer/shimmer.dart';
 
 import 'package:zyduspod/Bloc/sales_dashboard_bloc.dart';
 import 'package:zyduspod/Bloc/sales_dashboard_event.dart';
@@ -156,11 +159,7 @@ class _LoadedView extends StatelessWidget {
         SizedBox(height: sectionGap),
         _TrendCard(points: state.trend),
         SizedBox(height: sectionGap),
-        _LeaderboardCard(
-          performers: state.topPerformers,
-          selectedType: state.topPerformerType,
-          isLoading: state.isLeaderboardLoading,
-        ),
+        _LeaderboardCard(state: state),
       ],
     );
   }
@@ -1001,148 +1000,380 @@ class _LegendDot extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LEADERBOARD
+// LEADERBOARD — All KAMs / All Hospitals / All Products (Brands)
+//
+// One paginated, searchable list. Server-side hierarchy scope is applied
+// before pagination, so a KAM only sees their own slice + the total
+// reflects that scope. The dropdown only offers the three live types now;
+// managers/HQs/regions/zones/stockists were dropped from the dashboard.
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _LeaderboardCard extends StatelessWidget {
-  const _LeaderboardCard({
-    required this.performers,
-    required this.selectedType,
-    required this.isLoading,
-  });
+class _LeaderboardCard extends StatefulWidget {
+  const _LeaderboardCard({required this.state});
+  final SalesDashboardLoaded state;
 
-  final List<TopPerformer> performers;
-  final TopPerformerType selectedType;
-  final bool isLoading;
+  @override
+  State<_LeaderboardCard> createState() => _LeaderboardCardState();
+}
+
+class _LeaderboardCardState extends State<_LeaderboardCard> {
+  final ScrollController _scroll = ScrollController();
+  final TextEditingController _searchCtrl = TextEditingController();
+  Timer? _searchDebounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchCtrl.text = widget.state.leaderboardSearch;
+    _scroll.addListener(_onScroll);
+  }
+
+  @override
+  void didUpdateWidget(covariant _LeaderboardCard old) {
+    super.didUpdateWidget(old);
+    // Keep the text field in sync if the state's search was reset by
+    // some other path (type switch, filter change) — but don't clobber
+    // active typing.
+    final stateText = widget.state.leaderboardSearch;
+    if (stateText != _searchCtrl.text && !_searchCtrl.value.composing.isValid) {
+      _searchCtrl.value = TextEditingValue(
+        text: stateText,
+        selection: TextSelection.collapsed(offset: stateText.length),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _scroll.removeListener(_onScroll);
+    _scroll.dispose();
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    // Trigger load-more when we're within 200px of the bottom and there
+    // are more pages to fetch. BLoC handler de-dupes concurrent triggers.
+    if (!_scroll.hasClients) return;
+    final pos = _scroll.position;
+    if (pos.pixels >= pos.maxScrollExtent - 200) {
+      if (widget.state.leaderboardHasMore &&
+          !widget.state.isLeaderboardLoadingMore &&
+          !widget.state.isLeaderboardLoading) {
+        context
+            .read<SalesDashboardBloc>()
+            .add(const SalesDashboardLeaderboardLoadMoreRequested());
+      }
+    }
+  }
+
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) return;
+      context
+          .read<SalesDashboardBloc>()
+          .add(SalesDashboardLeaderboardSearchChanged(value));
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    final maxValue = performers.isEmpty
-        ? 1.0
-        : performers.map((p) => p.achievement).reduce((a, b) => a > b ? a : b);
-    final isKams = selectedType == TopPerformerType.kams;
+    final state = widget.state;
+    final selectedType = state.topPerformerType;
+    final performers = state.topPerformers;
+    final isInitialLoading = state.isLeaderboardLoading;
+    final mobile = _isMobile(context);
 
     return _SectionCard(
       title: selectedType.label,
-      subtitle: isKams
-          ? 'Sales, target, achievement % and gap — hierarchy-scoped'
-          : 'Hierarchy-scoped to your role',
-      headerTrailing: _TypeSwitcher(selected: selectedType),
-      child: isLoading
-          ? const Padding(
-              padding: EdgeInsets.symmetric(vertical: 40),
-              child: Center(child: CircularProgressIndicator()),
+      subtitle: _buildSubtitle(state),
+      // Segmented switcher replaces the prior PopupMenuButton — three
+      // pills inline on wide screens, wraps onto the next line on phones.
+      headerTrailing: mobile ? null : _TypeSwitcher(selected: selectedType),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (mobile) ...[
+            const SizedBox(height: 4),
+            _TypeSwitcher(selected: selectedType),
+            const SizedBox(height: 10),
+          ],
+          _LeaderboardSearchField(
+            controller: _searchCtrl,
+            placeholder: selectedType.searchPlaceholder,
+            onChanged: _onSearchChanged,
+            onClear: () {
+              _searchCtrl.clear();
+              _searchDebounce?.cancel();
+              context
+                  .read<SalesDashboardBloc>()
+                  .add(const SalesDashboardLeaderboardSearchChanged(''));
+            },
+          ),
+          const SizedBox(height: 10),
+          if (isInitialLoading)
+            const _LeaderboardSkeleton()
+          else if (performers.isEmpty)
+            _EmptyState(
+              message: state.leaderboardSearch.isEmpty
+                  ? 'No data for this leaderboard.'
+                  : 'No matches for "${state.leaderboardSearch}".',
             )
-          : performers.isEmpty
-              ? const _EmptyState(message: 'No performers for this leaderboard.')
-              : Column(
-                  children: [
-                    for (var i = 0; i < performers.length; i++)
-                      if (isKams)
-                        _KamLeaderboardRow(
-                          rank: i + 1,
-                          performer: performers[i],
-                        )
-                      else
-                        _LeaderboardRow(
-                          rank: i + 1,
-                          performer: performers[i],
-                          maxValue: maxValue,
+          else
+            // The list lives inside an outer ListView (the page scroll),
+            // so we cap height + use a nested scrollable to drive the
+            // infinite-scroll. Height shrinks for phones to keep the
+            // leaderboard from dominating the viewport.
+            SizedBox(
+              height: mobile ? 460 : 600,
+              child: ListView.builder(
+                controller: _scroll,
+                physics: const AlwaysScrollableScrollPhysics(),
+                itemCount: performers.length +
+                    (state.isLeaderboardLoadingMore ? 3 : 0) +
+                    (!state.leaderboardHasMore &&
+                            !state.isLeaderboardLoadingMore &&
+                            performers.isNotEmpty
+                        ? 1
+                        : 0),
+                itemBuilder: (_, i) {
+                  if (i < performers.length) {
+                    return _KamLeaderboardRow(
+                      rank: i + 1,
+                      performer: performers[i],
+                    );
+                  }
+                  if (state.isLeaderboardLoadingMore) {
+                    return const _LeaderboardSkeletonRow();
+                  }
+                  // End marker — shows when there's nothing more to load.
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    child: Center(
+                      child: Text(
+                        '— end of list —',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.black.withOpacity(0.4),
+                          fontStyle: FontStyle.italic,
                         ),
-                  ],
-                ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _buildSubtitle(SalesDashboardLoaded state) {
+    final shown = state.topPerformers.length;
+    final total = state.topPerformersTotal;
+    if (total == 0 && shown == 0) {
+      return 'Hierarchy-scoped to your role';
+    }
+    if (state.leaderboardSearch.isEmpty) {
+      return 'Showing $shown of $total — hierarchy-scoped';
+    }
+    return 'Showing $shown of $total for "${state.leaderboardSearch}"';
+  }
+}
+
+class _LeaderboardSearchField extends StatelessWidget {
+  const _LeaderboardSearchField({
+    required this.controller,
+    required this.placeholder,
+    required this.onChanged,
+    required this.onClear,
+  });
+
+  final TextEditingController controller;
+  final String placeholder;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: controller,
+      builder: (context, value, _) {
+        return TextField(
+          controller: controller,
+          onChanged: onChanged,
+          textInputAction: TextInputAction.search,
+          decoration: InputDecoration(
+            hintText: placeholder,
+            hintStyle: TextStyle(
+              fontSize: 13,
+              color: Colors.black.withOpacity(0.4),
+            ),
+            prefixIcon: const Icon(Icons.search_rounded, size: 18),
+            suffixIcon: value.text.isEmpty
+                ? null
+                : IconButton(
+                    icon: const Icon(Icons.close_rounded, size: 18),
+                    onPressed: onClear,
+                    tooltip: 'Clear',
+                  ),
+            isDense: true,
+            filled: true,
+            fillColor: const Color(0xFFF1F4F8),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide.none,
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: Color(0xFF00A0A8), width: 1),
+            ),
+          ),
+          style: const TextStyle(fontSize: 14),
+        );
+      },
     );
   }
 }
 
+/// Three pills — KAMs / Hospitals / Products. Active pill is filled with
+/// the teal brand colour; inactive pills sit on the neutral surface. Wraps
+/// when the row is too narrow.
 class _TypeSwitcher extends StatelessWidget {
   const _TypeSwitcher({required this.selected});
   final TopPerformerType selected;
 
   @override
   Widget build(BuildContext context) {
-    return PopupMenuButton<TopPerformerType>(
-      tooltip: 'Switch leaderboard',
-      initialValue: selected,
-      onSelected: (t) => context
-          .read<SalesDashboardBloc>()
-          .add(SalesDashboardTopPerformerTypeChanged(t)),
-      itemBuilder: (_) => TopPerformerType.values
-          .map((t) => PopupMenuItem(value: t, child: Text(t.label)))
-          .toList(),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF1F4F8),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              selected.label,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: TopPerformerType.values.map((t) {
+        final isActive = t == selected;
+        return InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: isActive
+              ? null
+              : () => context
+                  .read<SalesDashboardBloc>()
+                  .add(SalesDashboardTopPerformerTypeChanged(t)),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            decoration: BoxDecoration(
+              color: isActive
+                  ? const Color(0xFF00A0A8)
+                  : const Color(0xFFF1F4F8),
+              borderRadius: BorderRadius.circular(20),
             ),
-            const SizedBox(width: 6),
-            const Icon(Icons.unfold_more_rounded, size: 16),
+            child: Text(
+              t.label,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                color: isActive ? Colors.white : const Color(0xFF374151),
+              ),
+            ),
+          ),
+        );
+      }).toList(growable: false),
+    );
+  }
+}
+
+/// Initial-load skeleton — 4 placeholder rows mimicking the KAM row layout
+/// (rank dot, name+code stack, value column, metric pills, progress bar).
+class _LeaderboardSkeleton extends StatelessWidget {
+  const _LeaderboardSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: const [
+        _LeaderboardSkeletonRow(),
+        _LeaderboardSkeletonRow(),
+        _LeaderboardSkeletonRow(),
+        _LeaderboardSkeletonRow(),
+      ],
+    );
+  }
+}
+
+class _LeaderboardSkeletonRow extends StatelessWidget {
+  const _LeaderboardSkeletonRow();
+
+  @override
+  Widget build(BuildContext context) {
+    final base = Colors.grey.shade300;
+    final highlight = Colors.grey.shade100;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Shimmer.fromColors(
+        baseColor: base,
+        highlightColor: highlight,
+        period: const Duration(milliseconds: 1200),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                _shimmerBox(width: 28, height: 28, radius: 14),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _shimmerBox(width: double.infinity, height: 12),
+                      const SizedBox(height: 6),
+                      _shimmerBox(width: 80, height: 10),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    _shimmerBox(width: 30, height: 9),
+                    const SizedBox(height: 4),
+                    _shimmerBox(width: 60, height: 12),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsets.only(left: 40),
+              child: Wrap(
+                spacing: 8,
+                children: [
+                  _shimmerBox(width: 70, height: 28, radius: 10),
+                  _shimmerBox(width: 70, height: 28, radius: 10),
+                  _shimmerBox(width: 70, height: 28, radius: 10),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            _shimmerBox(width: double.infinity, height: 6, radius: 3),
           ],
         ),
       ),
     );
   }
-}
 
-class _LeaderboardRow extends StatelessWidget {
-  const _LeaderboardRow({
-    required this.rank,
-    required this.performer,
-    required this.maxValue,
-  });
-
-  final int rank;
-  final TopPerformer performer;
-  final double maxValue;
-
-  @override
-  Widget build(BuildContext context) {
-    final pct = maxValue <= 0 ? 0.0 : (performer.achievement / maxValue).clamp(0.0, 1.0);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              _RankBadge(rank: rank),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  performer.name,
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              Text(
-                _inr(performer.achievement),
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF111827),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: pct,
-              minHeight: 6,
-              backgroundColor: const Color(0xFFEEF2F7),
-              valueColor: const AlwaysStoppedAnimation(Color(0xFF00A0A8)),
-            ),
-          ),
-        ],
+  Widget _shimmerBox({required double width, required double height, double radius = 4}) {
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(radius),
       ),
     );
   }

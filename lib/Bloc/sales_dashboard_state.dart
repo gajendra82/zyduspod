@@ -24,8 +24,23 @@ class SalesDashboardLoading extends SalesDashboardState {
 class SalesDashboardLoaded extends SalesDashboardState {
   final SalesSummaryCards summary;
   final List<TrendPoint> trend;
+  /// Accumulated leaderboard rows across all loaded pages for the current
+  /// (type, search) tuple. Cleared on type change, search change, or
+  /// filter change.
   final List<TopPerformer> topPerformers;
   final TopPerformerType topPerformerType;
+  /// Server-side total matching (hierarchy + search). Used for the
+  /// "{visible.length} of {total}" label and to derive hasMore independently.
+  final int topPerformersTotal;
+  /// Active search string for the leaderboard, '' when no search applied.
+  final String leaderboardSearch;
+  /// 1-based page cursor: the next page to fetch is `currentPage + 1`.
+  final int leaderboardPage;
+  /// Whether the server reports more rows past the loaded set.
+  final bool leaderboardHasMore;
+  /// True only while an *append* fetch is in flight. The initial / search
+  /// reset / type-switch fetch uses isLeaderboardLoading instead.
+  final bool isLeaderboardLoadingMore;
   final SalesDashboardFilters filters;
   final bool isRefreshing;
   final bool isLeaderboardLoading;
@@ -36,6 +51,11 @@ class SalesDashboardLoaded extends SalesDashboardState {
     required this.topPerformers,
     required this.topPerformerType,
     required this.filters,
+    this.topPerformersTotal = 0,
+    this.leaderboardSearch = '',
+    this.leaderboardPage = 1,
+    this.leaderboardHasMore = false,
+    this.isLeaderboardLoadingMore = false,
     this.isRefreshing = false,
     this.isLeaderboardLoading = false,
   });
@@ -45,6 +65,11 @@ class SalesDashboardLoaded extends SalesDashboardState {
     List<TrendPoint>? trend,
     List<TopPerformer>? topPerformers,
     TopPerformerType? topPerformerType,
+    int? topPerformersTotal,
+    String? leaderboardSearch,
+    int? leaderboardPage,
+    bool? leaderboardHasMore,
+    bool? isLeaderboardLoadingMore,
     SalesDashboardFilters? filters,
     bool? isRefreshing,
     bool? isLeaderboardLoading,
@@ -54,6 +79,12 @@ class SalesDashboardLoaded extends SalesDashboardState {
       trend: trend ?? this.trend,
       topPerformers: topPerformers ?? this.topPerformers,
       topPerformerType: topPerformerType ?? this.topPerformerType,
+      topPerformersTotal: topPerformersTotal ?? this.topPerformersTotal,
+      leaderboardSearch: leaderboardSearch ?? this.leaderboardSearch,
+      leaderboardPage: leaderboardPage ?? this.leaderboardPage,
+      leaderboardHasMore: leaderboardHasMore ?? this.leaderboardHasMore,
+      isLeaderboardLoadingMore:
+          isLeaderboardLoadingMore ?? this.isLeaderboardLoadingMore,
       filters: filters ?? this.filters,
       isRefreshing: isRefreshing ?? this.isRefreshing,
       isLeaderboardLoading: isLeaderboardLoading ?? this.isLeaderboardLoading,
@@ -66,6 +97,11 @@ class SalesDashboardLoaded extends SalesDashboardState {
         trend,
         topPerformers,
         topPerformerType,
+        topPerformersTotal,
+        leaderboardSearch,
+        leaderboardPage,
+        leaderboardHasMore,
+        isLeaderboardLoadingMore,
         filters,
         isRefreshing,
         isLeaderboardLoading,
