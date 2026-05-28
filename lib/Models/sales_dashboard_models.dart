@@ -119,6 +119,11 @@ class TopPerformer {
   final double achievement;
   final double target;
   final double achievementPct;
+  /// Hospital city name from the master. Empty string for kams/products.
+  final String city;
+  /// Hospital BTST code (or fallback to hospitals.code). Empty string for
+  /// kams/products.
+  final String btstCode;
 
   const TopPerformer({
     required this.id,
@@ -127,12 +132,26 @@ class TopPerformer {
     required this.achievement,
     required this.target,
     required this.achievementPct,
+    this.city = '',
+    this.btstCode = '',
   });
 
   /// Positive "still to achieve" amount, clamped to zero when the performer
   /// is already above target. Negative gap (over-achievement) is reported as
   /// 0 because the UI tile is meant to highlight remaining work.
   double get targetGap => target > achievement ? (target - achievement) : 0.0;
+
+  /// Display label for the leaderboard row. Hospitals get a
+  /// "Name (City — BTST)" suffix when both fields are populated, else
+  /// gracefully degrade to the partial form. Other types use [name] as-is.
+  String get displayName {
+    if (city.isEmpty && btstCode.isEmpty) return name;
+    if (city.isNotEmpty && btstCode.isNotEmpty) {
+      return '$name ($city — $btstCode)';
+    }
+    final extra = city.isNotEmpty ? city : btstCode;
+    return '$name ($extra)';
+  }
 
   factory TopPerformer.fromJson(Map<String, dynamic> json) {
     double d(dynamic v) => (v ?? 0) is num ? (v as num).toDouble() : 0.0;
@@ -143,6 +162,8 @@ class TopPerformer {
       achievement: d(json['achievement']),
       target: d(json['target']),
       achievementPct: d(json['achievement_pct']),
+      city: (json['city'] ?? '').toString(),
+      btstCode: (json['btst_code'] ?? '').toString(),
     );
   }
 }
