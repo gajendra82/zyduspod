@@ -141,6 +141,18 @@ class TopPerformer {
   /// 0 because the UI tile is meant to highlight remaining work.
   double get targetGap => target > achievement ? (target - achievement) : 0.0;
 
+  /// Signed gap = target − achievement.
+  ///   > 0  → shortfall (still to achieve) — shown RED
+  ///   <= 0 → surplus (met/exceeded target) — shown GREEN
+  /// Used by the leaderboard row to colour + label the Gap pill.
+  double get signedGap => target - achievement;
+
+  /// True when the performer met or exceeded target (surplus).
+  bool get isSurplus => target > 0 && achievement >= target;
+
+  /// Absolute surplus amount (achievement − target) when over target, else 0.
+  double get surplus => achievement > target ? (achievement - target) : 0.0;
+
   /// Display label for the leaderboard row. Hospitals get a
   /// "Name (City — BTST)" suffix when both fields are populated, else
   /// gracefully degrade to the partial form. Other types use [name] as-is.

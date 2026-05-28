@@ -1114,6 +1114,7 @@ class _LeaderboardCardState extends State<_LeaderboardCard> {
         rows.add(_KamLeaderboardRow(
           rank: i + 1,
           performer: performers[i],
+          type: selectedType,
         ));
       }
       if (state.isLeaderboardLoadingMore) {
@@ -1391,38 +1392,78 @@ class _LeaderboardSkeletonRow extends StatelessWidget {
 /// behind / on track / over-target. Bar capped at 100% visually; the
 /// numeric % stays unbounded.
 class _KamLeaderboardRow extends StatelessWidget {
-  const _KamLeaderboardRow({required this.rank, required this.performer});
+  const _KamLeaderboardRow({
+    required this.rank,
+    required this.performer,
+    required this.type,
+  });
 
   final int rank;
   final TopPerformer performer;
+  final TopPerformerType type;
+
+  static const Color _green = Color(0xFF16A34A);
+  static const Color _red = Color(0xFFB91C1C);
+  static const Color _teal = Color(0xFF00A0A8);
 
   Color _statusColor(double pct) {
-    if (pct >= 100) return const Color(0xFF16A34A); // green — over target
-    if (pct >= 75) return const Color(0xFF00A0A8);  // teal — on track
-    if (pct >= 50) return const Color(0xFFF59E0B);  // amber — behind
-    return const Color(0xFFEF4444);                 // red — far behind
+    if (pct >= 100) return _green;            // over target
+    if (pct >= 75) return _teal;              // on track
+    if (pct >= 50) return const Color(0xFFF59E0B); // amber — behind
+    return const Color(0xFFEF4444);           // red — far behind
   }
 
   @override
   Widget build(BuildContext context) {
     final mobile = _isMobile(context);
     final pct = performer.achievementPct;
-    final barFraction = (pct / 100).clamp(0.0, 1.0);
-    final statusColor = _statusColor(pct);
+    final isProduct = type == TopPerformerType.products;
 
-    final metrics = [
-      _MetricPill(label: 'Target', value: _inr(performer.target)),
-      _MetricPill(
-        label: 'Ach %',
-        value: '${pct.toStringAsFixed(1)}%',
-        color: statusColor,
-      ),
-      _MetricPill(
-        label: 'Gap',
-        value: _inr(performer.targetGap),
-        color: performer.targetGap > 0 ? const Color(0xFFB91C1C) : null,
-      ),
-    ];
+    // Products: pct is share-of-total (0–100); use a neutral teal bar.
+    // KAMs/Hospitals: pct is achievement-vs-target; colour by status.
+    final statusColor = isProduct ? _teal : _statusColor(pct);
+    final barFraction = (pct / 100).clamp(0.0, 1.0);
+
+    final List<Widget> metrics;
+    if (isProduct) {
+      // Brands have no target → no Target / Gap pills. Show the share of
+      // total brand sales instead.
+      metrics = [
+        _MetricPill(
+          label: '% of Sales',
+          value: '${pct.toStringAsFixed(1)}%',
+          color: _teal,
+        ),
+      ];
+    } else {
+      // Gap pill: green surplus when target met/exceeded, red shortfall
+      // otherwise, neutral dash when no target is on file.
+      Widget gapPill;
+      if (performer.target <= 0) {
+        gapPill = const _MetricPill(label: 'Gap', value: '—');
+      } else if (performer.isSurplus) {
+        gapPill = _MetricPill(
+          label: 'Surplus',
+          value: '+${_inr(performer.surplus)}',
+          color: _green,
+        );
+      } else {
+        gapPill = _MetricPill(
+          label: 'Gap',
+          value: _inr(performer.targetGap),
+          color: _red,
+        );
+      }
+      metrics = [
+        _MetricPill(label: 'Target', value: _inr(performer.target)),
+        _MetricPill(
+          label: 'Ach %',
+          value: '${pct.toStringAsFixed(1)}%',
+          color: statusColor,
+        ),
+        gapPill,
+      ];
+    }
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
