@@ -11,7 +11,6 @@ import 'package:zyduspod/Bloc/sales_dashboard_event.dart';
 import 'package:zyduspod/Bloc/sales_dashboard_state.dart';
 import 'package:zyduspod/Models/sales_dashboard_models.dart';
 import 'package:zyduspod/services/sales_dashboard_service.dart';
-import 'package:zyduspod/utils/export_download.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Responsive helpers — used throughout to tighten paddings, font sizes and
@@ -259,7 +258,6 @@ class _FilterBar extends StatelessWidget {
                 .read<SalesDashboardBloc>()
                 .add(const SalesDashboardRefreshRequested()),
           ),
-          _ExportButton(filters: filters),
         ],
       ),
     );
@@ -446,161 +444,6 @@ class _ActiveFilterChip extends StatelessWidget {
       backgroundColor: const Color(0xFFE0F4F5),
       labelStyle: const TextStyle(color: Color(0xFF00858C), fontWeight: FontWeight.w600),
       deleteIconColor: const Color(0xFF00858C),
-    );
-  }
-}
-
-/// Export action — opens a small popup to choose CSV / Excel, then streams
-/// the export from the API and triggers a cross-platform save/open.
-class _ExportButton extends StatefulWidget {
-  const _ExportButton({required this.filters});
-  final SalesDashboardFilters filters;
-
-  @override
-  State<_ExportButton> createState() => _ExportButtonState();
-}
-
-class _ExportButtonState extends State<_ExportButton> {
-  bool _busy = false;
-
-  Future<void> _export(String format) async {
-    if (_busy) return;
-    setState(() => _busy = true);
-
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    messenger?.clearSnackBars();
-    messenger?.showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-            ),
-            const SizedBox(width: 12),
-            Text('Preparing ${format.toUpperCase()} export…'),
-          ],
-        ),
-        duration: const Duration(seconds: 30),
-        backgroundColor: const Color(0xFF111827),
-      ),
-    );
-
-    final service = SalesDashboardService();
-    try {
-      final result = await service.downloadExport(
-        widget.filters,
-        type: 'employee', // default scope; matches the dashboard's primary view
-        format: format,
-      );
-      await saveAndOpenExport(
-        bytes: result.bytes,
-        filename: result.filename,
-        mimeType: result.mimeType,
-      );
-      messenger?.clearSnackBars();
-      messenger?.showSnackBar(
-        SnackBar(
-          content: Text('Downloaded ${result.filename}'),
-          backgroundColor: const Color(0xFF10B981),
-        ),
-      );
-    } catch (e) {
-      messenger?.clearSnackBars();
-      messenger?.showSnackBar(
-        SnackBar(
-          content: Text('Export failed: $e'),
-          backgroundColor: const Color(0xFFEF4444),
-        ),
-      );
-    } finally {
-      service.dispose();
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_busy) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF1F4F8),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 14,
-              height: 14,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF00A0A8)),
-            ),
-            SizedBox(width: 8),
-            Text(
-              'Exporting…',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return PopupMenuButton<String>(
-      tooltip: 'Export',
-      onSelected: _export,
-      itemBuilder: (_) => const [
-        PopupMenuItem(
-          value: 'excel',
-          child: Row(children: [
-            Icon(Icons.grid_on_rounded, size: 18, color: Color(0xFF10B981)),
-            SizedBox(width: 8),
-            Text('Excel (.xlsx)'),
-          ]),
-        ),
-        PopupMenuItem(
-          value: 'csv',
-          child: Row(children: [
-            Icon(Icons.text_snippet_outlined, size: 18, color: Color(0xFF6366F1)),
-            SizedBox(width: 8),
-            Text('CSV (.csv)'),
-          ]),
-        ),
-      ],
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF00A0A8), Color(0xFF00858C)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF00A0A8).withOpacity(0.25),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
-            ),
-          ],
-        ),
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.file_download_rounded, size: 16, color: Colors.white),
-            SizedBox(width: 6),
-            Text(
-              'Export',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
