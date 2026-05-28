@@ -55,25 +55,32 @@ class SalesDashboardService {
         .toList(growable: false);
   }
 
-  Future<List<TopPerformer>> fetchTopPerformers(
+  /// Paginated + searchable leaderboard fetch.
+  ///
+  /// Backend applies hierarchy scope first, then the search predicate,
+  /// then paginates — so a KAM searching for "Hospital X" only sees their
+  /// own slice and total reflects the scope. Caller drives `page` from
+  /// the infinite-scroll trigger and `search` from the debounced text
+  /// field.
+  Future<PaginatedPerformers> fetchTopPerformers(
     SalesDashboardFilters filters, {
     TopPerformerType type = TopPerformerType.kams,
-    int limit = 10,
+    int limit = 20,
+    int page = 1,
+    String search = '',
   }) async {
     final query = {
       ...filters.toQuery(),
       'type': type.apiValue,
       'limit': limit.toString(),
+      'page': page.toString(),
+      if (search.trim().isNotEmpty) 'search': search.trim(),
     };
     final res = await _client
         .get(_uri('top-performers', query), headers: await _headers())
         .timeout(const Duration(seconds: 30));
     final body = _decode(res);
-    final list = (body['data'] as List? ?? const []);
-    return list
-        .whereType<Map<String, dynamic>>()
-        .map(TopPerformer.fromJson)
-        .toList(growable: false);
+    return PaginatedPerformers.fromJson(body);
   }
 
   /// Stream the export endpoint as binary bytes plus the server-provided

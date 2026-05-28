@@ -28,11 +28,30 @@ class SalesDashboardFiltersChanged extends SalesDashboardEvent {
   List<Object?> get props => [filters];
 }
 
-/// Switch which leaderboard the Top Performers card is showing.
+/// Switch which leaderboard the Top Performers card is showing. Resets
+/// search to '', page to 1, and refetches.
 class SalesDashboardTopPerformerTypeChanged extends SalesDashboardEvent {
   final TopPerformerType type;
   const SalesDashboardTopPerformerTypeChanged(this.type);
 
   @override
   List<Object?> get props => [type];
+}
+
+/// Update the leaderboard search query. Debouncing happens UI-side; this
+/// event is dispatched only after the debounce settles. Resets page to 1
+/// and replaces the current list with the new search result.
+class SalesDashboardLeaderboardSearchChanged extends SalesDashboardEvent {
+  final String query;
+  const SalesDashboardLeaderboardSearchChanged(this.query);
+
+  @override
+  List<Object?> get props => [query];
+}
+
+/// Infinite-scroll trigger — fetch the next page and append to the
+/// current performer list. No-op when hasMore is false or another
+/// load-more is already in flight.
+class SalesDashboardLeaderboardLoadMoreRequested extends SalesDashboardEvent {
+  const SalesDashboardLeaderboardLoadMoreRequested();
 }
