@@ -207,16 +207,14 @@ class SalesDashboardFilters {
   static const empty = SalesDashboardFilters();
 }
 
-/// Identifiers for the eight top-performer leaderboards the backend supports.
+/// Identifiers for the three leaderboards the Sales Analytics widget
+/// supports. Managers/HQs/Regions/Zones/Stockists were dropped from the
+/// dashboard dropdown — they're still in the backend `switch` history but
+/// the API now returns an empty page for those types.
 enum TopPerformerType {
   kams,
-  managers,
-  hqs,
-  regions,
-  zones,
-  products,
   hospitals,
-  stockists;
+  products;
 
   String get apiValue => name;
 
@@ -224,20 +222,61 @@ enum TopPerformerType {
     switch (this) {
       case TopPerformerType.kams:
         return 'All KAMs';
-      case TopPerformerType.managers:
-        return 'Top Managers';
-      case TopPerformerType.hqs:
-        return 'Top HQs';
-      case TopPerformerType.regions:
-        return 'Top Regions';
-      case TopPerformerType.zones:
-        return 'Top Zones';
-      case TopPerformerType.products:
-        return 'Top Products';
       case TopPerformerType.hospitals:
-        return 'Top Hospitals';
-      case TopPerformerType.stockists:
-        return 'Top Stockists';
+        return 'All Hospitals';
+      case TopPerformerType.products:
+        return 'All Products (Brands)';
     }
   }
+
+  String get searchPlaceholder {
+    switch (this) {
+      case TopPerformerType.kams:
+        return 'Search KAM...';
+      case TopPerformerType.hospitals:
+        return 'Search Hospital...';
+      case TopPerformerType.products:
+        return 'Search Brand/Product...';
+    }
+  }
+}
+
+/// One page of leaderboard rows + the cursor needed for infinite scroll.
+class PaginatedPerformers {
+  final List<TopPerformer> data;
+  final int total;
+  final int page;
+  final int limit;
+  final bool hasMore;
+
+  const PaginatedPerformers({
+    required this.data,
+    required this.total,
+    required this.page,
+    required this.limit,
+    required this.hasMore,
+  });
+
+  factory PaginatedPerformers.fromJson(Map<String, dynamic> json) {
+    int i(dynamic v) => (v is num) ? v.toInt() : int.tryParse('${v ?? 0}') ?? 0;
+    final raw = (json['data'] as List?) ?? const [];
+    return PaginatedPerformers(
+      data: raw
+          .whereType<Map>()
+          .map((m) => TopPerformer.fromJson(m.cast<String, dynamic>()))
+          .toList(growable: false),
+      total: i(json['total']),
+      page: i(json['page']),
+      limit: i(json['limit']),
+      hasMore: json['has_more'] == true,
+    );
+  }
+
+  static const empty = PaginatedPerformers(
+    data: [],
+    total: 0,
+    page: 1,
+    limit: 20,
+    hasMore: false,
+  );
 }
