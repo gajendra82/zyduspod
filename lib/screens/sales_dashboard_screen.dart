@@ -618,9 +618,10 @@ class _KpiGrid extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         // 4 cards on desktop, 3 on small desktops, 2 on tablets/large
-        // phones, 1 on phones. Aspect ratio tuned per column count so cards
-        // don't look squashed at narrow widths (the single-column "wide
-        // banner" shape at 2.4 looked particularly bad on phones).
+        // phones, 1 on phones. Aspect ratios tightened across the board —
+        // the previous values made phone cards near-square with a
+        // stretched-out empty middle. _KpiCard chrome (padding, icon,
+        // radius, shadow) was trimmed to match the shorter cell.
         final w = constraints.maxWidth;
         final columns = w >= 1100
             ? 4
@@ -630,13 +631,13 @@ class _KpiGrid extends StatelessWidget {
                     ? 2
                     : 1;
         final aspect = columns == 4
-            ? 1.55
+            ? 1.75
             : columns == 3
-                ? 1.5
+                ? 1.65
                 : columns == 2
-                    ? 1.55
-                    : 1.95; // single column on phone — taller card, breathing room
-        final spacing = columns >= 3 ? 14.0 : 10.0;
+                    ? 1.7
+                    : 2.4; // single column on phone — wide banner, not tall
+        final spacing = columns >= 3 ? 12.0 : 10.0;
         final cards = _buildCards();
         return GridView.builder(
           shrinkWrap: true,
@@ -749,13 +750,17 @@ class _KpiCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Trimmed across the board to remove empty whitespace — padding,
+    // icon, badge dim, radius, and shadow were sized for a taller card;
+    // with the grid's larger aspect ratio (shorter cell) the old chrome
+    // made the cards look swollen.
     final mobile = _isMobile(context);
-    final cardPad = mobile ? 14.0 : 18.0;
-    final iconSize = mobile ? 18.0 : 20.0;
-    final iconBoxPad = mobile ? 7.0 : 8.0;
-    final progressDim = mobile ? 32.0 : 38.0;
+    final cardPad = mobile ? 11.0 : 13.0;
+    final iconSize = mobile ? 16.0 : 18.0;
+    final iconBoxPad = mobile ? 6.0 : 7.0;
+    final progressDim = mobile ? 30.0 : 34.0;
     final titleSize = mobile ? 11.0 : 12.0;
-    final valueSize = mobile ? 22.0 : 26.0; // FittedBox still scales down further if needed
+    final valueSize = mobile ? 20.0 : 24.0; // FittedBox still scales down further if needed
     final subtitleSize = mobile ? 10.0 : 11.0;
 
     return Container(
@@ -766,12 +771,12 @@ class _KpiCard extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(mobile ? 16 : 20),
+        borderRadius: BorderRadius.circular(mobile ? 14 : 16),
         boxShadow: [
           BoxShadow(
             color: gradient.first.withOpacity(0.28),
-            blurRadius: mobile ? 12 : 18,
-            offset: Offset(0, mobile ? 5 : 8),
+            blurRadius: mobile ? 9 : 14,
+            offset: Offset(0, mobile ? 4 : 6),
           ),
         ],
       ),
