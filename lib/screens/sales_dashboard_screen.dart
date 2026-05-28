@@ -147,7 +147,15 @@ class _LoadedView extends StatelessWidget {
     final hPad = mobile ? 10.0 : 16.0;
     final vPad = mobile ? 12.0 : 16.0;
     final sectionGap = mobile ? 14.0 : 20.0;
-    return ListView(
+
+    // The leaderboard previously sat inside a fixed-height SizedBox with
+    // its own ScrollController, which trapped scroll gestures and made
+    // it impossible to scroll past it on phones. Now the leaderboard
+    // renders its rows inline as ListView items in this outer ListView,
+    // and a NotificationListener watches the *page* scroll to fire
+    // load-more when the user nears the bottom — there is only one
+    // scrollable on this page.
+    final outerListView = ListView(
       padding: EdgeInsets.fromLTRB(hPad, vPad, hPad, mobile ? 24 : 32),
       physics: const AlwaysScrollableScrollPhysics(),
       children: [
@@ -161,6 +169,27 @@ class _LoadedView extends StatelessWidget {
         SizedBox(height: sectionGap),
         _LeaderboardCard(state: state),
       ],
+    );
+
+    return NotificationListener<ScrollNotification>(
+      onNotification: (n) {
+        // Fire load-more when the outer scroll position is within 220 px
+        // of the bottom AND there's another page available. Throttle is
+        // implicit — the BLoC's `isLoadingMore` check de-dupes concurrent
+        // triggers, and ScrollNotification fires liberally enough that
+        // even a slow scroll catches it.
+        if (n.metrics.axis != Axis.vertical) return false;
+        if (!state.leaderboardHasMore) return false;
+        if (state.isLeaderboardLoadingMore) return false;
+        if (state.isLeaderboardLoading) return false;
+        if (n.metrics.pixels >= n.metrics.maxScrollExtent - 220) {
+          context
+              .read<SalesDashboardBloc>()
+              .add(const SalesDashboardLeaderboardLoadMoreRequested());
+        }
+        return false; // don't swallow — let scroll continue
+      },
+      child: outerListView,
     );
   }
 }
@@ -1017,7 +1046,6 @@ class _LeaderboardCard extends StatefulWidget {
 }
 
 class _LeaderboardCardState extends State<_LeaderboardCard> {
-  final ScrollController _scroll = ScrollController();
   final TextEditingController _searchCtrl = TextEditingController();
   Timer? _searchDebounce;
 
@@ -1025,7 +1053,6 @@ class _LeaderboardCardState extends State<_LeaderboardCard> {
   void initState() {
     super.initState();
     _searchCtrl.text = widget.state.leaderboardSearch;
-    _scroll.addListener(_onScroll);
   }
 
   @override
@@ -1046,26 +1073,8 @@ class _LeaderboardCardState extends State<_LeaderboardCard> {
   @override
   void dispose() {
     _searchDebounce?.cancel();
-    _scroll.removeListener(_onScroll);
-    _scroll.dispose();
     _searchCtrl.dispose();
     super.dispose();
-  }
-
-  void _onScroll() {
-    // Trigger load-more when we're within 200px of the bottom and there
-    // are more pages to fetch. BLoC handler de-dupes concurrent triggers.
-    if (!_scroll.hasClients) return;
-    final pos = _scroll.position;
-    if (pos.pixels >= pos.maxScrollExtent - 200) {
-      if (widget.state.leaderboardHasMore &&
-          !widget.state.isLeaderboardLoadingMore &&
-          !widget.state.isLeaderboardLoading) {
-        context
-            .read<SalesDashboardBloc>()
-            .add(const SalesDashboardLeaderboardLoadMoreRequested());
-      }
-    }
   }
 
   void _onSearchChanged(String value) {
@@ -1086,11 +1095,52 @@ class _LeaderboardCardState extends State<_LeaderboardCard> {
     final isInitialLoading = state.isLeaderboardLoading;
     final mobile = _isMobile(context);
 
+    // Rows render inline inside the outer page ListView — no nested
+    // scrollable, no fixed height. Load-more is fired by a
+    // NotificationListener on the parent (_LoadedView) watching the
+    // outer scroll. That fixes the scroll-trapping bug where a finger
+    // landing inside the leaderboard couldn't scroll past it.
+    final rows = <Widget>[];
+    if (isInitialLoading) {
+      rows.add(const _LeaderboardSkeleton());
+    } else if (performers.isEmpty) {
+      rows.add(_EmptyState(
+        message: state.leaderboardSearch.isEmpty
+            ? 'No data for this leaderboard.'
+            : 'No matches for "${state.leaderboardSearch}".',
+      ));
+    } else {
+      for (var i = 0; i < performers.length; i++) {
+        rows.add(_KamLeaderboardRow(
+          rank: i + 1,
+          performer: performers[i],
+        ));
+      }
+      if (state.isLeaderboardLoadingMore) {
+        // 3 shimmer rows hinting at the next page being fetched.
+        rows.add(const _LeaderboardSkeletonRow());
+        rows.add(const _LeaderboardSkeletonRow());
+        rows.add(const _LeaderboardSkeletonRow());
+      } else if (!state.leaderboardHasMore) {
+        rows.add(Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Center(
+            child: Text(
+              '— end of list —',
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.black.withOpacity(0.4),
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ),
+        ));
+      }
+    }
+
     return _SectionCard(
       title: selectedType.label,
       subtitle: _buildSubtitle(state),
-      // Segmented switcher replaces the prior PopupMenuButton — three
-      // pills inline on wide screens, wraps onto the next line on phones.
       headerTrailing: mobile ? null : _TypeSwitcher(selected: selectedType),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1113,58 +1163,7 @@ class _LeaderboardCardState extends State<_LeaderboardCard> {
             },
           ),
           const SizedBox(height: 10),
-          if (isInitialLoading)
-            const _LeaderboardSkeleton()
-          else if (performers.isEmpty)
-            _EmptyState(
-              message: state.leaderboardSearch.isEmpty
-                  ? 'No data for this leaderboard.'
-                  : 'No matches for "${state.leaderboardSearch}".',
-            )
-          else
-            // The list lives inside an outer ListView (the page scroll),
-            // so we cap height + use a nested scrollable to drive the
-            // infinite-scroll. Height shrinks for phones to keep the
-            // leaderboard from dominating the viewport.
-            SizedBox(
-              height: mobile ? 460 : 600,
-              child: ListView.builder(
-                controller: _scroll,
-                physics: const AlwaysScrollableScrollPhysics(),
-                itemCount: performers.length +
-                    (state.isLeaderboardLoadingMore ? 3 : 0) +
-                    (!state.leaderboardHasMore &&
-                            !state.isLeaderboardLoadingMore &&
-                            performers.isNotEmpty
-                        ? 1
-                        : 0),
-                itemBuilder: (_, i) {
-                  if (i < performers.length) {
-                    return _KamLeaderboardRow(
-                      rank: i + 1,
-                      performer: performers[i],
-                    );
-                  }
-                  if (state.isLeaderboardLoadingMore) {
-                    return const _LeaderboardSkeletonRow();
-                  }
-                  // End marker — shows when there's nothing more to load.
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    child: Center(
-                      child: Text(
-                        '— end of list —',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.black.withOpacity(0.4),
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
+          ...rows,
         ],
       ),
     );
@@ -1440,14 +1439,21 @@ class _KamLeaderboardRow extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      performer.name,
+                      // displayName adds " (City — BTST)" for hospitals,
+                      // falls back to plain name for KAMs / Products.
+                      performer.displayName,
                       style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                       ),
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    if (performer.code != null && performer.code!.isNotEmpty)
+                    if (performer.code != null &&
+                        performer.code!.isNotEmpty &&
+                        // Hospitals already surface the code via
+                        // displayName, so don't repeat it below the name.
+                        performer.btstCode.isEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 2),
                         child: Text(
