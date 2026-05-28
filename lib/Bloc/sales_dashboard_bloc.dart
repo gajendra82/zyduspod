@@ -127,6 +127,21 @@ class SalesDashboardBloc extends Bloc<SalesDashboardEvent, SalesDashboardState> 
     _search = event.query;
     final current = state;
     if (current is! SalesDashboardLoaded) return;
+
+    // Wait for at least 2 chars before hitting the backend. A 1-char
+    // query on the products tab matches a huge fraction of brands and
+    // has historically blown the request timeout — the proxy closes
+    // the connection before PHP can respond and the user sees
+    // "Connection closed before full header was received". Keep the
+    // typed value in state so the text field doesn't jump, but DO NOT
+    // wipe the current list or fire the fetch until the query is
+    // either cleared (length 0 → reload) or ≥ 2 chars (real filter).
+    final trimmed = _search.trim();
+    if (trimmed.isNotEmpty && trimmed.length < 2) {
+      emit(current.copyWith(leaderboardSearch: _search));
+      return;
+    }
+
     emit(current.copyWith(
       leaderboardSearch: _search,
       // Replace the list during a search reset rather than greying it
