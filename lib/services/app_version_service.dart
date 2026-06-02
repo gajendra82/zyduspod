@@ -6,7 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:zyduspod/config.dart';
+import 'package:zydus_vistaar/config.dart';
 
 class AppVersionInfo {
   AppVersionInfo({

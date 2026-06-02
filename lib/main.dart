@@ -1,11 +1,11 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:zyduspod/screens/splash_screen.dart';
-import 'package:zyduspod/widgets/connectivity_wrapper.dart';
-import 'package:zyduspod/widgets/notification_handler.dart';
-import 'package:zyduspod/services/firebase_service.dart';
-import 'package:zyduspod/routes.dart';
+import 'package:zydus_vistaar/screens/splash_screen.dart';
+import 'package:zydus_vistaar/widgets/connectivity_wrapper.dart';
+import 'package:zydus_vistaar/widgets/notification_handler.dart';
+import 'package:zydus_vistaar/services/firebase_service.dart';
+import 'package:zydus_vistaar/routes.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();

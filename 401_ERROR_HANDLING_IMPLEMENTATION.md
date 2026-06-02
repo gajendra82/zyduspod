@@ -151,7 +151,7 @@ When creating a new service that makes API calls:
 
 1. Import the ApiClient:
 ```dart
-import 'package:zyduspod/services/api_client.dart';
+import 'package:zydus_vistaar/services/api_client.dart';
 ```
 
 2. Create an instance:

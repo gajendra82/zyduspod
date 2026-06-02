@@ -2,10 +2,10 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:zyduspod/screens/modern_document_upload_screen.dart';
-import 'package:zyduspod/screens/profile_screen.dart';
-import 'package:zyduspod/screens/unified_dashboard_screen.dart';
-import 'package:zyduspod/services/api_client.dart';
+import 'package:zydus_vistaar/screens/modern_document_upload_screen.dart';
+import 'package:zydus_vistaar/screens/profile_screen.dart';
+import 'package:zydus_vistaar/screens/unified_dashboard_screen.dart';
+import 'package:zydus_vistaar/services/api_client.dart';
 
 class MainNavigation extends StatefulWidget {
   const MainNavigation({super.key});

@@ -9,9 +9,9 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:zyduspod/config.dart';
-import 'package:zyduspod/routes.dart';
-import 'package:zyduspod/widgets/modern_ui_components.dart';
+import 'package:zydus_vistaar/config.dart';
+import 'package:zydus_vistaar/routes.dart';
+import 'package:zydus_vistaar/widgets/modern_ui_components.dart';
 
 /// Dedicated POD upload screen for stockist logins.
 ///

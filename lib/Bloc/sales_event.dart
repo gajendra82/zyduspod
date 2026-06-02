@@ -1,5 +1,5 @@
 import 'package:equatable/equatable.dart';
-import 'package:zyduspod/Models/sales_data.dart';
+import 'package:zydus_vistaar/Models/sales_data.dart';
 
 abstract class SalesEvent extends Equatable {
   const SalesEvent();

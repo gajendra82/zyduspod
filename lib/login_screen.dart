@@ -2,9 +2,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:zyduspod/config.dart';
-import 'package:zyduspod/routes.dart';
-import 'package:zyduspod/services/firebase_service.dart';
+import 'package:zydus_vistaar/config.dart';
+import 'package:zydus_vistaar/routes.dart';
+import 'package:zydus_vistaar/services/firebase_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});

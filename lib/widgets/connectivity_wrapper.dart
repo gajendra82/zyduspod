@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:zyduspod/screens/no_internet_screen.dart';
-import 'package:zyduspod/services/connectivity_service.dart';
+import 'package:zydus_vistaar/screens/no_internet_screen.dart';
+import 'package:zydus_vistaar/services/connectivity_service.dart';
 
 class ConnectivityWrapper extends StatefulWidget {
   final Widget child;

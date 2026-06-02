@@ -1,9 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import 'package:zyduspod/services/app_version_service.dart';
-import 'package:zyduspod/utils/app_hard_reload.dart'
-    if (dart.library.io) 'package:zyduspod/utils/app_hard_reload_stub.dart';
+import 'package:zydus_vistaar/services/app_version_service.dart';
+import 'package:zydus_vistaar/utils/app_hard_reload.dart'
+    if (dart.library.io) 'package:zydus_vistaar/utils/app_hard_reload_stub.dart';
 
 /// "A new version is available" prompt. Non-dismissible — the only exit is
 /// the Refresh action, which records the acknowledgement (so a stuck

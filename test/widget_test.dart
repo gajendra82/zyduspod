@@ -3,7 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:zyduspod/main.dart';
+import 'package:zydus_vistaar/main.dart';
 
 void main() {
   testWidgets('Splash screen displays correctly', (WidgetTester tester) async {

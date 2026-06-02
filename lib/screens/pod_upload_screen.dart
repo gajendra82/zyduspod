@@ -20,17 +20,17 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 
-import 'package:zyduspod/config.dart';
-import 'package:zyduspod/GstInvoiceScanner.dart'; // COMMENTED OUT: Used for QR processing
-import 'package:zyduspod/Models/_SplitOut.dart';
-import 'package:zyduspod/services/PythonQRService.dart'; // COMMENTED OUT: Used for QR processing
-import 'package:zyduspod/widgets/EInvoiceQRExtractor.dart'; // COMMENTED OUT: Used for QR processing
-import 'package:zyduspod/widgets/PdfPreviewScreen.dart'; // existing File-based preview
-import 'package:zyduspod/widgets/modern_ui_components.dart';
-import 'package:zyduspod/screens/upload_status_screen.dart';
-import 'package:zyduspod/routes.dart';
-import 'package:zyduspod/utils/web_camera_helper.dart'
-    if (dart.library.io) 'package:zyduspod/utils/web_camera_helper_stub.dart';
+import 'package:zydus_vistaar/config.dart';
+import 'package:zydus_vistaar/GstInvoiceScanner.dart'; // COMMENTED OUT: Used for QR processing
+import 'package:zydus_vistaar/Models/_SplitOut.dart';
+import 'package:zydus_vistaar/services/PythonQRService.dart'; // COMMENTED OUT: Used for QR processing
+import 'package:zydus_vistaar/widgets/EInvoiceQRExtractor.dart'; // COMMENTED OUT: Used for QR processing
+import 'package:zydus_vistaar/widgets/PdfPreviewScreen.dart'; // existing File-based preview
+import 'package:zydus_vistaar/widgets/modern_ui_components.dart';
+import 'package:zydus_vistaar/screens/upload_status_screen.dart';
+import 'package:zydus_vistaar/routes.dart';
+import 'package:zydus_vistaar/utils/web_camera_helper.dart'
+    if (dart.library.io) 'package:zydus_vistaar/utils/web_camera_helper_stub.dart';
 
 // PDF Splitting API
 const String _SPLIT_API_BASE = 'https://anujakkulkarni-splitpdffile.hf.space';

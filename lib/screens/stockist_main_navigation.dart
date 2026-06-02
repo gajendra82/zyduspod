@@ -3,8 +3,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'package:zyduspod/screens/profile_screen.dart';
-import 'package:zyduspod/screens/stockist_pod_upload_screen.dart';
+import 'package:zydus_vistaar/screens/profile_screen.dart';
+import 'package:zydus_vistaar/screens/stockist_pod_upload_screen.dart';
 
 /// Bottom-nav shell for stockist logins. Mirrors [MainNavigation] (the KAM
 /// shell) but only exposes the two screens stockists need: POD upload and

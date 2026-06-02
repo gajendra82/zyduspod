@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:zyduspod/DocumentUploadScreen.dart';
-import 'package:zyduspod/screens/notifications_screen.dart';
-import 'package:zyduspod/screens/pod_upload_screen.dart';
-import 'package:zyduspod/screens/e_invoice_data_screen.dart';
-import 'package:zyduspod/screens/batches_list_screen.dart';
-import 'package:zyduspod/widgets/modern_ui_components.dart';
-import 'package:zyduspod/routes.dart';
+import 'package:zydus_vistaar/DocumentUploadScreen.dart';
+import 'package:zydus_vistaar/screens/notifications_screen.dart';
+import 'package:zydus_vistaar/screens/pod_upload_screen.dart';
+import 'package:zydus_vistaar/screens/e_invoice_data_screen.dart';
+import 'package:zydus_vistaar/screens/batches_list_screen.dart';
+import 'package:zydus_vistaar/widgets/modern_ui_components.dart';
+import 'package:zydus_vistaar/routes.dart';
 
 class ModernDocumentUploadScreen extends StatefulWidget {
   const ModernDocumentUploadScreen({super.key});

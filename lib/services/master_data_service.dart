@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:zyduspod/config.dart';
+import 'package:zydus_vistaar/config.dart';
 
 class MasterDataService {
   static final MasterDataService _instance = MasterDataService._internal();

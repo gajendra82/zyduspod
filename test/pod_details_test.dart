@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:zyduspod/screens/pod_details_screen.dart';
+import 'package:zydus_vistaar/screens/pod_details_screen.dart';
 
 void main() {
   testWidgets('POD Details Screen displays correctly', (WidgetTester tester) async {

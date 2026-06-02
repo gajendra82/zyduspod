@@ -1,27 +1,27 @@
 import 'package:flutter/material.dart';
-import 'package:zyduspod/login_screen.dart';
-import 'package:zyduspod/screens/splash_screen.dart';
-import 'package:zyduspod/screens/main_navigation.dart';
-import 'package:zyduspod/screens/pod_upload_screen.dart';
-import 'package:zyduspod/screens/upload_status_screen.dart';
+import 'package:zydus_vistaar/login_screen.dart';
+import 'package:zydus_vistaar/screens/splash_screen.dart';
+import 'package:zydus_vistaar/screens/main_navigation.dart';
+import 'package:zydus_vistaar/screens/pod_upload_screen.dart';
+import 'package:zydus_vistaar/screens/upload_status_screen.dart';
 // Hospital mapping is now handled exclusively from the web "Hospital Mapping
 // Review" tool. Keeping the import commented (and the screen file in the
 // repo) so the work can be revived without git archaeology if the product
 // ever wants in-app review again.
-// import 'package:zyduspod/screens/pod_review_screen.dart';
-import 'package:zyduspod/screens/stockist_main_navigation.dart';
-import 'package:zyduspod/screens/batch_detail_screen.dart';
-import 'package:zyduspod/screens/batches_list_screen.dart';
-import 'package:zyduspod/screens/notifications_screen.dart';
-import 'package:zyduspod/screens/modern_document_upload_screen.dart';
-import 'package:zyduspod/screens/documents_list_screen.dart';
-import 'package:zyduspod/screens/pod_details_screen.dart';
-import 'package:zyduspod/screens/e_invoice_data_screen.dart';
-import 'package:zyduspod/screens/profile_screen.dart';
-import 'package:zyduspod/widgets/PdfPreviewScreen.dart';
-import 'package:zyduspod/screens/pod_upload_screen.dart' as pod_upload;
-import 'package:zyduspod/screens/sales_dashboard_screen.dart';
-import 'package:zyduspod/widgets/notification_handler.dart';
+// import 'package:zydus_vistaar/screens/pod_review_screen.dart';
+import 'package:zydus_vistaar/screens/stockist_main_navigation.dart';
+import 'package:zydus_vistaar/screens/batch_detail_screen.dart';
+import 'package:zydus_vistaar/screens/batches_list_screen.dart';
+import 'package:zydus_vistaar/screens/notifications_screen.dart';
+import 'package:zydus_vistaar/screens/modern_document_upload_screen.dart';
+import 'package:zydus_vistaar/screens/documents_list_screen.dart';
+import 'package:zydus_vistaar/screens/pod_details_screen.dart';
+import 'package:zydus_vistaar/screens/e_invoice_data_screen.dart';
+import 'package:zydus_vistaar/screens/profile_screen.dart';
+import 'package:zydus_vistaar/widgets/PdfPreviewScreen.dart';
+import 'package:zydus_vistaar/screens/pod_upload_screen.dart' as pod_upload;
+import 'package:zydus_vistaar/screens/sales_dashboard_screen.dart';
+import 'package:zydus_vistaar/widgets/notification_handler.dart';
 
 /// Route names constants
 class AppRoutes {

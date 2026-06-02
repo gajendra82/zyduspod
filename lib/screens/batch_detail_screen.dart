@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:zyduspod/Models/batch_model.dart';
-import 'package:zyduspod/config.dart';
-import 'package:zyduspod/services/batch_service.dart';
-import 'package:zyduspod/widgets/modern_ui_components.dart';
+import 'package:zydus_vistaar/Models/batch_model.dart';
+import 'package:zydus_vistaar/config.dart';
+import 'package:zydus_vistaar/services/batch_service.dart';
+import 'package:zydus_vistaar/widgets/modern_ui_components.dart';
 
 class BatchDetailScreen extends StatefulWidget {
   final int batchId;

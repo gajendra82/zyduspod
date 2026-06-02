@@ -1,7 +1,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:zyduspod/Bloc/hospital_dashboard_event.dart';
-import 'package:zyduspod/Bloc/hospital_dashboard_state.dart';
-import 'package:zyduspod/services/hospital_dashboard_service.dart';
+import 'package:zydus_vistaar/Bloc/hospital_dashboard_event.dart';
+import 'package:zydus_vistaar/Bloc/hospital_dashboard_state.dart';
+import 'package:zydus_vistaar/services/hospital_dashboard_service.dart';
 
 class HospitalDashboardBloc extends Bloc<HospitalDashboardEvent, HospitalDashboardState> {
   final HospitalDashboardService _service;
