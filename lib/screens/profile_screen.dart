@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:zyduspod/services/auth_service.dart';
+import 'package:zydus_vistaar/services/auth_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:zyduspod/widgets/modern_ui_components.dart';
-import 'package:zyduspod/widgets/notification_handler.dart';
-import 'package:zyduspod/screens/notifications_screen.dart';
+import 'package:zydus_vistaar/widgets/modern_ui_components.dart';
+import 'package:zydus_vistaar/widgets/notification_handler.dart';
+import 'package:zydus_vistaar/screens/notifications_screen.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:zyduspod/config.dart';
-import 'package:zyduspod/routes.dart';
+import 'package:zydus_vistaar/config.dart';
+import 'package:zydus_vistaar/routes.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});

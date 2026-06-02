@@ -46,7 +46,7 @@ To run the app on web:
 
 ## App Manifest
 
-- App name: **zyduspod**
+- App name: **zydus_vistaar**
 - Theme color: `#0175C2`
 - Description: Zydus Pod is a platform for managing and tracking the status of your shipments.
 

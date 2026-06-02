@@ -1,9 +1,9 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import 'package:zyduspod/Bloc/sales_dashboard_event.dart';
-import 'package:zyduspod/Bloc/sales_dashboard_state.dart';
-import 'package:zyduspod/Models/sales_dashboard_models.dart';
-import 'package:zyduspod/services/sales_dashboard_service.dart';
+import 'package:zydus_vistaar/Bloc/sales_dashboard_event.dart';
+import 'package:zydus_vistaar/Bloc/sales_dashboard_state.dart';
+import 'package:zydus_vistaar/Models/sales_dashboard_models.dart';
+import 'package:zydus_vistaar/services/sales_dashboard_service.dart';
 
 class SalesDashboardBloc extends Bloc<SalesDashboardEvent, SalesDashboardState> {
   SalesDashboardBloc(this._service) : super(const SalesDashboardInitial()) {

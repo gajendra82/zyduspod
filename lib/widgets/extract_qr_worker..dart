@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:zyduspod/widgets/EInvoiceQRExtractor.dart';
+import 'package:zydus_vistaar/widgets/EInvoiceQRExtractor.dart';
 
 /// Runs in a background isolate via `compute`.
 /// args: {'path': String, 'dpi': int, 'maxPages': int}

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:zyduspod/services/pod_details_service.dart';
-import 'package:zyduspod/screens/e_invoice_data_screen.dart';
+import 'package:zydus_vistaar/services/pod_details_service.dart';
+import 'package:zydus_vistaar/screens/e_invoice_data_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:zyduspod/routes.dart';
+import 'package:zydus_vistaar/routes.dart';
 
 class PodDetailsScreen extends StatefulWidget {
   final int podId;

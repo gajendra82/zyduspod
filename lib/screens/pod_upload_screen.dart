@@ -17,12 +17,12 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:zyduspod/Models/_SplitOut.dart';
-import 'package:zyduspod/config.dart';
-import 'package:zyduspod/screens/upload_status_screen.dart';
-import 'package:zyduspod/routes.dart';
+import 'package:zydus_vistaar/Models/_SplitOut.dart';
+import 'package:zydus_vistaar/config.dart';
+import 'package:zydus_vistaar/screens/upload_status_screen.dart';
+import 'package:zydus_vistaar/routes.dart';
 import 'package:google_mlkit_document_scanner/google_mlkit_document_scanner.dart';
-import 'package:zyduspod/widgets/PdfPreviewScreen.dart'; // ← ADD
+import 'package:zydus_vistaar/widgets/PdfPreviewScreen.dart'; // ← ADD
 
 // PDF Splitting API
 const String _SPLIT_API_BASE = 'https://anujakkulkarni-splitpdffile.hf.space';

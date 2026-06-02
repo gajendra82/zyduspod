@@ -1,6 +1,6 @@
 import 'dart:convert';
-import 'package:zyduspod/config.dart';
-import 'package:zyduspod/services/api_client.dart';
+import 'package:zydus_vistaar/config.dart';
+import 'package:zydus_vistaar/services/api_client.dart';
 
 class PodDetailsService {
   static final ApiClient _apiClient = ApiClient();

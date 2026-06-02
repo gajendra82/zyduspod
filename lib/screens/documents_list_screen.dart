@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
-import 'package:zyduspod/config.dart';
-import 'package:zyduspod/screens/pod_details_screen.dart';
-import 'package:zyduspod/services/master_data_service.dart';
-import 'package:zyduspod/routes.dart';
+import 'package:zydus_vistaar/config.dart';
+import 'package:zydus_vistaar/screens/pod_details_screen.dart';
+import 'package:zydus_vistaar/services/master_data_service.dart';
+import 'package:zydus_vistaar/routes.dart';
 
 class DocumentsListScreen extends StatefulWidget {
   const DocumentsListScreen({super.key});

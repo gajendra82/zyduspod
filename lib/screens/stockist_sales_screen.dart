@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:zyduspod/Bloc/sales_bloc.dart';
-import 'package:zyduspod/Bloc/sales_event.dart';
-import 'package:zyduspod/Bloc/sales_state.dart';
-import 'package:zyduspod/Models/sales_data.dart';
+import 'package:zydus_vistaar/Bloc/sales_bloc.dart';
+import 'package:zydus_vistaar/Bloc/sales_event.dart';
+import 'package:zydus_vistaar/Bloc/sales_state.dart';
+import 'package:zydus_vistaar/Models/sales_data.dart';
 
 class StockistSalesScreen extends StatefulWidget {
   const StockistSalesScreen({super.key});

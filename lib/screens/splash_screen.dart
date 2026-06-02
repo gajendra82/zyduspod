@@ -2,9 +2,9 @@ import 'dart:async';
 import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:zyduspod/routes.dart';
-import 'package:zyduspod/services/app_version_service.dart';
-import 'package:zyduspod/widgets/version_update_dialog.dart';
+import 'package:zydus_vistaar/routes.dart';
+import 'package:zydus_vistaar/services/app_version_service.dart';
+import 'package:zydus_vistaar/widgets/version_update_dialog.dart';
 
 const String _splashLogoAsset = 'assets/branding/logo1.jpeg';
 

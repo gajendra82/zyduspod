@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:zyduspod/Bloc/sales_bloc.dart';
-import 'package:zyduspod/Bloc/sales_event.dart';
-import 'package:zyduspod/Bloc/sales_state.dart';
+import 'package:zydus_vistaar/Bloc/sales_bloc.dart';
+import 'package:zydus_vistaar/Bloc/sales_event.dart';
+import 'package:zydus_vistaar/Bloc/sales_state.dart';
 
 class UploadSalesScreen extends StatefulWidget {
   const UploadSalesScreen({super.key});

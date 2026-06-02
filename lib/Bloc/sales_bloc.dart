@@ -1,7 +1,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:zyduspod/Bloc/sales_event.dart';
-import 'package:zyduspod/Bloc/sales_state.dart';
-import 'package:zyduspod/services/sales_service.dart';
+import 'package:zydus_vistaar/Bloc/sales_event.dart';
+import 'package:zydus_vistaar/Bloc/sales_state.dart';
+import 'package:zydus_vistaar/services/sales_service.dart';
 
 class SalesBloc extends Bloc<SalesEvent, SalesState> {
   final SalesService _service;

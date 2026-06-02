@@ -1,21 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:zyduspod/Bloc/hospital_dashboard_bloc.dart';
-import 'package:zyduspod/Bloc/hospital_dashboard_event.dart';
-import 'package:zyduspod/Bloc/hospital_dashboard_state.dart';
-import 'package:zyduspod/Bloc/sales_bloc.dart';
-import 'package:zyduspod/Bloc/sales_event.dart';
-import 'package:zyduspod/Bloc/sales_state.dart';
-import 'package:zyduspod/DocumentUploadScreen.dart';
+import 'package:zydus_vistaar/Bloc/hospital_dashboard_bloc.dart';
+import 'package:zydus_vistaar/Bloc/hospital_dashboard_event.dart';
+import 'package:zydus_vistaar/Bloc/hospital_dashboard_state.dart';
+import 'package:zydus_vistaar/Bloc/sales_bloc.dart';
+import 'package:zydus_vistaar/Bloc/sales_event.dart';
+import 'package:zydus_vistaar/Bloc/sales_state.dart';
+import 'package:zydus_vistaar/DocumentUploadScreen.dart';
 // HospitalSalesScreen is intentionally left importable but no longer
 // rendered here — the "Hospital Sales" tab was replaced by the embeddable
 // Sales Analytics dashboard (SalesDashboardBody). Keep the file in the repo
 // for backward compatibility and any deep-links that still point at it.
-import 'package:zyduspod/screens/sales_dashboard_screen.dart';
-import 'package:zyduspod/screens/documents_list_screen.dart';
-import 'package:zyduspod/screens/notifications_screen.dart';
-import 'package:zyduspod/services/hospital_dashboard_service.dart';
-import 'package:zyduspod/services/sales_service.dart';
+import 'package:zydus_vistaar/screens/sales_dashboard_screen.dart';
+import 'package:zydus_vistaar/screens/documents_list_screen.dart';
+import 'package:zydus_vistaar/screens/notifications_screen.dart';
+import 'package:zydus_vistaar/services/hospital_dashboard_service.dart';
+import 'package:zydus_vistaar/services/sales_service.dart';
 
 class UnifiedDashboardScreen extends StatefulWidget {
   const UnifiedDashboardScreen({super.key});

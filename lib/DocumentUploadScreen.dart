@@ -18,12 +18,12 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:zyduspod/GstInvoiceScanner.dart';
-import 'package:zyduspod/Models/_SplitOut.dart';
-import 'package:zyduspod/Models/pod.dart';
-import 'package:zyduspod/config.dart';
-import 'package:zyduspod/services/PythonQRService.dart';
-import 'package:zyduspod/widgets/EInvoiceQRExtractor.dart';
+import 'package:zydus_vistaar/GstInvoiceScanner.dart';
+import 'package:zydus_vistaar/Models/_SplitOut.dart';
+import 'package:zydus_vistaar/Models/pod.dart';
+import 'package:zydus_vistaar/config.dart';
+import 'package:zydus_vistaar/services/PythonQRService.dart';
+import 'package:zydus_vistaar/widgets/EInvoiceQRExtractor.dart';
 
 /// ===================== IMAGE COMPRESSION / ENHANCE (Isolate Workers) =====================
 

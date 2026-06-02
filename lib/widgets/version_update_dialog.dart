@@ -4,8 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'package:zyduspod/config.dart';
-import 'package:zyduspod/services/app_version_service.dart';
+import 'package:zydus_vistaar/config.dart';
+import 'package:zydus_vistaar/services/app_version_service.dart';
 
 /// Native-style "Update Available" prompt for the iOS build.
 ///
