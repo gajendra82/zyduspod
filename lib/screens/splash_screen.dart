@@ -186,7 +186,7 @@ class _SplashScreenState extends State<SplashScreen>
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Proof of Delivery Management',
+                          'Zydus Healthcare KAM CRM Platform',
                           style: TextStyle(
                             color: Colors.white.withOpacity(0.9),
                             fontSize: 16,
