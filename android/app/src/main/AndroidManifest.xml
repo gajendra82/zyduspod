@@ -20,9 +20,16 @@
 
     
     <application
-            android:label="Zydus Vistaar"
+        android:label="Zydus Vistaar"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+
+
+
+                <!-- Add ML Kit metadata - CRITICAL FOR DOCUMENT SCANNER -->
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="document_scanner" />
 
 
         <activity

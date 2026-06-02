@@ -2,9 +2,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:zyduspod/routes.dart';
-import 'package:zyduspod/screens/modern_document_upload_screen.dart';
 import 'package:zyduspod/screens/profile_screen.dart';
 import 'package:zyduspod/screens/unified_dashboard_screen.dart';
 import 'package:zyduspod/services/api_client.dart';
@@ -29,23 +26,6 @@ class _MainNavigationState extends State<MainNavigation> {
         _apiClient.setContext(context);
       }
     });
-    // Stockists must never see the KAM shell. If anything (stale prefs,
-    // a future routing regression, a deep-link) drops a stockist here,
-    // bounce them to the dedicated stockist upload navigation.
-    _redirectIfStockist();
-  }
-
-  Future<void> _redirectIfStockist() async {
-    final prefs = await SharedPreferences.getInstance();
-    final isStockist = prefs.getBool('isStockist') ?? false;
-    final stockistId = prefs.getInt('stockistId') ?? 0;
-    if (!mounted) return;
-    if (isStockist && stockistId > 0) {
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        AppRoutes.stockistUpload,
-        (route) => false,
-      );
-    }
   }
 
   @override
@@ -146,9 +126,12 @@ class _MainNavigationState extends State<MainNavigation> {
 
   @override
   Widget build(BuildContext context) {
+    // Rebrand: bottom-nav Upload tab removed per business decision —
+    // Upload lives only inside the Drawer / Dashboard now. The bottom
+    // bar carries the two persistent surfaces: Dashboard (which now
+    // leads with Sales Analytics) and Profile.
     final List<Widget> screens = [
       const UnifiedDashboardScreen(),
-      const ModernDocumentUploadScreen(),
       const ProfileScreen(),
     ];
 
@@ -156,7 +139,7 @@ class _MainNavigationState extends State<MainNavigation> {
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
-        
+
         await _onWillPop();
       },
       child: Scaffold(
@@ -178,10 +161,6 @@ class _MainNavigationState extends State<MainNavigation> {
             BottomNavigationBarItem(
               icon: Icon(Icons.dashboard),
               label: 'Dashboard',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.upload_file),
-              label: 'Upload',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.person),

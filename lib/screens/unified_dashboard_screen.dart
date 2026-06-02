@@ -87,22 +87,26 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
             labelColor: const Color(0xFF00A0A8),
             unselectedLabelColor: Colors.grey,
             indicatorColor: const Color(0xFF00A0A8),
+            // Rebrand: Sales Analytics first (now the headline module),
+            // POD Management (All Documents) second, then the generic
+            // Overview/Remaining modules tab. Names left as-is — the
+            // user asked for ORDER changes, not label changes. The
+            // TabBarView children below must mirror this order exactly.
             tabs: const [
-              Tab(icon: Icon(Icons.dashboard), text: 'Overview'),
               Tab(icon: Icon(Icons.insights_rounded), text: 'Sales Analytics'),
               Tab(icon: Icon(Icons.description), text: 'All Documents'),
+              Tab(icon: Icon(Icons.dashboard), text: 'Overview'),
             ],
           ),
         ),
         body: TabBarView(
           controller: _tabController,
           children: [
-            _buildOverviewTab(),
-            // Sales Analytics replaces the old Hospital Sales tab in-place.
             // SalesDashboardBody owns its own BLoC, so this tab is fully
             // self-contained and lazy-loads on first focus.
             const SalesDashboardBody(),
             const DocumentsListScreen(),
+            _buildOverviewTab(),
           ],
         ),
         floatingActionButton: FloatingActionButton.extended(
