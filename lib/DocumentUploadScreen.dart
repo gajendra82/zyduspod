@@ -18,12 +18,12 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:zyduspod/GstInvoiceScanner.dart';
-import 'package:zyduspod/Models/_SplitOut.dart';
-import 'package:zyduspod/Models/pod.dart';
-import 'package:zyduspod/config.dart';
-import 'package:zyduspod/services/PythonQRService.dart';
-import 'package:zyduspod/widgets/EInvoiceQRExtractor.dart';
+import 'package:zydus_vistaar/GstInvoiceScanner.dart';
+import 'package:zydus_vistaar/Models/_SplitOut.dart';
+import 'package:zydus_vistaar/Models/pod.dart';
+import 'package:zydus_vistaar/config.dart';
+import 'package:zydus_vistaar/services/PythonQRService.dart';
+import 'package:zydus_vistaar/widgets/EInvoiceQRExtractor.dart';
 
 /// ===================== IMAGE COMPRESSION / ENHANCE (Isolate Workers) =====================
 
@@ -845,7 +845,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         if (_isEinvoiceDoc()) _autoMarkEinvoiceSelectedForEinvoiceFlow();
 
         if (_debugEinvoice) {
-          debugPrint('[QR] ✓ Pre-upload extraction: ${doc.displayName}');
+          debugPrint('[QR] âœ“ Pre-upload extraction: ${doc.displayName}');
         }
       }
     } catch (e) {
@@ -1187,7 +1187,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
 
         if (_isPodDoc() || _isEinvoiceDoc()) {
           final idx = _capturedDocuments.length - 1;
-          _enqueueExtraction(newDoc, idx); // ← your existing QR pipeline
+          _enqueueExtraction(newDoc, idx); // â† your existing QR pipeline
         }
       }
 
@@ -1314,7 +1314,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         }
         if (_debugEinvoice) {
           debugPrint(
-            '[QR] ❌ No QR from single API attempt for ${docInfo.displayName}',
+            '[QR] âŒ No QR from single API attempt for ${docInfo.displayName}',
           );
         }
         return;
@@ -1341,7 +1341,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '✅ QR extracted via API',
+                    'âœ… QR extracted via API',
                     style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
                   ),
                 ),
@@ -1623,7 +1623,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                '✅ Uploaded ${validDocs.length} POD document(s) in a single request.',
+                'âœ… Uploaded ${validDocs.length} POD document(s) in a single request.',
               ),
               backgroundColor: Colors.green,
             ),
@@ -1779,7 +1779,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                '✅ Uploaded ${successes.length} document(s) successfully.',
+                'âœ… Uploaded ${successes.length} document(s) successfully.',
               ),
               backgroundColor: Colors.green,
             ),
@@ -1788,7 +1788,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         if (failures.isNotEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('⚠️ ${failures.length} document(s) failed.'),
+              content: Text('âš ï¸ ${failures.length} document(s) failed.'),
               backgroundColor: Colors.orange,
             ),
           );
@@ -2860,7 +2860,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
 
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
-                                content: Text('✅ Manual QR scan successful'),
+                                content: Text('âœ… Manual QR scan successful'),
                                 backgroundColor: Colors.green,
                                 duration: Duration(seconds: 2),
                               ),

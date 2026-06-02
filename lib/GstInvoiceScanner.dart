@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:zyduspod/config.dart';
+import 'package:zydus_vistaar/config.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 // class GstQrApp extends StatelessWidget {
@@ -307,15 +307,15 @@ class _InvoiceResultScreenState extends State<InvoiceResultScreen> {
       );
       print('Response: ${response.body}');
       if (response.statusCode == 200) {
-        setState(() => apiStatus = "✅ Sent successfully!");
+        setState(() => apiStatus = "âœ… Sent successfully!");
       } else {
         setState(
           () =>
-              apiStatus = "❌ Error: ${response.statusCode} - ${response.body}",
+              apiStatus = "âŒ Error: ${response.statusCode} - ${response.body}",
         );
       }
     } catch (e) {
-      setState(() => apiStatus = "❌ Exception: $e");
+      setState(() => apiStatus = "âŒ Exception: $e");
     } finally {
       setState(() => loading = false);
     }
@@ -523,24 +523,24 @@ class _InvoiceResultScreenState extends State<InvoiceResultScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: apiStatus!.contains("✅") ? Colors.green.shade50 : Colors.red.shade50,
+                  color: apiStatus!.contains("âœ…") ? Colors.green.shade50 : Colors.red.shade50,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: apiStatus!.contains("✅") ? Colors.green.shade200 : Colors.red.shade200,
+                    color: apiStatus!.contains("âœ…") ? Colors.green.shade200 : Colors.red.shade200,
                   ),
                 ),
                 child: Row(
                   children: [
                     Icon(
-                      apiStatus!.contains("✅") ? Icons.check_circle : Icons.error,
-                      color: apiStatus!.contains("✅") ? Colors.green : Colors.red,
+                      apiStatus!.contains("âœ…") ? Icons.check_circle : Icons.error,
+                      color: apiStatus!.contains("âœ…") ? Colors.green : Colors.red,
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
                         apiStatus!,
                         style: TextStyle(
-                          color: apiStatus!.contains("✅") ? Colors.green.shade700 : Colors.red.shade700,
+                          color: apiStatus!.contains("âœ…") ? Colors.green.shade700 : Colors.red.shade700,
                           fontWeight: FontWeight.w600,
                           fontSize: 16,
                         ),

@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
-import 'package:zyduspod/config.dart';
-import 'package:zyduspod/Models/sales_data.dart';
-import 'package:zyduspod/services/api_client.dart';
+import 'package:zydus_vistaar/config.dart';
+import 'package:zydus_vistaar/Models/sales_data.dart';
+import 'package:zydus_vistaar/services/api_client.dart';
 
 class SalesService {
   final ApiClient _apiClient = ApiClient();

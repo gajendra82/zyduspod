@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:zyduspod/Bloc/hospital_dashboard_bloc.dart';
-import 'package:zyduspod/Bloc/hospital_dashboard_event.dart';
-import 'package:zyduspod/Bloc/hospital_dashboard_state.dart';
-import 'package:zyduspod/screens/documents_list_screen.dart';
+import 'package:zydus_vistaar/Bloc/hospital_dashboard_bloc.dart';
+import 'package:zydus_vistaar/Bloc/hospital_dashboard_event.dart';
+import 'package:zydus_vistaar/Bloc/hospital_dashboard_state.dart';
+import 'package:zydus_vistaar/screens/documents_list_screen.dart';
 
 class HospitalDashboardPane extends StatelessWidget {
   const HospitalDashboardPane({super.key});

@@ -17,12 +17,12 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:zyduspod/Models/_SplitOut.dart';
-import 'package:zyduspod/config.dart';
-import 'package:zyduspod/screens/upload_status_screen.dart';
-import 'package:zyduspod/routes.dart';
+import 'package:zydus_vistaar/Models/_SplitOut.dart';
+import 'package:zydus_vistaar/config.dart';
+import 'package:zydus_vistaar/screens/upload_status_screen.dart';
+import 'package:zydus_vistaar/routes.dart';
 import 'package:google_mlkit_document_scanner/google_mlkit_document_scanner.dart';
-import 'package:zyduspod/widgets/PdfPreviewScreen.dart'; // ← ADD
+import 'package:zydus_vistaar/widgets/PdfPreviewScreen.dart'; // â† ADD
 import 'dart:math'; // For min() function
 
 // PDF Splitting API
@@ -69,7 +69,7 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
             )
             ..fields['include_pdf'] = 'true'
             ..fields['initial_dpi'] = '300'
-            // ✅ NEW: Request compressed response
+            // âœ… NEW: Request compressed response
             ..headers['Accept-Encoding'] = 'gzip, deflate';
 
       debugPrint('[SPLIT] Sending request...');
@@ -78,7 +78,7 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
       debugPrint('[SPLIT] Response status: ${streamed.statusCode}');
       debugPrint('[SPLIT] Response headers: ${streamed.headers}');
 
-      // ✅ NEW: Monitor response streaming with progress
+      // âœ… NEW: Monitor response streaming with progress
       int receivedBytes = 0;
       int lastLogBytes = 0;
       final responseChunks = <List<int>>[];
@@ -100,7 +100,7 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
         '[SPLIT] Total received: ${(receivedBytes / 1024 / 1024).toStringAsFixed(2)}MB',
       );
 
-      // ✅ NEW: Check if response was compressed
+      // âœ… NEW: Check if response was compressed
       final isCompressed =
           streamed.headers['content-encoding']?.contains('gzip') ?? false;
       debugPrint('[SPLIT] Response compressed: $isCompressed');
@@ -108,7 +108,7 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
       // Combine chunks
       final responseBytes = responseChunks.expand((x) => x).toList();
 
-      // ✅ NEW: Decompress if needed (http package usually does this automatically)
+      // âœ… NEW: Decompress if needed (http package usually does this automatically)
       final bodyBytes = Uint8List.fromList(responseBytes);
 
       // Handle HTTP errors
@@ -129,9 +129,9 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
         return _fallbackUnsplitPdf(pdfFile);
       }
 
-      // ✅ NEW: Validate response size
+      // âœ… NEW: Validate response size
       if (bodyBytes.isEmpty) {
-        debugPrint('[SPLIT] ⚠ Empty response body (Airtel truncation?)');
+        debugPrint('[SPLIT] âš  Empty response body (Airtel truncation?)');
 
         if (attempt < maxRetries - 1) {
           debugPrint('[SPLIT] Retrying due to empty body.. .');
@@ -147,7 +147,7 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
       try {
         bodyString = utf8.decode(bodyBytes);
       } catch (e) {
-        debugPrint('[SPLIT] ⚠ UTF-8 decode failed: $e');
+        debugPrint('[SPLIT] âš  UTF-8 decode failed: $e');
 
         if (attempt < maxRetries - 1) {
           await Future.delayed(retryDelay);
@@ -161,7 +161,7 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
       try {
         decoded = jsonDecode(bodyString);
       } catch (jsonErr) {
-        debugPrint('[SPLIT] ⚠ JSON decode failed: $jsonErr');
+        debugPrint('[SPLIT] âš  JSON decode failed: $jsonErr');
         debugPrint('[SPLIT] Body length: ${bodyString.length} chars');
         debugPrint(
           '[SPLIT] Body preview: ${bodyString.substring(0, min(500, bodyString.length))}',
@@ -173,7 +173,7 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
         // Check if response was truncated
         if (!bodyString.endsWith('}') && !bodyString.endsWith(']')) {
           debugPrint(
-            '[SPLIT] ⚠ Response appears truncated (doesn\'t end with } or ])',
+            '[SPLIT] âš  Response appears truncated (doesn\'t end with } or ])',
           );
         }
 
@@ -188,7 +188,7 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
 
       // Validate structure
       if (decoded is! Map) {
-        debugPrint('[SPLIT] ⚠ Response is not a Map: ${decoded.runtimeType}');
+        debugPrint('[SPLIT] âš  Response is not a Map: ${decoded.runtimeType}');
 
         if (attempt < maxRetries - 1) {
           await Future.delayed(retryDelay);
@@ -199,7 +199,7 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
       }
 
       if (decoded['parts'] is! List) {
-        debugPrint('[SPLIT] ⚠ Missing "parts" field');
+        debugPrint('[SPLIT] âš  Missing "parts" field');
         debugPrint('[SPLIT] Available keys: ${decoded.keys.toList()}');
 
         if (attempt < maxRetries - 1) {
@@ -213,7 +213,7 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
       final parts = decoded['parts'] as List;
 
       if (parts.isEmpty) {
-        debugPrint('[SPLIT] ⚠ Received 0 parts');
+        debugPrint('[SPLIT] âš  Received 0 parts');
 
         if (attempt < maxRetries - 1) {
           await Future.delayed(retryDelay);
@@ -225,7 +225,7 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
 
       debugPrint('[SPLIT] Processing ${parts.length} parts.. .');
 
-      // ✅ NEW: Log expected vs received size
+      // âœ… NEW: Log expected vs received size
       if (decoded.containsKey('total_size_bytes')) {
         final expectedSize = decoded['total_size_bytes'] as int?;
         final actualSize = parts.fold<int>(
@@ -238,7 +238,7 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
 
         if (expectedSize != null && actualSize < expectedSize * 0.9) {
           debugPrint(
-            '[SPLIT] ⚠ Response may be truncated (received ${(actualSize / expectedSize * 100).toStringAsFixed(1)}%)',
+            '[SPLIT] âš  Response may be truncated (received ${(actualSize / expectedSize * 100).toStringAsFixed(1)}%)',
           );
 
           if (attempt < maxRetries - 1) {
@@ -318,17 +318,17 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
         '[SPLIT] Result: ${out.length} valid parts, $skippedParts skipped',
       );
 
-      // ✅ NEW: Validate we got most parts
+      // âœ… NEW: Validate we got most parts
       if (out.isNotEmpty && out.length >= parts.length * 0.8) {
         // Got at least 80% of parts - consider success
         debugPrint(
-          '[SPLIT] ✓ Successfully processed ${out.length}/${parts.length} parts',
+          '[SPLIT] âœ“ Successfully processed ${out.length}/${parts.length} parts',
         );
         return out;
       } else if (out.isNotEmpty) {
         // Got some but not enough
         debugPrint(
-          '[SPLIT] ⚠ Only got ${out.length}/${parts.length} parts (${(out.length / parts.length * 100).toStringAsFixed(1)}%)',
+          '[SPLIT] âš  Only got ${out.length}/${parts.length} parts (${(out.length / parts.length * 100).toStringAsFixed(1)}%)',
         );
 
         if (attempt < maxRetries - 1) {
@@ -341,7 +341,7 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
         debugPrint('[SPLIT] Returning ${out.length} partial results');
         return out;
       } else {
-        debugPrint('[SPLIT] ⚠ Failed to extract any valid parts');
+        debugPrint('[SPLIT] âš  Failed to extract any valid parts');
 
         if (attempt < maxRetries - 1) {
           await Future.delayed(retryDelay);
@@ -351,7 +351,7 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
         return _fallbackUnsplitPdf(pdfFile);
       }
     } on SocketException catch (e) {
-      debugPrint('[SPLIT] ❌ Network error: $e');
+      debugPrint('[SPLIT] âŒ Network error: $e');
 
       if (attempt < maxRetries - 1) {
         debugPrint('[SPLIT] Retrying after network error...');
@@ -361,7 +361,7 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
 
       return _fallbackUnsplitPdf(pdfFile);
     } on FormatException catch (e) {
-      debugPrint('[SPLIT] ❌ Format error: $e');
+      debugPrint('[SPLIT] âŒ Format error: $e');
 
       if (attempt < maxRetries - 1) {
         await Future.delayed(retryDelay);
@@ -370,7 +370,7 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
 
       return _fallbackUnsplitPdf(pdfFile);
     } catch (e, stackTrace) {
-      debugPrint('[SPLIT] ❌ Unexpected error: $e');
+      debugPrint('[SPLIT] âŒ Unexpected error: $e');
       debugPrint(
         '[SPLIT] Stack: ${stackTrace.toString().split('\n').take(5).join('\n')}',
       );
@@ -388,7 +388,7 @@ Future<List<SplitOut>> _splitPdfViaApi(File pdfFile) async {
 }
 
 List<SplitOut> _fallbackUnsplitPdf(File pdfFile) {
-  debugPrint('[SPLIT] ⚠ Fallback: Returning PDF as single document');
+  debugPrint('[SPLIT] âš  Fallback: Returning PDF as single document');
 
   final sizeBytes = pdfFile.existsSync() ? pdfFile.lengthSync() : 0;
 
@@ -748,7 +748,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
   }
 
   // At the top, change import:
-  // import 'package:flutter_doc_scanner/flutter_doc_scanner.dart';  // ← REMOVE
+  // import 'package:flutter_doc_scanner/flutter_doc_scanner.dart';  // â† REMOVE
 
   // Replace _captureFromCamera() method:
   Future<void> _captureFromCamera() async {
@@ -794,7 +794,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                '✅ ${result.images.length} document(s) scanned successfully',
+                'âœ… ${result.images.length} document(s) scanned successfully',
               ),
               backgroundColor: Colors.green,
               duration: Duration(seconds: 2),
@@ -816,7 +816,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       // Clean up
       documentScanner.close();
     } on PlatformException catch (e) {
-      // ✅ FIX: Handle PlatformException specifically
+      // âœ… FIX: Handle PlatformException specifically
       debugPrint('[CAMERA] PlatformException: ${e.code} - ${e.message}');
 
       // Check if user cancelled the operation
@@ -826,7 +826,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('📷 Document scan cancelled'),
+              content: Text('ðŸ“· Document scan cancelled'),
               backgroundColor: Colors.grey,
               duration: Duration(seconds: 2),
             ),
@@ -900,7 +900,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         }
       }
     } catch (e) {
-      // ✅ General catch for other exceptions
+      // âœ… General catch for other exceptions
       debugPrint('[CAMERA] General Error: $e');
 
       if (mounted) {
@@ -953,7 +953,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('✅ Photo captured successfully'),
+              content: Text('âœ… Photo captured successfully'),
               backgroundColor: Colors.green,
               duration: Duration(seconds: 2),
             ),
@@ -1013,7 +1013,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('✅ ${imgs.length} image(s) selected'),
+              content: Text('âœ… ${imgs.length} image(s) selected'),
               backgroundColor: Colors.green,
               duration: const Duration(seconds: 2),
             ),
@@ -1104,7 +1104,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       final displayNameBase = p.basenameWithoutExtension(originalFile.path);
       final extension = p.extension(originalFile.path).toLowerCase();
 
-      // ✅ UPDATED: Accept both PDFs and images - pass everything to backend as-is
+      // âœ… UPDATED: Accept both PDFs and images - pass everything to backend as-is
       if (extension == '.pdf') {
         setState(() {
           _currentProcessingMessage =
@@ -1130,7 +1130,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('✅ PDF added: ${p.basename(originalFile.path)}'),
+              content: Text('âœ… PDF added: ${p.basename(originalFile.path)}'),
               backgroundColor: Colors.green,
               duration: const Duration(seconds: 2),
             ),
@@ -1149,7 +1149,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
               'Adding ${p.basename(originalFile.path)}...';
         });
 
-        // ✅ UPDATED: Images also passed as-is to backend (no frontend conversion)
+        // âœ… UPDATED: Images also passed as-is to backend (no frontend conversion)
         final newDoc = DocumentInfo(
           file: originalFile,
           displayName: p.basename(originalFile.path),
@@ -1169,7 +1169,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('✅ Image added: ${p.basename(originalFile.path)}'),
+              content: Text('âœ… Image added: ${p.basename(originalFile.path)}'),
               backgroundColor: Colors.green,
               duration: const Duration(seconds: 2),
             ),
@@ -1376,7 +1376,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
-                    '✅ Uploaded ${validDocs.length} file(s) successfully. Backend processing...',
+                    'âœ… Uploaded ${validDocs.length} file(s) successfully. Backend processing...',
                   ),
                   backgroundColor: Colors.green,
                 ),
@@ -1413,7 +1413,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(
-                      '✅ Uploaded ${validDocs.length} file(s). Background processing initiated.',
+                      'âœ… Uploaded ${validDocs.length} file(s). Background processing initiated.',
                     ),
                     backgroundColor: Colors.green,
                   ),
@@ -1637,7 +1637,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         leading: const Icon(Icons.description),
       ),
       body: SafeArea(
-        // ✅ ADD THIS
+        // âœ… ADD THIS
         child: RefreshIndicator(
           onRefresh: _onRefresh,
           color: Colors.teal,
@@ -1916,7 +1916,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
                         ),
                       ),
                     ),
-                    // ✅ ADD BOTTOM PADDING FOR SAFE AREA
+                    // âœ… ADD BOTTOM PADDING FOR SAFE AREA
                     SizedBox(
                       height: MediaQuery.of(context).padding.bottom + 16,
                     ),
@@ -1926,7 +1926,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
             ),
           ),
         ),
-      ), // ✅ CLOSE SafeArea HERE
+      ), // âœ… CLOSE SafeArea HERE
     );
   }
 

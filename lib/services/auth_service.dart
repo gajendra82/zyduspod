@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:zyduspod/routes.dart';
+import 'package:zydus_vistaar/routes.dart';
 
 class AuthService {
   static final AuthService _instance = AuthService._internal();

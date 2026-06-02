@@ -2,8 +2,8 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:zyduspod/config.dart';
-import 'package:zyduspod/Models/sales_dashboard_models.dart';
+import 'package:zydus_vistaar/config.dart';
+import 'package:zydus_vistaar/Models/sales_dashboard_models.dart';
 
 /// HTTP client for the Sales Analytics Dashboard endpoints.
 ///

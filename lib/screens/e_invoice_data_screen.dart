@@ -2,12 +2,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:zyduspod/widgets/modern_ui_components.dart';
-import 'package:zyduspod/GstInvoiceScanner.dart';
-import 'package:zyduspod/services/PythonQRService.dart';
-import 'package:zyduspod/widgets/EInvoiceQRExtractor.dart';
-import 'package:zyduspod/services/pod_details_service.dart';
-import 'package:zyduspod/routes.dart';
+import 'package:zydus_vistaar/widgets/modern_ui_components.dart';
+import 'package:zydus_vistaar/GstInvoiceScanner.dart';
+import 'package:zydus_vistaar/services/PythonQRService.dart';
+import 'package:zydus_vistaar/widgets/EInvoiceQRExtractor.dart';
+import 'package:zydus_vistaar/services/pod_details_service.dart';
+import 'package:zydus_vistaar/routes.dart';
 
 class EInvoiceDataScreen extends StatefulWidget {
   final Map<String, dynamic>? qrData;

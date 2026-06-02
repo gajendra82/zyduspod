@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:zyduspod/Models/batch_model.dart';
-import 'package:zyduspod/services/batch_service.dart';
-import 'package:zyduspod/screens/batch_detail_screen.dart';
-import 'package:zyduspod/widgets/modern_ui_components.dart';
-import 'package:zyduspod/routes.dart';
+import 'package:zydus_vistaar/Models/batch_model.dart';
+import 'package:zydus_vistaar/services/batch_service.dart';
+import 'package:zydus_vistaar/screens/batch_detail_screen.dart';
+import 'package:zydus_vistaar/widgets/modern_ui_components.dart';
+import 'package:zydus_vistaar/routes.dart';
 
 class BatchesListScreen extends StatefulWidget {
   const BatchesListScreen({super.key});

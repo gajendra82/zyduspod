@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:zyduspod/services/connectivity_service.dart';
+import 'package:zydus_vistaar/services/connectivity_service.dart';
 
 class NoInternetScreen extends StatefulWidget {
   const NoInternetScreen({super.key});

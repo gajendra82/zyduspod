@@ -5,8 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:zyduspod/config.dart';
-import 'package:zyduspod/widgets/modern_ui_components.dart';
+import 'package:zydus_vistaar/config.dart';
+import 'package:zydus_vistaar/widgets/modern_ui_components.dart';
 
 /// Review screen shown after extraction completes.
 ///
@@ -53,7 +53,7 @@ class _PodReviewScreenState extends State<PodReviewScreen> {
   }
 
   /// Greedy clustering: each row joins the first existing group whose
-  /// representative name scores ≥ [_groupSimilarityThreshold] against it.
+  /// representative name scores â‰¥ [_groupSimilarityThreshold] against it.
   /// If a row has no master match it never collapses with another row — we
   /// don't want to fold two unrelated unmapped hospitals together by accident.
   List<_HospitalGroup> _buildGroups(List<_HospitalRow> rows) {
@@ -82,7 +82,7 @@ class _PodReviewScreenState extends State<PodReviewScreen> {
     return groups;
   }
 
-  /// Sørensen–Dice on normalized + stopword-filtered tokens, expressed 0–100.
+  /// SÃ¸rensen–Dice on normalized + stopword-filtered tokens, expressed 0–100.
   /// Lightweight, no extra dependency, and matches the spirit of the backend
   /// fuzzy matcher.
   static double _nameSimilarityPercent(String a, String b) {

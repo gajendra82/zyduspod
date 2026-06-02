@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:zyduspod/Bloc/sales_bloc.dart';
-import 'package:zyduspod/Bloc/sales_event.dart';
-import 'package:zyduspod/Bloc/sales_state.dart';
-import 'package:zyduspod/screens/sales_dashboard_screen.dart';
-import 'package:zyduspod/screens/stockist_sales_screen.dart';
-import 'package:zyduspod/screens/upload_sales_screen.dart';
-import 'package:zyduspod/screens/documents_list_screen.dart';
+import 'package:zydus_vistaar/Bloc/sales_bloc.dart';
+import 'package:zydus_vistaar/Bloc/sales_event.dart';
+import 'package:zydus_vistaar/Bloc/sales_state.dart';
+import 'package:zydus_vistaar/screens/sales_dashboard_screen.dart';
+import 'package:zydus_vistaar/screens/stockist_sales_screen.dart';
+import 'package:zydus_vistaar/screens/upload_sales_screen.dart';
+import 'package:zydus_vistaar/screens/documents_list_screen.dart';
 
 class ComprehensiveDashboardScreen extends StatefulWidget {
   const ComprehensiveDashboardScreen({super.key});

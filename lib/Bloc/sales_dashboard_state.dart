@@ -1,6 +1,6 @@
 import 'package:equatable/equatable.dart';
 
-import 'package:zyduspod/Models/sales_dashboard_models.dart';
+import 'package:zydus_vistaar/Models/sales_dashboard_models.dart';
 
 abstract class SalesDashboardState extends Equatable {
   const SalesDashboardState();

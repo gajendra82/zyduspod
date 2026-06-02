@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:zyduspod/config.dart';
-import 'package:zyduspod/services/api_client.dart';
-import 'package:zyduspod/Models/batch_model.dart';
+import 'package:zydus_vistaar/config.dart';
+import 'package:zydus_vistaar/services/api_client.dart';
+import 'package:zydus_vistaar/Models/batch_model.dart';
 
 class BatchService {
   final ApiClient _apiClient = ApiClient();
