@@ -7,6 +7,10 @@ import 'package:zyduspod/Bloc/sales_bloc.dart';
 import 'package:zyduspod/Bloc/sales_event.dart';
 import 'package:zyduspod/Bloc/sales_state.dart';
 import 'package:zyduspod/DocumentUploadScreen.dart';
+// HospitalSalesScreen is intentionally left importable but no longer
+// rendered here — the "Hospital Sales" tab was replaced by the embeddable
+// Sales Analytics dashboard (SalesDashboardBody). Keep the file in the repo
+// for backward compatibility and any deep-links that still point at it.
 import 'package:zyduspod/screens/sales_dashboard_screen.dart';
 import 'package:zyduspod/screens/documents_list_screen.dart';
 import 'package:zyduspod/screens/modern_document_upload_screen.dart';
@@ -83,20 +87,26 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
             labelColor: const Color(0xFF00A0A8),
             unselectedLabelColor: Colors.grey,
             indicatorColor: const Color(0xFF00A0A8),
+            // Rebrand: Sales Analytics first (now the headline module),
+            // POD Management (All Documents) second, then the generic
+            // Overview/Remaining modules tab. Names left as-is — the
+            // user asked for ORDER changes, not label changes. The
+            // TabBarView children below must mirror this order exactly.
             tabs: const [
-              Tab(icon: Icon(Icons.dashboard), text: 'Overview'),
               Tab(icon: Icon(Icons.insights_rounded), text: 'Sales Analytics'),
               Tab(icon: Icon(Icons.description), text: 'All Documents'),
+              Tab(icon: Icon(Icons.dashboard), text: 'Overview'),
             ],
           ),
         ),
         body: TabBarView(
           controller: _tabController,
           children: [
-            _buildOverviewTab(),
-            // _buildAnalyticsTab(),
+            // SalesDashboardBody owns its own BLoC, so this tab is fully
+            // self-contained and lazy-loads on first focus.
             const SalesDashboardBody(),
             const DocumentsListScreen(),
+            _buildOverviewTab(),
           ],
         ),
         floatingActionButton: FloatingActionButton.extended(
@@ -780,13 +790,13 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
                   _buildActionButton(
                     'Sales Analytics',
                     Icons.insights_rounded,
-                    const Color(0xFF2196F3),
+                    const Color(0xFF00A0A8),
                     () => _tabController.animateTo(1),
                   ),
                   _buildActionButton(
-                    'Analytics',
-                    Icons.analytics,
-                    const Color(0xFF00A0A8),
+                    'Target vs Achievement',
+                    Icons.flag_rounded,
+                    const Color(0xFF6366F1),
                     () => _tabController.animateTo(1),
                   ),
                   _buildActionButton(
