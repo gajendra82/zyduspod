@@ -13,7 +13,6 @@ import 'package:zyduspod/DocumentUploadScreen.dart';
 // for backward compatibility and any deep-links that still point at it.
 import 'package:zyduspod/screens/sales_dashboard_screen.dart';
 import 'package:zyduspod/screens/documents_list_screen.dart';
-import 'package:zyduspod/screens/modern_document_upload_screen.dart';
 import 'package:zyduspod/screens/notifications_screen.dart';
 import 'package:zyduspod/services/hospital_dashboard_service.dart';
 import 'package:zyduspod/services/sales_service.dart';
@@ -39,13 +38,6 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
   void dispose() {
     _tabController.dispose();
     super.dispose();
-  }
-
-  void _openUploader(BuildContext context) {
-    Navigator.of(context).push(
-      // MaterialPageRoute(builder: (_) => const Docume ntUploadScreen()),
-      MaterialPageRoute(builder: (_) =>  ModernDocumentUploadScreen()),
-    );
   }
 
   @override
@@ -87,15 +79,14 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
             labelColor: const Color(0xFF00A0A8),
             unselectedLabelColor: Colors.grey,
             indicatorColor: const Color(0xFF00A0A8),
-            // Rebrand: Sales Analytics first (now the headline module),
-            // POD Management (All Documents) second, then the generic
-            // Overview/Remaining modules tab. Names left as-is — the
-            // user asked for ORDER changes, not label changes. The
-            // TabBarView children below must mirror this order exactly.
+            // Tab order locked: Sales Analytics (headline) · PODs documents
+            // (was "All Documents") · POD Dashboard (was "Overview"). Labels
+            // updated per the latest product call to surface the POD scope
+            // explicitly. TabBarView children below mirror this order.
             tabs: const [
               Tab(icon: Icon(Icons.insights_rounded), text: 'Sales Analytics'),
-              Tab(icon: Icon(Icons.description), text: 'All Documents'),
-              Tab(icon: Icon(Icons.dashboard), text: 'Overview'),
+              Tab(icon: Icon(Icons.description), text: 'PODs documents'),
+              Tab(icon: Icon(Icons.dashboard), text: 'POD Dashboard'),
             ],
           ),
         ),
@@ -109,13 +100,9 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
             _buildOverviewTab(),
           ],
         ),
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: () => _openUploader(context),
-          icon: const Icon(Icons.upload_file),
-          label: const Text('Upload'),
-          backgroundColor: const Color(0xFF00A0A8),
-          foregroundColor: Colors.white,
-        ),
+        // FAB removed — Upload now lives in the bottom-nav (between
+        // Dashboard and Profile) so the persistent UI has a single,
+        // canonical Upload entry point.
       ),
     );
   }
