@@ -37,49 +37,49 @@ A singleton HTTP client wrapper that automatically handles 401 errors for all AP
 ## Services Updated
 
 ### 1. PodDetailsService
-✅ Updated to use `ApiClient` instead of direct `http` calls
-✅ Removed manual token retrieval
-✅ Automatic 401 handling
+âœ… Updated to use `ApiClient` instead of direct `http` calls
+âœ… Removed manual token retrieval
+âœ… Automatic 401 handling
 
 ### 2. HospitalDashboardService  
-✅ Updated to use `ApiClient`
-✅ All methods now handle 401 automatically
+âœ… Updated to use `ApiClient`
+âœ… All methods now handle 401 automatically
 
 ### 3. SalesService
-✅ Updated to use `ApiClient`
-✅ All API methods refactored
+âœ… Updated to use `ApiClient`
+âœ… All API methods refactored
 
 ## UI Updates
 
 ### 1. MainNavigation (`lib/screens/main_navigation.dart`)
-✅ Sets ApiClient context in `initState()` and `didChangeDependencies()`
-✅ Ensures ApiClient always has valid navigation context
+âœ… Sets ApiClient context in `initState()` and `didChangeDependencies()`
+âœ… Ensures ApiClient always has valid navigation context
 
 ### 2. ProfileScreen (`lib/screens/profile_screen.dart`)
-✅ Updated logout functionality to use `AuthService.logout()`
-✅ Updated delete account to use `AuthService.logout()`
-✅ Consistent logout behavior across the app
+âœ… Updated logout functionality to use `AuthService.logout()`
+âœ… Updated delete account to use `AuthService.logout()`
+âœ… Consistent logout behavior across the app
 
 ## How It Works
 
 ### Flow Diagram
 ```
 User makes API request
-    ↓
+    â†“
 ApiClient intercepts request
-    ↓
+    â†“
 Adds Authorization header
-    ↓
+    â†“
 Sends request to server
-    ↓
+    â†“
 Server returns 401?
-    ↓ YES
+    â†“ YES
 AuthService.logout() called
-    ↓
+    â†“
 Clear SharedPreferences
-    ↓
+    â†“
 Navigate to LoginScreen
-    ↓
+    â†“
 Show error message (optional)
 ```
 
@@ -129,7 +129,7 @@ final response = await _apiClient.get(
 ## Testing Recommendations
 
 ### Manual Testing
-1. **Normal Flow**: Login → Make API calls → Should work normally
+1. **Normal Flow**: Login â†’ Make API calls â†’ Should work normally
 2. **Token Expiry**: 
    - Login successfully
    - Manually expire/delete token on server
@@ -151,7 +151,7 @@ When creating a new service that makes API calls:
 
 1. Import the ApiClient:
 ```dart
-import 'package:zyduspod/services/api_client.dart';
+import 'package:zydus_vistaar/services/api_client.dart';
 ```
 
 2. Create an instance:
@@ -169,10 +169,10 @@ class MyNewService {
 ```
 
 3. Don't worry about:
-   - ❌ Manual token retrieval
-   - ❌ Authorization headers
-   - ❌ 401 error checking
-   - ❌ Logout logic
+   - âŒ Manual token retrieval
+   - âŒ Authorization headers
+   - âŒ 401 error checking
+   - âŒ Logout logic
 
 ## Configuration
 
@@ -310,14 +310,14 @@ The login screen now includes comprehensive error handling for all scenarios:
 
 ## Files Modified
 
-- ✅ `lib/services/auth_service.dart` (NEW)
-- ✅ `lib/services/api_client.dart` (NEW)
-- ✅ `lib/services/pod_details_service.dart` (MODIFIED)
-- ✅ `lib/services/hospital_dashboard_service.dart` (MODIFIED)
-- ✅ `lib/services/sales_service.dart` (MODIFIED)
-- ✅ `lib/screens/main_navigation.dart` (MODIFIED)
-- ✅ `lib/screens/profile_screen.dart` (MODIFIED)
-- ✅ `lib/login_screen.dart` (MODIFIED - Enhanced error handling)
+- âœ… `lib/services/auth_service.dart` (NEW)
+- âœ… `lib/services/api_client.dart` (NEW)
+- âœ… `lib/services/pod_details_service.dart` (MODIFIED)
+- âœ… `lib/services/hospital_dashboard_service.dart` (MODIFIED)
+- âœ… `lib/services/sales_service.dart` (MODIFIED)
+- âœ… `lib/screens/main_navigation.dart` (MODIFIED)
+- âœ… `lib/screens/profile_screen.dart` (MODIFIED)
+- âœ… `lib/login_screen.dart` (MODIFIED - Enhanced error handling)
 
 ## Conclusion
 

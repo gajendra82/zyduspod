@@ -1,11 +1,7 @@
-name: zyduspod
-# Dart package identifier `zyduspod` is intentionally NOT renamed — every
-# package:zyduspod/... import across the codebase depends on it. The
-# user-visible app name "Zydus Vistaar" is set via android:label and
-# iOS CFBundleDisplayName/CFBundleName.
+name: zydus_vistaar
 description: "Zydus Vistaar — Zydus Healthcare KAM CRM Platform."
 publish_to: "none"
-version: 1.0.25+35
+version: 1.0.26+36
 
 environment:
   sdk: ^3.7.0
