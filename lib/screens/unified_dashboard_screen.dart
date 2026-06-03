@@ -19,6 +19,7 @@ import 'package:zydus_vistaar/screens/notifications_screen.dart';
 import 'package:zydus_vistaar/services/hospital_dashboard_service.dart';
 import 'package:zydus_vistaar/services/sales_service.dart';
 import 'package:zydus_vistaar/widgets/executive_kpi_section.dart';
+import 'package:zydus_vistaar/widgets/pod_centered_performance.dart';
 
 class UnifiedDashboardScreen extends StatefulWidget {
   const UnifiedDashboardScreen({super.key});
@@ -327,6 +328,17 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
             // Sales / POD / Target / Achievement / Growth at a glance on the
             // home screen without opening Sales Analytics.
             ExecutiveKpiSection(
+              filters: SalesDashboardFilters(
+                dateFrom: _dateFrom,
+                dateTo: _dateTo,
+              ),
+            ),
+            const SizedBox(height: 20),
+            // Zone + KAM analytics — same hierarchy scope + month window as
+            // the executive KPI cards above, surfaced via the dedicated
+            // /api/sales-dashboard/pod-centered-performance endpoint so the
+            // widget only needs one round trip for both sections.
+            PodCenteredPerformanceSection(
               filters: SalesDashboardFilters(
                 dateFrom: _dateFrom,
                 dateTo: _dateTo,
