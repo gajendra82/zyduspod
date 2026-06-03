@@ -41,6 +41,11 @@ class SalesSummaryCards {
   final double? totalPodValue;
   final double? zydusProductValue;
   final double? salesVsPodsCompletion;
+  // Count of PODs with status='processed' in the date window. Drives the
+  // "Processed POD Count" executive card. Nullable so the card degrades
+  // gracefully if an older backend version is still returning the legacy
+  // shape.
+  final int? processedPodCount;
 
   const SalesSummaryCards({
     required this.totalTargetAmount,
@@ -61,6 +66,7 @@ class SalesSummaryCards {
     this.totalPodValue,
     this.zydusProductValue,
     this.salesVsPodsCompletion,
+    this.processedPodCount,
   });
 
   factory SalesSummaryCards.fromJson(Map<String, dynamic> json) {
@@ -93,6 +99,9 @@ class SalesSummaryCards {
           ?? dNullable(json['zydus_pod_value']),
       salesVsPodsCompletion: dNullable(json['sales_vs_pods_completion_rate'])
           ?? dNullable(json['sales_vs_pods_completion']),
+      processedPodCount: json['processed_pod_count'] is num
+          ? (json['processed_pod_count'] as num).toInt()
+          : null,
     );
   }
 
