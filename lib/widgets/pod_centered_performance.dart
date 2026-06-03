@@ -7,18 +7,20 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zydus_vistaar/Models/sales_dashboard_models.dart';
 import 'package:zydus_vistaar/config.dart';
 
-/// Zone + KAM analytics for the POD Dashboard tab.
+/// POD-centric analytics section pinned below the executive KPI strip on
+/// the POD Dashboard tab.
 ///
-/// Sources a single payload from `/api/sales-dashboard/pod-centered-performance`
-/// (returns both `by_zone` and `by_emp` in one request to keep the round-trip
-/// count down). The backend already enforces the hierarchy scope used by
-/// every other sales-dashboard endpoint — admin → all, KAM → own, manager
-/// → team — so the lists shown here automatically respect "show me only
-/// what I can see".
+/// Layout: Zone summary card (fast single call) → TabBar → TabBarView with
+/// three paginated, searchable, sortable lists (KAM / Hospital / Stockist).
 ///
-/// The widget rebuilds whenever the parent passes a new month window via
-/// the `filters` prop (the POD Dashboard's month dropdown lifts state into
-/// the parent and threads it through).
+/// Backend contracts:
+///   GET /api/sales-dashboard/pod-centered-performance      → zone summary
+///   GET /api/sales-dashboard/pod-entity-performance/{kam|hospital|stockist}
+///       ?page=N&limit=M&search=...&sort_by=sales|zydus|completion|processed
+///       &sort_dir=desc|asc&date_from=...&date_to=...
+///
+/// Both endpoints enforce the same hierarchy scope the rest of the
+/// dashboard uses (admin → all; KAM → self; manager → team).
 class PodCenteredPerformanceSection extends StatefulWidget {
   const PodCenteredPerformanceSection({super.key, this.filters});
 
@@ -30,21 +32,16 @@ class PodCenteredPerformanceSection extends StatefulWidget {
 }
 
 class _PodCenteredPerformanceSectionState
-    extends State<PodCenteredPerformanceSection> {
-  late Future<_PodPerf> _future;
-
-  // KAM list controls
-  final TextEditingController _searchCtl = TextEditingController();
-  Timer? _searchDebounce;
-  String _search = '';
-
-  // Zone list sort
-  _ZoneSort _zoneSort = _ZoneSort.salesDesc;
+    extends State<PodCenteredPerformanceSection>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabCtl;
+  Future<List<_ZoneRow>>? _zoneFuture;
 
   @override
   void initState() {
     super.initState();
-    _future = _fetch();
+    _tabCtl = TabController(length: 3, vsync: this);
+    _zoneFuture = _fetchZones();
   }
 
   @override
@@ -53,268 +50,199 @@ class _PodCenteredPerformanceSectionState
     final a = oldWidget.filters;
     final b = widget.filters;
     if (a?.dateFrom != b?.dateFrom || a?.dateTo != b?.dateTo) {
-      setState(() => _future = _fetch());
+      setState(() => _zoneFuture = _fetchZones());
     }
   }
 
   @override
   void dispose() {
-    _searchDebounce?.cancel();
-    _searchCtl.dispose();
+    _tabCtl.dispose();
     super.dispose();
   }
 
-  Future<_PodPerf> _fetch() async {
+  Future<List<_ZoneRow>> _fetchZones() async {
     final q = <String, String>{};
     final f = widget.filters;
     if (f?.dateFrom != null && f!.dateFrom!.isNotEmpty) q['date_from'] = f.dateFrom!;
     if (f?.dateTo != null && f!.dateTo!.isNotEmpty) q['date_to'] = f.dateTo!;
     final uri = Uri.parse('${API_BASE_URL}sales-dashboard/pod-centered-performance')
         .replace(queryParameters: q.isEmpty ? null : q);
-
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('authToken');
-    final res = await http.get(uri, headers: {
-      'Accept': 'application/json',
-      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
-    }).timeout(const Duration(seconds: 45));
-
-    if (res.statusCode == 401) {
-      throw const _PerfException('Session expired — please sign in again.');
-    }
+    final res = await _authedGet(uri);
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw _PerfException('Request failed (${res.statusCode})');
     }
     final body = jsonDecode(res.body);
-    if (body is! Map<String, dynamic> || body['success'] != true) {
-      throw const _PerfException('Unexpected response shape');
-    }
-    final data = (body['data'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final data = (body is Map && body['data'] is Map)
+        ? (body['data'] as Map).cast<String, dynamic>()
+        : <String, dynamic>{};
     final zones = ((data['by_zone'] as List?) ?? const [])
         .whereType<Map>()
         .map((m) => _ZoneRow.fromJson(m.cast<String, dynamic>()))
         .toList(growable: false);
-    final kams = ((data['by_emp'] as List?) ?? const [])
-        .whereType<Map>()
-        .map((m) => _KamRow.fromJson(m.cast<String, dynamic>()))
-        .toList(growable: false);
-    return _PodPerf(zones: zones, kams: kams);
-  }
-
-  void _onSearchChanged(String value) {
-    _searchDebounce?.cancel();
-    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
-      if (!mounted) return;
-      setState(() => _search = value.trim().toLowerCase());
-    });
-  }
-
-  void _cycleZoneSort() {
-    setState(() {
-      _zoneSort = _zoneSort == _ZoneSort.salesDesc
-          ? _ZoneSort.completionDesc
-          : _ZoneSort.salesDesc;
-    });
+    return zones;
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<_PodPerf>(
-      future: _future,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _ZoneSummary(future: _zoneFuture),
+        const SizedBox(height: 14),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFE8EEF2)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.025),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
+                child: Row(
+                  children: const [
+                    _SectionHeader(
+                      icon: Icons.bar_chart_rounded,
+                      title: 'Performance Breakdown',
+                    ),
+                  ],
+                ),
+              ),
+              Material(
+                color: Colors.transparent,
+                child: TabBar(
+                  controller: _tabCtl,
+                  labelColor: const Color(0xFF00A0A8),
+                  unselectedLabelColor: Colors.grey,
+                  indicatorColor: const Color(0xFF00A0A8),
+                  indicatorWeight: 2.4,
+                  labelStyle:
+                      const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
+                  unselectedLabelStyle:
+                      const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                  tabs: const [
+                    Tab(text: 'KAM'),
+                    Tab(text: 'Hospital'),
+                    Tab(text: 'Stockist'),
+                  ],
+                ),
+              ),
+              SizedBox(
+                // Fixed-height tab body — each tab manages its own internal
+                // ListView/scroll so the parent SingleChildScrollView in
+                // UnifiedDashboardScreen doesn't fight with infinite-scroll.
+                height: 560,
+                child: TabBarView(
+                  controller: _tabCtl,
+                  children: [
+                    _EntityTab(
+                      entity: 'kam',
+                      filters: widget.filters,
+                      searchHint: 'Search KAM name or employee ID',
+                    ),
+                    _EntityTab(
+                      entity: 'hospital',
+                      filters: widget.filters,
+                      searchHint: 'Search hospital, BTST code, or city',
+                    ),
+                    _EntityTab(
+                      entity: 'stockist',
+                      filters: widget.filters,
+                      searchHint: 'Search stockist name or code',
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ZONE SUMMARY (always 4 zones — fast single call)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ZoneSummary extends StatelessWidget {
+  const _ZoneSummary({required this.future});
+  final Future<List<_ZoneRow>>? future;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<_ZoneRow>>(
+      future: future,
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const _Skeleton();
-        }
-        if (snap.hasError) {
-          return _ErrorPanel(
-            message: snap.error.toString(),
-            onRetry: () => setState(() => _future = _fetch()),
-          );
-        }
-        final data = snap.data ?? const _PodPerf(zones: [], kams: []);
-        final zones = [...data.zones];
-        if (_zoneSort == _ZoneSort.salesDesc) {
-          zones.sort((a, b) => b.salesValue.compareTo(a.salesValue));
-        } else {
-          zones.sort((a, b) => b.completionPct.compareTo(a.completionPct));
-        }
-
-        final filteredKams = _search.isEmpty
-            ? data.kams
-            : data.kams.where((k) {
-                return k.name.toLowerCase().contains(_search)
-                    || k.empId.toLowerCase().contains(_search);
-              }).toList(growable: false);
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _ZoneSection(
-              zones: zones,
-              sort: _zoneSort,
-              onCycleSort: _cycleZoneSort,
-            ),
-            const SizedBox(height: 18),
-            _KamSection(
-              kams: filteredKams,
-              totalKams: data.kams.length,
-              searchCtl: _searchCtl,
-              onSearchChanged: _onSearchChanged,
-            ),
-          ],
+        final zones = snap.data ?? const <_ZoneRow>[];
+        return Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFE8EEF2)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.025),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const _SectionHeader(
+                    icon: Icons.public_rounded,
+                    title: 'Zone Performance',
+                  ),
+                  const Spacer(),
+                  if (snap.connectionState == ConnectionState.waiting)
+                    const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              if (snap.hasError && !snap.hasData)
+                Text(
+                  'Zone summary failed to load: ${snap.error}',
+                  style: TextStyle(fontSize: 12, color: Colors.red.shade700),
+                )
+              else if (zones.isEmpty &&
+                  snap.connectionState != ConnectionState.waiting)
+                Text(
+                  'No zone data for the selected month.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                )
+              else
+                Column(
+                  children: [
+                    for (final z in zones) _ZoneRowTile(row: z),
+                  ],
+                ),
+            ],
+          ),
         );
       },
     );
   }
 }
 
-enum _ZoneSort { salesDesc, completionDesc }
-
-class _PodPerf {
-  final List<_ZoneRow> zones;
-  final List<_KamRow> kams;
-  const _PodPerf({required this.zones, required this.kams});
-}
-
-class _ZoneRow {
-  final String zone;
-  final double salesValue;
-  final double zydusPodValue;
-  final double completionPct;
-
-  const _ZoneRow({
-    required this.zone,
-    required this.salesValue,
-    required this.zydusPodValue,
-    required this.completionPct,
-  });
-
-  factory _ZoneRow.fromJson(Map<String, dynamic> j) {
-    double d(dynamic v) => v is num ? v.toDouble() : 0.0;
-    return _ZoneRow(
-      zone: (j['zone'] ?? '—').toString(),
-      salesValue: d(j['sales_value']),
-      zydusPodValue: d(j['zydus_pod_value']),
-      completionPct: d(j['completion_pct']),
-    );
-  }
-}
-
-class _KamRow {
-  final String empId;
-  final String name;
-  final String zone;
-  final double salesValue;
-  final double zydusPodValue;
-  final double completionPct;
-  final int processedPodCount;
-
-  const _KamRow({
-    required this.empId,
-    required this.name,
-    required this.zone,
-    required this.salesValue,
-    required this.zydusPodValue,
-    required this.completionPct,
-    required this.processedPodCount,
-  });
-
-  factory _KamRow.fromJson(Map<String, dynamic> j) {
-    double d(dynamic v) => v is num ? v.toDouble() : 0.0;
-    int i(dynamic v) => v is num ? v.toInt() : 0;
-    return _KamRow(
-      empId: (j['emp_id'] ?? '').toString(),
-      name: (j['name'] ?? 'Unknown').toString(),
-      zone: (j['zone'] ?? '—').toString(),
-      salesValue: d(j['sales_value']),
-      zydusPodValue: d(j['zydus_pod_value']),
-      completionPct: d(j['completion_pct']),
-      processedPodCount: i(j['processed_pod_count']),
-    );
-  }
-}
-
-class _PerfException implements Exception {
-  final String message;
-  const _PerfException(this.message);
-  @override
-  String toString() => message;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ZONE SECTION
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _ZoneSection extends StatelessWidget {
-  const _ZoneSection({
-    required this.zones,
-    required this.sort,
-    required this.onCycleSort,
-  });
-
-  final List<_ZoneRow> zones;
-  final _ZoneSort sort;
-  final VoidCallback onCycleSort;
-
-  @override
-  Widget build(BuildContext context) {
-    return _Card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const _SectionHeader(
-                icon: Icons.public_rounded,
-                title: 'Zone Performance',
-              ),
-              const Spacer(),
-              InkWell(
-                onTap: onCycleSort,
-                borderRadius: BorderRadius.circular(10),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF1F4F8),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.sort_rounded, size: 14, color: Color(0xFF00A0A8)),
-                      const SizedBox(width: 4),
-                      Text(
-                        sort == _ZoneSort.salesDesc ? 'Sales' : 'Completion %',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF2C3E50),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          if (zones.isEmpty)
-            const _EmptyState(message: 'No zone data for the selected month.')
-          else
-            Column(
-              children: [
-                for (final z in zones) _ZoneTile(row: z),
-              ],
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ZoneTile extends StatelessWidget {
-  const _ZoneTile({required this.row});
-
+class _ZoneRowTile extends StatelessWidget {
+  const _ZoneRowTile({required this.row});
   final _ZoneRow row;
 
   @override
@@ -322,7 +250,7 @@ class _ZoneTile extends StatelessWidget {
     final pct = row.completionPct.clamp(0.0, 100.0).toDouble();
     final color = _completionColor(pct);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 7),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -337,8 +265,8 @@ class _ZoneTile extends StatelessWidget {
                 child: Text(
                   row.zone,
                   style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w800,
                     color: color,
                   ),
                 ),
@@ -349,10 +277,8 @@ class _ZoneTile extends StatelessWidget {
                   '${_inr(row.salesValue)} sales · ${_inr(row.zydusPodValue)} zydus',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade700,
-                  ),
+                  style:
+                      TextStyle(fontSize: 12, color: Colors.grey.shade700),
                 ),
               ),
               const SizedBox(width: 10),
@@ -366,12 +292,12 @@ class _ZoneTile extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 5),
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(
               value: (pct / 100).clamp(0.0, 1.0).toDouble(),
-              minHeight: 5,
+              minHeight: 4,
               backgroundColor: color.withOpacity(0.12),
               valueColor: AlwaysStoppedAnimation<Color>(color),
             ),
@@ -383,91 +309,488 @@ class _ZoneTile extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// KAM SECTION
+// ENTITY TAB (paginated + searchable + sortable)
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _KamSection extends StatelessWidget {
-  const _KamSection({
-    required this.kams,
-    required this.totalKams,
-    required this.searchCtl,
-    required this.onSearchChanged,
+class _EntityTab extends StatefulWidget {
+  const _EntityTab({
+    required this.entity,
+    required this.filters,
+    required this.searchHint,
   });
 
-  final List<_KamRow> kams;
-  final int totalKams;
-  final TextEditingController searchCtl;
-  final ValueChanged<String> onSearchChanged;
+  final String entity; // 'kam' | 'hospital' | 'stockist'
+  final SalesDashboardFilters? filters;
+  final String searchHint;
+
+  @override
+  State<_EntityTab> createState() => _EntityTabState();
+}
+
+class _EntityTabState extends State<_EntityTab>
+    with AutomaticKeepAliveClientMixin {
+  // Keep the tab's state alive on tab switch so the user doesn't lose their
+  // scroll position / search box between taps.
+  @override
+  bool get wantKeepAlive => true;
+
+  static const int _pageSize = 20;
+
+  final ScrollController _scrollCtl = ScrollController();
+  final TextEditingController _searchCtl = TextEditingController();
+  Timer? _searchDebounce;
+
+  List<_EntityRow> _rows = const [];
+  bool _isInitialLoading = true;
+  bool _isLoadingMore = false;
+  bool _hasMore = false;
+  int _total = 0;
+  int _page = 1;
+  String _search = '';
+  String _sortBy = 'sales'; // 'sales' | 'zydus' | 'completion' | 'processed'
+  String _sortDir = 'desc';
+  Object? _lastError;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollCtl.addListener(_onScroll);
+    _reload();
+  }
+
+  @override
+  void didUpdateWidget(covariant _EntityTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final a = oldWidget.filters;
+    final b = widget.filters;
+    if (a?.dateFrom != b?.dateFrom || a?.dateTo != b?.dateTo) {
+      _reload();
+    }
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _scrollCtl.dispose();
+    _searchCtl.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_hasMore || _isLoadingMore || _isInitialLoading) return;
+    final pos = _scrollCtl.position;
+    if (pos.pixels >= pos.maxScrollExtent - 220) {
+      _loadMore();
+    }
+  }
+
+  Future<void> _reload() async {
+    setState(() {
+      _page = 1;
+      _isInitialLoading = true;
+      _lastError = null;
+      _rows = const [];
+      _hasMore = false;
+    });
+    try {
+      final res = await _fetch(page: 1);
+      if (!mounted) return;
+      setState(() {
+        _rows = res.rows;
+        _total = res.total;
+        _hasMore = res.hasMore;
+        _isInitialLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isInitialLoading = false;
+        _lastError = e;
+      });
+    }
+  }
+
+  Future<void> _loadMore() async {
+    if (_isLoadingMore || !_hasMore) return;
+    setState(() => _isLoadingMore = true);
+    try {
+      final res = await _fetch(page: _page + 1);
+      if (!mounted) return;
+      setState(() {
+        _page += 1;
+        _rows = [..._rows, ...res.rows];
+        _total = res.total;
+        _hasMore = res.hasMore;
+        _isLoadingMore = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      // Swallow load-more errors into a clean isLoadingMore=false rather than
+      // wiping out the visible rows — the user can scroll to retry.
+      setState(() => _isLoadingMore = false);
+    }
+  }
+
+  Future<_EntityPage> _fetch({required int page}) async {
+    final q = <String, String>{
+      'page': page.toString(),
+      'limit': _pageSize.toString(),
+      'sort_by': _sortBy,
+      'sort_dir': _sortDir,
+    };
+    final f = widget.filters;
+    if (f?.dateFrom != null && f!.dateFrom!.isNotEmpty) q['date_from'] = f.dateFrom!;
+    if (f?.dateTo != null && f!.dateTo!.isNotEmpty) q['date_to'] = f.dateTo!;
+    if (_search.isNotEmpty) q['search'] = _search;
+
+    final uri = Uri.parse('${API_BASE_URL}sales-dashboard/pod-entity-performance/${widget.entity}')
+        .replace(queryParameters: q);
+    final res = await _authedGet(uri);
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw _PerfException('Request failed (${res.statusCode})');
+    }
+    final body = jsonDecode(res.body);
+    if (body is! Map || body['success'] != true) {
+      throw const _PerfException('Unexpected response shape');
+    }
+    final raw = (body['data'] as List?) ?? const [];
+    final pageRows = raw
+        .whereType<Map>()
+        .map((m) => _EntityRow.fromJson(m.cast<String, dynamic>()))
+        .toList(growable: false);
+    final pag = (body['pagination'] as Map?)?.cast<String, dynamic>() ?? const {};
+    return _EntityPage(
+      rows: pageRows,
+      total: pag['total'] is num ? (pag['total'] as num).toInt() : pageRows.length,
+      hasMore: pag['has_more'] == true,
+    );
+  }
+
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 280), () {
+      if (!mounted) return;
+      final v = value.trim();
+      if (v == _search) return;
+      setState(() => _search = v);
+      _reload();
+    });
+  }
+
+  void _onSortChanged(String by) {
+    setState(() {
+      if (_sortBy == by) {
+        _sortDir = _sortDir == 'desc' ? 'asc' : 'desc';
+      } else {
+        _sortBy = by;
+        _sortDir = 'desc';
+      }
+    });
+    _reload();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return _Card(
+    super.build(context); // AutomaticKeepAliveClientMixin
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const _SectionHeader(
-                icon: Icons.people_alt_rounded,
-                title: 'KAM Performance',
-              ),
-              const Spacer(),
-              Text(
-                '$totalKams KAMs',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.grey.shade600,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: searchCtl,
-            onChanged: onSearchChanged,
-            style: const TextStyle(fontSize: 13),
-            decoration: InputDecoration(
-              isDense: true,
-              hintText: 'Search KAM name or employee ID',
-              hintStyle: TextStyle(fontSize: 13, color: Colors.grey.shade500),
-              prefixIcon: const Icon(Icons.search_rounded, size: 18),
-              prefixIconConstraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-              filled: true,
-              fillColor: const Color(0xFFF1F4F8),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide.none,
-              ),
-            ),
+          _SearchAndSortBar(
+            controller: _searchCtl,
+            hint: widget.searchHint,
+            onChanged: _onSearchChanged,
+            sortBy: _sortBy,
+            sortDir: _sortDir,
+            onSortChanged: _onSortChanged,
+            total: _total,
           ),
           const SizedBox(height: 8),
-          if (kams.isEmpty)
-            const _EmptyState(message: 'No KAMs match the current filter.')
-          else
-            Column(
-              children: [
-                for (var i = 0; i < kams.length; i++)
-                  _KamCard(rank: i + 1, row: kams[i]),
-              ],
-            ),
+          Expanded(
+            child: _buildBody(),
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_isInitialLoading) {
+      return ListView.builder(
+        itemCount: 6,
+        itemBuilder: (_, __) => Container(
+          margin: const EdgeInsets.only(top: 8),
+          height: 78,
+          decoration: BoxDecoration(
+            color: const Color(0xFFF3F6F8),
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      );
+    }
+    if (_lastError != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Failed to load. ${_lastError.toString()}',
+              style: TextStyle(fontSize: 12, color: Colors.red.shade700),
+              textAlign: TextAlign.center,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 10),
+            TextButton.icon(
+              onPressed: _reload,
+              icon: const Icon(Icons.refresh, size: 16),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
+      );
+    }
+    if (_rows.isEmpty) {
+      return Center(
+        child: Text(
+          _search.isEmpty
+              ? 'No data for the selected month.'
+              : 'No matches for "$_search".',
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+        ),
+      );
+    }
+    return ListView.builder(
+      controller: _scrollCtl,
+      itemCount: _rows.length + (_isLoadingMore ? 1 : 0) + (!_hasMore && _rows.isNotEmpty ? 1 : 0),
+      itemBuilder: (context, i) {
+        if (i >= _rows.length) {
+          if (_isLoadingMore) {
+            return const Padding(
+              padding: EdgeInsets.symmetric(vertical: 14),
+              child: Center(
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            );
+          }
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Center(
+              child: Text(
+                '— end of list ($_total) —',
+                style:
+                    TextStyle(fontSize: 11, color: Colors.grey.shade500),
+              ),
+            ),
+          );
+        }
+        return _EntityTile(
+          rank: i + 1,
+          entity: widget.entity,
+          row: _rows[i],
+        );
+      },
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SEARCH + SORT BAR
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _SearchAndSortBar extends StatelessWidget {
+  const _SearchAndSortBar({
+    required this.controller,
+    required this.hint,
+    required this.onChanged,
+    required this.sortBy,
+    required this.sortDir,
+    required this.onSortChanged,
+    required this.total,
+  });
+
+  final TextEditingController controller;
+  final String hint;
+  final ValueChanged<String> onChanged;
+  final String sortBy;
+  final String sortDir;
+  final ValueChanged<String> onSortChanged;
+  final int total;
+
+  static const _opts = <Map<String, String>>[
+    {'key': 'sales', 'label': 'Sales'},
+    {'key': 'zydus', 'label': 'Zydus'},
+    {'key': 'completion', 'label': '%'},
+    {'key': 'processed', 'label': 'Processed'},
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: controller,
+          onChanged: onChanged,
+          style: const TextStyle(fontSize: 13),
+          decoration: InputDecoration(
+            isDense: true,
+            hintText: hint,
+            hintStyle: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+            prefixIcon: const Icon(Icons.search_rounded, size: 18),
+            prefixIconConstraints:
+                const BoxConstraints(minWidth: 36, minHeight: 36),
+            filled: true,
+            fillColor: const Color(0xFFF1F4F8),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide.none,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Text(
+              '$total rows',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade600,
+              ),
+            ),
+            const Spacer(),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final o in _opts)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 6),
+                      child: _SortChip(
+                        label: o['label']!,
+                        selected: sortBy == o['key'],
+                        direction: sortBy == o['key'] ? sortDir : null,
+                        onTap: () => onSortChanged(o['key']!),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _SortChip extends StatelessWidget {
+  const _SortChip({
+    required this.label,
+    required this.selected,
+    required this.direction,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final String? direction; // 'asc' | 'desc' | null
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = const Color(0xFF00A0A8);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected ? accent.withOpacity(0.12) : const Color(0xFFF1F4F8),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: selected ? accent.withOpacity(0.5) : Colors.transparent,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                color: selected ? accent : const Color(0xFF2C3E50),
+              ),
+            ),
+            if (selected) ...[
+              const SizedBox(width: 2),
+              Icon(
+                direction == 'asc'
+                    ? Icons.arrow_drop_up_rounded
+                    : Icons.arrow_drop_down_rounded,
+                size: 16,
+                color: accent,
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
 }
 
-class _KamCard extends StatelessWidget {
-  const _KamCard({required this.rank, required this.row});
+// ─────────────────────────────────────────────────────────────────────────────
+// ENTITY TILE
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _EntityTile extends StatelessWidget {
+  const _EntityTile({
+    required this.rank,
+    required this.entity,
+    required this.row,
+  });
 
   final int rank;
-  final _KamRow row;
+  final String entity;
+  final _EntityRow row;
 
   @override
   Widget build(BuildContext context) {
     final pct = row.completionPct.clamp(0.0, 100.0).toDouble();
     final pctColor = _completionColor(pct);
+
+    // Subtitle is entity-specific so the right context fields surface
+    // without bloating the row.
+    String subtitle;
+    switch (entity) {
+      case 'hospital':
+        final btst = row.code.isEmpty ? '' : 'BTST ${row.code}';
+        final parts = <String>[
+          if (row.city.isNotEmpty) row.city,
+          if (btst.isNotEmpty) btst,
+        ];
+        subtitle = parts.join(' · ');
+        if (subtitle.isEmpty) subtitle = 'Hospital';
+        break;
+      case 'stockist':
+        subtitle = row.code.isEmpty ? 'Stockist' : 'Code ${row.code}';
+        break;
+      case 'kam':
+      default:
+        subtitle = row.zone.isEmpty
+            ? 'Emp ${row.code}'
+            : 'Emp ${row.code} · ${row.zone}';
+    }
+
     return Container(
       margin: const EdgeInsets.only(top: 8),
       padding: const EdgeInsets.all(12),
@@ -514,13 +837,11 @@ class _KamCard extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      '${row.empId} · ${row.zone}',
+                      subtitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey.shade600,
-                      ),
+                      style:
+                          TextStyle(fontSize: 11, color: Colors.grey.shade600),
                     ),
                   ],
                 ),
@@ -543,9 +864,6 @@ class _KamCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          // Triplet line: Sales | Zydus | Processed PODs. On the narrowest
-          // phones this wraps onto a single horizontal scroller, but in
-          // practice the three pills + their values fit on a 360-px viewport.
           Row(
             children: [
               Expanded(
@@ -626,31 +944,6 @@ class _MetricCell extends StatelessWidget {
 // SHARED CHROME
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _Card extends StatelessWidget {
-  const _Card({required this.child});
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE8EEF2)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.025),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: child,
-    );
-  }
-}
-
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader({required this.icon, required this.title});
 
@@ -684,109 +977,103 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.message});
-  final String message;
+// ─────────────────────────────────────────────────────────────────────────────
+// DATA + NETWORKING
+// ─────────────────────────────────────────────────────────────────────────────
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 18),
-      child: Text(
-        message,
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          fontSize: 12,
-          color: Colors.grey.shade500,
-        ),
-      ),
+class _ZoneRow {
+  final String zone;
+  final double salesValue;
+  final double zydusPodValue;
+  final double completionPct;
+
+  const _ZoneRow({
+    required this.zone,
+    required this.salesValue,
+    required this.zydusPodValue,
+    required this.completionPct,
+  });
+
+  factory _ZoneRow.fromJson(Map<String, dynamic> j) {
+    double d(dynamic v) => v is num ? v.toDouble() : 0.0;
+    return _ZoneRow(
+      zone: (j['zone'] ?? '—').toString(),
+      salesValue: d(j['sales_value']),
+      zydusPodValue: d(j['zydus_pod_value']),
+      completionPct: d(j['completion_pct']),
     );
   }
 }
 
-class _Skeleton extends StatelessWidget {
-  const _Skeleton();
+class _EntityRow {
+  final String id;
+  final String name;
+  final String code;
+  final String city;
+  final String zone;
+  final double salesValue;
+  final double zydusPodValue;
+  final double completionPct;
+  final int processedPodCount;
 
-  @override
-  Widget build(BuildContext context) {
-    Widget bar(double w) => Container(
-          width: w,
-          height: 12,
-          decoration: BoxDecoration(
-            color: const Color(0xFFF3F6F8),
-            borderRadius: BorderRadius.circular(4),
-          ),
-        );
-    return Column(
-      children: [
-        _Card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              bar(160),
-              const SizedBox(height: 16),
-              for (var i = 0; i < 4; i++) ...[
-                bar(double.infinity),
-                const SizedBox(height: 10),
-              ],
-            ],
-          ),
-        ),
-        const SizedBox(height: 18),
-        _Card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              bar(180),
-              const SizedBox(height: 16),
-              for (var i = 0; i < 4; i++) ...[
-                bar(double.infinity),
-                const SizedBox(height: 12),
-              ],
-            ],
-          ),
-        ),
-      ],
+  const _EntityRow({
+    required this.id,
+    required this.name,
+    required this.code,
+    required this.city,
+    required this.zone,
+    required this.salesValue,
+    required this.zydusPodValue,
+    required this.completionPct,
+    required this.processedPodCount,
+  });
+
+  factory _EntityRow.fromJson(Map<String, dynamic> j) {
+    double d(dynamic v) => v is num ? v.toDouble() : 0.0;
+    int i(dynamic v) => v is num ? v.toInt() : 0;
+    return _EntityRow(
+      id: (j['id'] ?? '').toString(),
+      name: (j['name'] ?? 'Unknown').toString(),
+      code: (j['code'] ?? '').toString(),
+      city: (j['city'] ?? '').toString(),
+      zone: (j['zone'] ?? '').toString(),
+      salesValue: d(j['sales_value']),
+      zydusPodValue: d(j['zydus_pod_value']),
+      completionPct: d(j['completion_pct']),
+      processedPodCount: i(j['processed_pod_count']),
     );
   }
 }
 
-class _ErrorPanel extends StatelessWidget {
-  const _ErrorPanel({required this.message, required this.onRetry});
-  final String message;
-  final VoidCallback onRetry;
+class _EntityPage {
+  final List<_EntityRow> rows;
+  final int total;
+  final bool hasMore;
+  const _EntityPage({
+    required this.rows,
+    required this.total,
+    required this.hasMore,
+  });
+}
 
+class _PerfException implements Exception {
+  final String message;
+  const _PerfException(this.message);
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.red.shade50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.red.shade100),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.error_outline, color: Colors.red.shade400, size: 18),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              'Zone / KAM analytics failed to load. $message',
-              style: TextStyle(fontSize: 12, color: Colors.red.shade700),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          TextButton(onPressed: onRetry, child: const Text('Retry')),
-        ],
-      ),
-    );
-  }
+  String toString() => message;
+}
+
+Future<http.Response> _authedGet(Uri uri) async {
+  final prefs = await SharedPreferences.getInstance();
+  final token = prefs.getString('authToken');
+  return http.get(uri, headers: {
+    'Accept': 'application/json',
+    if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+  }).timeout(const Duration(seconds: 45));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FORMATTERS / SHARED HELPERS
+// FORMATTERS
 // ─────────────────────────────────────────────────────────────────────────────
 
 String _inr(double amount) {
@@ -814,8 +1101,8 @@ String _int(int n) {
 }
 
 Color _completionColor(double pct) {
-  if (pct >= 75) return const Color(0xFF059669); // green
-  if (pct >= 50) return const Color(0xFF0EA5E9); // blue
-  if (pct >= 25) return const Color(0xFFF59E0B); // amber
-  return const Color(0xFFEF4444); // red
+  if (pct >= 75) return const Color(0xFF059669);
+  if (pct >= 50) return const Color(0xFF0EA5E9);
+  if (pct >= 25) return const Color(0xFFF59E0B);
+  return const Color(0xFFEF4444);
 }
