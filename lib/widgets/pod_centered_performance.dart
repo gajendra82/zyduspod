@@ -35,13 +35,23 @@ class _PodCenteredPerformanceSectionState
     extends State<PodCenteredPerformanceSection>
     with SingleTickerProviderStateMixin {
   late final TabController _tabCtl;
+  int _activeTab = 0;
   Future<List<_ZoneRow>>? _zoneFuture;
 
   @override
   void initState() {
     super.initState();
     _tabCtl = TabController(length: 3, vsync: this);
+    _tabCtl.addListener(_onTabChanged);
     _zoneFuture = _fetchZones();
+  }
+
+  void _onTabChanged() {
+    // Only react when the swipe/tap actually settles on a new index — not
+    // while the indicator is mid-animation. Saves a needless rebuild.
+    if (_tabCtl.indexIsChanging || _tabCtl.index == _activeTab) return;
+    if (!mounted) return;
+    setState(() => _activeTab = _tabCtl.index);
   }
 
   @override
@@ -56,6 +66,7 @@ class _PodCenteredPerformanceSectionState
 
   @override
   void dispose() {
+    _tabCtl.removeListener(_onTabChanged);
     _tabCtl.dispose();
     super.dispose();
   }
@@ -135,25 +146,36 @@ class _PodCenteredPerformanceSectionState
                   ],
                 ),
               ),
-              SizedBox(
-                // Fixed-height tab body — each tab manages its own internal
-                // ListView/scroll so the parent SingleChildScrollView in
-                // UnifiedDashboardScreen doesn't fight with infinite-scroll.
-                height: 560,
-                child: TabBarView(
-                  controller: _tabCtl,
+              // Tab content: only the active tab takes vertical space, but
+              // all three stay mounted (via Offstage) so search/scroll/
+              // pagination state survives tab switches. There is NO fixed
+              // height + no TabBarView wrapper — that previously trapped
+              // every inner ListView with its own ScrollController, which
+              // is exactly the nested-scroll conflict this widget is
+              // fixing. The parent SingleChildScrollView in
+              // UnifiedDashboardScreen._buildOverviewContent now scrolls
+              // the entire dashboard (KPI cards + zone summary + tabs +
+              // rows) as ONE list, so the user experiences a single
+              // continuous page just like Sales Analytics.
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: _OffstageTabs(
+                  activeIndex: _activeTab,
                   children: [
                     _EntityTab(
+                      key: const PageStorageKey('pod-entity-tab-kam'),
                       entity: 'kam',
                       filters: widget.filters,
                       searchHint: 'Search KAM name or employee ID',
                     ),
                     _EntityTab(
+                      key: const PageStorageKey('pod-entity-tab-hospital'),
                       entity: 'hospital',
                       filters: widget.filters,
                       searchHint: 'Search hospital, BTST code, or city',
                     ),
                     _EntityTab(
+                      key: const PageStorageKey('pod-entity-tab-stockist'),
                       entity: 'stockist',
                       filters: widget.filters,
                       searchHint: 'Search stockist name or code',
@@ -164,6 +186,40 @@ class _PodCenteredPerformanceSectionState
             ],
           ),
         ),
+      ],
+    );
+  }
+}
+
+/// Renders one of [children] at full intrinsic height and keeps the others
+/// mounted but invisible (Offstage) so their state survives tab switches.
+///
+/// This replaces the TabBarView + fixed-height SizedBox we used to have —
+/// that was what trapped each tab's ListView with its own ScrollController
+/// and caused the nested-scroll conflict on the POD Dashboard. With the
+/// active child rendered inline, the whole dashboard scrolls as a single
+/// page.
+class _OffstageTabs extends StatelessWidget {
+  const _OffstageTabs({required this.activeIndex, required this.children});
+
+  final int activeIndex;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        for (var i = 0; i < children.length; i++)
+          Offstage(
+            offstage: i != activeIndex,
+            // TickerMode prevents off-stage tabs from running animations or
+            // network retries that depend on the ticker — saves a few CPU
+            // cycles when the user lingers on one tab.
+            child: TickerMode(
+              enabled: i == activeIndex,
+              child: children[i],
+            ),
+          ),
       ],
     );
   }
@@ -327,16 +383,16 @@ class _EntityTab extends StatefulWidget {
   State<_EntityTab> createState() => _EntityTabState();
 }
 
-class _EntityTabState extends State<_EntityTab>
-    with AutomaticKeepAliveClientMixin {
-  // Keep the tab's state alive on tab switch so the user doesn't lose their
-  // scroll position / search box between taps.
-  @override
-  bool get wantKeepAlive => true;
-
+class _EntityTabState extends State<_EntityTab> {
+  // No AutomaticKeepAliveClientMixin and no inner ScrollController —
+  // parent uses Offstage to keep this state alive across tab switches,
+  // and the WHOLE POD Dashboard now scrolls as a single page via the
+  // outer SingleChildScrollView in _buildOverviewContent. Pagination is
+  // driven by an explicit "Load more" button at the end of the list
+  // instead of auto-fire-on-scroll, because there is no inner scroll
+  // position to observe anymore.
   static const int _pageSize = 20;
 
-  final ScrollController _scrollCtl = ScrollController();
   final TextEditingController _searchCtl = TextEditingController();
   Timer? _searchDebounce;
 
@@ -354,7 +410,6 @@ class _EntityTabState extends State<_EntityTab>
   @override
   void initState() {
     super.initState();
-    _scrollCtl.addListener(_onScroll);
     _reload();
   }
 
@@ -371,17 +426,8 @@ class _EntityTabState extends State<_EntityTab>
   @override
   void dispose() {
     _searchDebounce?.cancel();
-    _scrollCtl.dispose();
     _searchCtl.dispose();
     super.dispose();
-  }
-
-  void _onScroll() {
-    if (!_hasMore || _isLoadingMore || _isInitialLoading) return;
-    final pos = _scrollCtl.position;
-    if (pos.pixels >= pos.maxScrollExtent - 220) {
-      _loadMore();
-    }
   }
 
   Future<void> _reload() async {
@@ -491,7 +537,6 @@ class _EntityTabState extends State<_EntityTab>
 
   @override
   Widget build(BuildContext context) {
-    super.build(context); // AutomaticKeepAliveClientMixin
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
       child: Column(
@@ -507,9 +552,7 @@ class _EntityTabState extends State<_EntityTab>
             total: _total,
           ),
           const SizedBox(height: 8),
-          Expanded(
-            child: _buildBody(),
-          ),
+          _buildBody(),
         ],
       ),
     );
@@ -517,7 +560,11 @@ class _EntityTabState extends State<_EntityTab>
 
   Widget _buildBody() {
     if (_isInitialLoading) {
+      // shrinkWrap so the skeleton sits inside the outer page scroll
+      // without trying to take its own height.
       return ListView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
         itemCount: 6,
         itemBuilder: (_, __) => Container(
           margin: const EdgeInsets.only(top: 8),
@@ -530,7 +577,8 @@ class _EntityTabState extends State<_EntityTab>
       );
     }
     if (_lastError != null) {
-      return Center(
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -552,49 +600,76 @@ class _EntityTabState extends State<_EntityTab>
       );
     }
     if (_rows.isEmpty) {
-      return Center(
-        child: Text(
-          _search.isEmpty
-              ? 'No data for the selected month.'
-              : 'No matches for "$_search".',
-          style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24),
+        child: Center(
+          child: Text(
+            _search.isEmpty
+                ? 'No data for the selected month.'
+                : 'No matches for "$_search".',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+          ),
         ),
       );
     }
-    return ListView.builder(
-      controller: _scrollCtl,
-      itemCount: _rows.length + (_isLoadingMore ? 1 : 0) + (!_hasMore && _rows.isNotEmpty ? 1 : 0),
-      itemBuilder: (context, i) {
-        if (i >= _rows.length) {
-          if (_isLoadingMore) {
-            return const Padding(
-              padding: EdgeInsets.symmetric(vertical: 14),
-              child: Center(
-                child: SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              ),
-            );
-          }
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // The list itself is shrink-wrapped and non-scrollable so the
+        // parent page scrolls cleanly through the whole dashboard.
+        // Pagination is driven by the Load More button below — there is
+        // no inner scroll position to observe anymore.
+        ListView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: _rows.length,
+          itemBuilder: (context, i) => _EntityTile(
+            rank: i + 1,
+            entity: widget.entity,
+            row: _rows[i],
+          ),
+        ),
+        if (_hasMore)
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Center(
+              child: _isLoadingMore
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : OutlinedButton.icon(
+                      onPressed: _loadMore,
+                      icon: const Icon(Icons.expand_more_rounded, size: 18),
+                      label: Text(
+                        'Load more (${_rows.length} of $_total)',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF00A0A8),
+                        side: const BorderSide(color: Color(0xFF00A0A8)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+            ),
+          )
+        else
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 14),
             child: Center(
               child: Text(
                 '— end of list ($_total) —',
-                style:
-                    TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
               ),
             ),
-          );
-        }
-        return _EntityTile(
-          rank: i + 1,
-          entity: widget.entity,
-          row: _rows[i],
-        );
-      },
+          ),
+      ],
     );
   }
 }
