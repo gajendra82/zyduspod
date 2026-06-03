@@ -30,8 +30,17 @@ class SalesSummaryCards {
   // home screen. Nullable because the public summary-cards endpoint may not
   // expose them yet — when the backend starts returning these keys the
   // Flutter UI lights up automatically without further code changes.
-  final double? totalPodValue;            // pods_uploaded_value / zydus_pod_value
-  final double? salesVsPodsCompletion;    // sales_vs_pods_completion_rate
+  //
+  // [totalPodValue]      — full POD invoice sum (Zydus + non-Zydus lines).
+  // [zydusProductValue]  — Zydus-product lines only. This is what the
+  //                        Executive "Zydus Product Value" card shows AND
+  //                        what the POD-vs-Sales Completion % formula uses
+  //                        (Zydus / Sales × 100), same definition as the
+  //                        web POD Tracker dashboard.
+  // [salesVsPodsCompletion] — pre-computed by the backend from Zydus / Sales.
+  final double? totalPodValue;
+  final double? zydusProductValue;
+  final double? salesVsPodsCompletion;
 
   const SalesSummaryCards({
     required this.totalTargetAmount,
@@ -50,6 +59,7 @@ class SalesSummaryCards {
     required this.totalProductSalesQty,
     required this.totalStatements,
     this.totalPodValue,
+    this.zydusProductValue,
     this.salesVsPodsCompletion,
   });
 
@@ -78,7 +88,8 @@ class SalesSummaryCards {
       totalProductSalesQty: i(json['total_product_sales_qty']),
       totalStatements: i(json['total_statements']),
       totalPodValue: dNullable(json['total_pod_value'])
-          ?? dNullable(json['pods_uploaded_value'])
+          ?? dNullable(json['pods_uploaded_value']),
+      zydusProductValue: dNullable(json['zydus_product_value'])
           ?? dNullable(json['zydus_pod_value']),
       salesVsPodsCompletion: dNullable(json['sales_vs_pods_completion_rate'])
           ?? dNullable(json['sales_vs_pods_completion']),
