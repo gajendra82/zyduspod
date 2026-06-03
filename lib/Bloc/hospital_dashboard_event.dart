@@ -8,11 +8,26 @@ abstract class HospitalDashboardEvent extends Equatable {
 }
 
 class HospitalDashboardLoadRequested extends HospitalDashboardEvent {
-  const HospitalDashboardLoadRequested();
+  /// Optional yyyy-MM-dd window — when set, the underlying /api/dashboard/*
+  /// calls send `date_from` and `date_to` query params so the dashboard
+  /// counts mirror the selected month.
+  final String? dateFrom;
+  final String? dateTo;
+
+  const HospitalDashboardLoadRequested({this.dateFrom, this.dateTo});
+
+  @override
+  List<Object?> get props => [dateFrom, dateTo];
 }
 
 class HospitalDashboardRefreshRequested extends HospitalDashboardEvent {
-  const HospitalDashboardRefreshRequested();
+  final String? dateFrom;
+  final String? dateTo;
+
+  const HospitalDashboardRefreshRequested({this.dateFrom, this.dateTo});
+
+  @override
+  List<Object?> get props => [dateFrom, dateTo];
 }
 
 class HospitalDashboardStatsRequested extends HospitalDashboardEvent {
