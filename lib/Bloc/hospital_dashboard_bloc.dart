@@ -22,8 +22,14 @@ class HospitalDashboardBloc extends Bloc<HospitalDashboardEvent, HospitalDashboa
     emit(const HospitalDashboardLoading());
 
     try {
-      final dashboardData = await _service.getDashboardStats();
-      final recentDocuments = await _service.getRecentDocuments();
+      final dashboardData = await _service.getDashboardStats(
+        dateFrom: event.dateFrom,
+        dateTo: event.dateTo,
+      );
+      final recentDocuments = await _service.getRecentDocuments(
+        dateFrom: event.dateFrom,
+        dateTo: event.dateTo,
+      );
 
       emit(HospitalDashboardLoaded(
         dashboardData: dashboardData,
@@ -46,9 +52,15 @@ class HospitalDashboardBloc extends Bloc<HospitalDashboardEvent, HospitalDashboa
       emit(currentState.copyWith(isRefreshing: true));
 
       try {
-        final dashboardData = await _service.getDashboardStats();
+        final dashboardData = await _service.getDashboardStats(
+          dateFrom: event.dateFrom,
+          dateTo: event.dateTo,
+        );
         // print('dashboardData: $dashboardData');
-        final recentDocuments = await _service.getRecentDocuments();
+        final recentDocuments = await _service.getRecentDocuments(
+          dateFrom: event.dateFrom,
+          dateTo: event.dateTo,
+        );
         print('recentDocuments: $recentDocuments');
         emit(HospitalDashboardLoaded(
           dashboardData: dashboardData,

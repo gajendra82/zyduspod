@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:intl/intl.dart';
 import 'package:zydus_vistaar/Bloc/hospital_dashboard_bloc.dart';
 import 'package:zydus_vistaar/Bloc/hospital_dashboard_event.dart';
 import 'package:zydus_vistaar/Bloc/hospital_dashboard_state.dart';
@@ -7,6 +8,7 @@ import 'package:zydus_vistaar/Bloc/sales_bloc.dart';
 import 'package:zydus_vistaar/Bloc/sales_event.dart';
 import 'package:zydus_vistaar/Bloc/sales_state.dart';
 import 'package:zydus_vistaar/DocumentUploadScreen.dart';
+import 'package:zydus_vistaar/Models/sales_dashboard_models.dart';
 // HospitalSalesScreen is intentionally left importable but no longer
 // rendered here — the "Hospital Sales" tab was replaced by the embeddable
 // Sales Analytics dashboard (SalesDashboardBody). Keep the file in the repo
@@ -29,10 +31,26 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
     with TickerProviderStateMixin {
   late TabController _tabController;
 
+  // POD Dashboard month-window state. Initialised to the current calendar
+  // month so the user lands on "this month" — same default as the Sales
+  // Analytics filter bar. Selecting a different month rewrites both
+  // [_dateFrom] / [_dateTo] and triggers a HospitalDashboardLoadRequested
+  // with the new window. ExecutiveKpiSection re-fetches via its `filters`
+  // prop on the same change.
+  late DateTime _selectedMonth;
+  String get _dateFrom =>
+      DateFormat('yyyy-MM-dd').format(DateTime(_selectedMonth.year, _selectedMonth.month, 1));
+  String get _dateTo => DateFormat('yyyy-MM-dd')
+      .format(DateTime(_selectedMonth.year, _selectedMonth.month + 1, 0));
+
+  HospitalDashboardBloc? _hospitalBloc;
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    final now = DateTime.now();
+    _selectedMonth = DateTime(now.year, now.month, 1);
   }
 
   @override
@@ -41,13 +59,34 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
     super.dispose();
   }
 
+  void _onMonthChanged(DateTime month) {
+    setState(() {
+      _selectedMonth = DateTime(month.year, month.month, 1);
+    });
+    _hospitalBloc?.add(HospitalDashboardLoadRequested(
+      dateFrom: _dateFrom,
+      dateTo: _dateTo,
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     return MultiBlocProvider(
       providers: [
         BlocProvider(
-          create: (_) => HospitalDashboardBloc(HospitalDashboardService())
-            ..add(const HospitalDashboardLoadRequested()),
+          create: (_) {
+            // Capture the BLoC handle so the month dropdown (which lives
+            // OUTSIDE this provider scope on rebuild) can dispatch the
+            // reload event. Avoids `context.read<HospitalDashboardBloc>()`
+            // failing in the dropdown's `onChanged`.
+            final bloc = HospitalDashboardBloc(HospitalDashboardService())
+              ..add(HospitalDashboardLoadRequested(
+                dateFrom: _dateFrom,
+                dateTo: _dateTo,
+              ));
+            _hospitalBloc = bloc;
+            return bloc;
+          },
         ),
         BlocProvider(
           create: (_) => SalesBloc(SalesService())..add(const SalesLoadRequested()),
@@ -80,8 +119,8 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
             labelColor: const Color(0xFF00A0A8),
             unselectedLabelColor: Colors.grey,
             indicatorColor: const Color(0xFF00A0A8),
-            // Tab order locked: Sales Analytics (headline) · PODs documents
-            // (was "All Documents") · POD Dashboard (was "Overview"). Labels
+            // Tab order locked: Sales Analytics (headline) Â· PODs documents
+            // (was "All Documents") Â· POD Dashboard (was "Overview"). Labels
             // updated per the latest product call to surface the POD scope
             // explicitly. TabBarView children below mirror this order.
             tabs: const [
@@ -192,7 +231,10 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
           ElevatedButton.icon(
             onPressed: () {
               context.read<HospitalDashboardBloc>().add(
-                const HospitalDashboardLoadRequested(),
+                HospitalDashboardLoadRequested(
+                  dateFrom: _dateFrom,
+                  dateTo: _dateTo,
+                ),
               );
             },
             icon: const Icon(Icons.refresh),
@@ -257,7 +299,10 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
       onRefresh: () async {
         print('onRefresh');
         context.read<HospitalDashboardBloc>().add(
-          const HospitalDashboardRefreshRequested(),
+          HospitalDashboardRefreshRequested(
+            dateFrom: _dateFrom,
+            dateTo: _dateTo,
+          ),
         );
       },
       color: const Color(0xFF00A0A8),
@@ -267,13 +312,26 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildHeader(context),
-            const SizedBox(height: 20),
+            // The legacy "POD Dashboard / Hospital document management
+            // overview" gradient banner (_buildHeader) was removed in favour
+            // of a denser month-picker strip here. The month dropdown mirrors
+            // Sales Analytics' behaviour so a user has one consistent way to
+            // pin the period everywhere.
+            _PodDashboardMonthBar(
+              selectedMonth: _selectedMonth,
+              onMonthChanged: _onMonthChanged,
+            ),
+            const SizedBox(height: 14),
             // Executive KPIs pulled from the hierarchy-scoped
             // /api/sales-dashboard/summary-cards endpoint — gives the user
             // Sales / POD / Target / Achievement / Growth at a glance on the
             // home screen without opening Sales Analytics.
-            const ExecutiveKpiSection(),
+            ExecutiveKpiSection(
+              filters: SalesDashboardFilters(
+                dateFrom: _dateFrom,
+                dateTo: _dateTo,
+              ),
+            ),
             const SizedBox(height: 20),
             _buildStatsGrid(context, state.dashboardData),
             const SizedBox(height: 24),
@@ -309,70 +367,6 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
             _buildRecentSales(state.salesData),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildHeader(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            const Color(0xFF00A0A8),
-            const Color(0xFF6EC1C7),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF00A0A8).withOpacity(0.3),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: const Icon(
-              Icons.dashboard_rounded,
-              color: Colors.white,
-              size: 32,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'POD Dashboard',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Hospital document management overview',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.9),
-                    fontSize: 16,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -1492,5 +1486,112 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
     } catch (e) {
       return 'Unknown';
     }
+  }
+}
+
+/// Compact month-picker strip pinned to the top of the POD Dashboard tab.
+///
+/// Mirrors the dropdown styling + 24-month rolling window used by the Sales
+/// Analytics filter bar so the two surfaces feel consistent. Lifting the
+/// selected month into the parent's state means the same value drives
+/// (a) the Executive KPI section (via its `filters` prop) and (b) the
+/// HospitalDashboard BLoC's reload event — one source of truth, no drift.
+class _PodDashboardMonthBar extends StatelessWidget {
+  const _PodDashboardMonthBar({
+    required this.selectedMonth,
+    required this.onMonthChanged,
+  });
+
+  final DateTime selectedMonth;
+  final ValueChanged<DateTime> onMonthChanged;
+
+  static String _key(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}';
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    // Last 24 months including the current month, newest first.
+    final months = List<DateTime>.generate(
+      24,
+      (i) => DateTime(now.year, now.month - i, 1),
+    );
+    final selectedKey = _key(selectedMonth);
+    final labelFmt = DateFormat('MMM yyyy');
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE8EEF2)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.025),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: const Color(0xFF00A0A8).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(
+              Icons.calendar_month_rounded,
+              color: Color(0xFF00A0A8),
+              size: 18,
+            ),
+          ),
+          const SizedBox(width: 10),
+          const Text(
+            'Month',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF2C3E50),
+            ),
+          ),
+          const Spacer(),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF1F4F8),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: selectedKey,
+                isDense: true,
+                borderRadius: BorderRadius.circular(12),
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF2C3E50),
+                ),
+                items: [
+                  for (final m in months)
+                    DropdownMenuItem<String>(
+                      value: _key(m),
+                      child: Text(labelFmt.format(m)),
+                    ),
+                ],
+                onChanged: (v) {
+                  if (v == null) return;
+                  final parts = v.split('-');
+                  final y = int.parse(parts[0]);
+                  final mm = int.parse(parts[1]);
+                  onMonthChanged(DateTime(y, mm, 1));
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

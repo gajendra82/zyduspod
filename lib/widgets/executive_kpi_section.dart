@@ -17,7 +17,12 @@ import 'package:zydus_vistaar/services/sales_dashboard_service.dart';
 /// "—" placeholder until the backend ships those keys. See the model's
 /// `totalPodValue` / `salesVsPodsCompletion` for the keys it looks for.
 class ExecutiveKpiSection extends StatefulWidget {
-  const ExecutiveKpiSection({super.key});
+  /// Optional date-window filter (e.g. month-pinned). When null the section
+  /// falls back to `SalesDashboardFilters.empty` (= no window = backend
+  /// default).
+  const ExecutiveKpiSection({super.key, this.filters});
+
+  final SalesDashboardFilters? filters;
 
   @override
   State<ExecutiveKpiSection> createState() => _ExecutiveKpiSectionState();
@@ -27,11 +32,31 @@ class _ExecutiveKpiSectionState extends State<ExecutiveKpiSection> {
   late final SalesDashboardService _service;
   late Future<SalesSummaryCards> _future;
 
+  SalesDashboardFilters get _effectiveFilters =>
+      widget.filters ?? SalesDashboardFilters.empty;
+
   @override
   void initState() {
     super.initState();
     _service = SalesDashboardService();
-    _future = _service.fetchSummaryCards(SalesDashboardFilters.empty);
+    _future = _service.fetchSummaryCards(_effectiveFilters);
+  }
+
+  @override
+  void didUpdateWidget(covariant ExecutiveKpiSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Re-fetch when the parent passes a different month window. We compare
+    // dateFrom/dateTo only — the rest of the filter object is unused on this
+    // surface and we want to avoid a refetch loop on equivalent-but-fresh
+    // SalesDashboardFilters instances.
+    final a = oldWidget.filters;
+    final b = widget.filters;
+    final changed = a?.dateFrom != b?.dateFrom || a?.dateTo != b?.dateTo;
+    if (changed) {
+      setState(() {
+        _future = _service.fetchSummaryCards(_effectiveFilters);
+      });
+    }
   }
 
   @override
@@ -42,7 +67,7 @@ class _ExecutiveKpiSectionState extends State<ExecutiveKpiSection> {
 
   void _reload() {
     setState(() {
-      _future = _service.fetchSummaryCards(SalesDashboardFilters.empty);
+      _future = _service.fetchSummaryCards(_effectiveFilters);
     });
   }
 
