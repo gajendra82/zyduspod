@@ -2,20 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:zydus_vistaar/Models/sales_dashboard_models.dart';
 import 'package:zydus_vistaar/services/sales_dashboard_service.dart';
 
-/// Executive KPI strip rendered on top of the Dashboard / Home screen so a
-/// user sees Sales · POD · Target · Achievement · Growth at a glance without
-/// drilling into Sales Analytics.
+/// Executive KPI strip rendered on top of the POD Dashboard tab so a user
+/// sees Sales · Zydus Product Value · Target · Achievement · Growth at a
+/// glance without drilling into Sales Analytics.
 ///
 /// Values come from the EXISTING `/api/sales-dashboard/summary-cards`
 /// endpoint, which already enforces the same hierarchy scoping used by the
 /// web dashboard (KAM → own; manager → team; admin → org). No new business
-/// logic is introduced here — this widget only renders fields the backend
-/// already computes.
+/// logic — this widget only renders fields the backend already computes.
 ///
-/// Two cards (Total POD Value, POD vs Sales Completion %) read fields that
-/// the public summary-cards endpoint does not yet expose; they degrade to a
-/// "—" placeholder until the backend ships those keys. See the model's
-/// `totalPodValue` / `salesVsPodsCompletion` for the keys it looks for.
+/// "POD vs Sales Completion %" uses the backend's pre-computed
+/// `sales_vs_pods_completion_rate`, which is defined as
+/// `Zydus Product POD Value / Sales Value × 100` (NOT total POD value).
+/// The card body therefore shows the Zydus figure as the numerator so the
+/// math the user sees on screen matches the % displayed.
 class ExecutiveKpiSection extends StatefulWidget {
   /// Optional date-window filter (e.g. month-pinned). When null the section
   /// falls back to `SalesDashboardFilters.empty` (= no window = backend
@@ -45,10 +45,6 @@ class _ExecutiveKpiSectionState extends State<ExecutiveKpiSection> {
   @override
   void didUpdateWidget(covariant ExecutiveKpiSection oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Re-fetch when the parent passes a different month window. We compare
-    // dateFrom/dateTo only — the rest of the filter object is unused on this
-    // surface and we want to avoid a refetch loop on equivalent-but-fresh
-    // SalesDashboardFilters instances.
     final a = oldWidget.filters;
     final b = widget.filters;
     final changed = a?.dateFrom != b?.dateFrom || a?.dateTo != b?.dateTo;
@@ -99,26 +95,31 @@ class _KpiGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final podValue = summary.totalPodValue;
+    // Zydus product value is what feeds the completion-% formula on the
+    // backend. Fall back to nothing rather than guessing if the field is
+    // absent — the card degrades to "—" so the user knows the value
+    // upstream hasn't been computed yet.
+    final zydusValue = summary.zydusProductValue;
+    final salesValue = summary.totalSalesAmount;
     final podVsSalesPct = summary.salesVsPodsCompletion
-        ?? _deriveCompletion(podValue, summary.totalSalesAmount);
+        ?? _deriveCompletion(zydusValue, salesValue);
 
     final cards = <_KpiCardData>[
       _KpiCardData(
         title: 'Total Sales Value',
-        value: '\u{20B9}${_formatAmount(summary.totalSalesAmount)}',
+        value: _inr(salesValue),
+        subtitle: 'Achievement (net sales)',
         icon: Icons.account_balance_wallet_rounded,
-        color: const Color(0xFF00A0A8),
+        gradient: const [Color(0xFF0EA5E9), Color(0xFF38BDF8)], // blue
       ),
       _KpiCardData(
-        title: 'Total POD Value',
-        value: podValue == null
-            ? '—'
-            : '\u{20B9}${_formatAmount(podValue)}',
-        icon: Icons.inventory_2_rounded,
-        color: const Color(0xFF7C4DFF),
-        hint: podValue == null
-            ? 'Pending backend (summary-cards.total_pod_value)'
+        title: 'Zydus Product Value',
+        value: zydusValue == null ? '—' : _inr(zydusValue),
+        subtitle: 'Zydus lines on PODs',
+        icon: Icons.medication_rounded,
+        gradient: const [Color(0xFF6366F1), Color(0xFF818CF8)], // indigo
+        hint: zydusValue == null
+            ? 'Pending backend: summary-cards.zydus_product_value'
             : null,
       ),
       _KpiCardData(
@@ -126,56 +127,60 @@ class _KpiGrid extends StatelessWidget {
         value: podVsSalesPct == null
             ? '—'
             : '${podVsSalesPct.toStringAsFixed(1)}%',
+        subtitle: zydusValue != null && salesValue > 0
+            ? '${_inr(zydusValue)} / ${_inr(salesValue)}'
+            : 'Zydus / Sales',
         icon: Icons.donut_small_rounded,
-        color: const Color(0xFF26A69A),
+        gradient: const [Color(0xFF10B981), Color(0xFF34D399)], // green
         progress: podVsSalesPct == null
             ? null
             : (podVsSalesPct / 100).clamp(0.0, 1.0).toDouble(),
-        progressCaption: podVsSalesPct == null
-            ? null
-            : '\u{20B9}${_formatAmount(podValue ?? 0)} / _${_formatAmount(summary.totalSalesAmount)}',
-        hint: podVsSalesPct == null
-            ? 'Pending backend (summary-cards.sales_vs_pods_completion_rate)'
-            : null,
       ),
       _KpiCardData(
         title: 'Total Target',
-        value: '\u{20B9}${_formatAmount(summary.totalTargetAmount)}',
+        value: _inr(summary.totalTargetAmount),
+        subtitle: 'Sum of hospital targets',
         icon: Icons.flag_rounded,
-        color: const Color(0xFF6366F1),
+        gradient: const [Color(0xFF8B5CF6), Color(0xFFA78BFA)], // violet
       ),
       _KpiCardData(
         title: 'Total Achievement',
-        value: '\u{20B9}${_formatAmount(summary.netSalesAmount)}',
+        value: _inr(summary.netSalesAmount),
+        subtitle: 'Net sales (sales − returns)',
         icon: Icons.emoji_events_rounded,
-        color: const Color(0xFF42A5F5),
+        gradient: const [Color(0xFF14B8A6), Color(0xFF2DD4BF)], // teal
       ),
       _KpiCardData(
         title: 'Achievement %',
         value: '${summary.achievementPercentage.toStringAsFixed(1)}%',
+        subtitle: 'vs target',
         icon: Icons.percent_rounded,
-        color: const Color(0xFF1E88E5),
+        gradient: _pctGradient(summary.achievementPercentage),
         progress: (summary.achievementPercentage / 100).clamp(0.0, 1.0).toDouble(),
       ),
       _KpiCardData(
         title: 'Gap to Target',
-        value: '\u{20B9}${_formatAmount(summary.gapToTarget.abs())}',
+        value: _inr(summary.gapToTarget.abs()),
+        subtitle: summary.gapToTarget > 0
+            ? 'Still to achieve'
+            : 'Target met or exceeded',
         icon: summary.gapToTarget > 0
             ? Icons.trending_down_rounded
             : Icons.check_circle_rounded,
-        color: summary.gapToTarget > 0
-            ? const Color(0xFFEF5350)
-            : const Color(0xFF66BB6A),
+        gradient: summary.gapToTarget > 0
+            ? const [Color(0xFFEF4444), Color(0xFFF87171)]  // red
+            : const [Color(0xFF059669), Color(0xFF10B981)], // green
       ),
       _KpiCardData(
         title: 'Growth vs Last Year',
         value: '${summary.growthPercentage >= 0 ? '+' : ''}${summary.growthPercentage.toStringAsFixed(1)}%',
+        subtitle: 'YoY net sales',
         icon: summary.growthPercentage >= 0
             ? Icons.trending_up_rounded
             : Icons.trending_down_rounded,
-        color: summary.growthPercentage >= 0
-            ? const Color(0xFF66BB6A)
-            : const Color(0xFFEF5350),
+        gradient: summary.growthPercentage >= 0
+            ? const [Color(0xFFEC4899), Color(0xFFF472B6)]  // pink
+            : const [Color(0xFFF59E0B), Color(0xFFFBBF24)], // amber
       ),
     ];
 
@@ -184,8 +189,10 @@ class _KpiGrid extends StatelessWidget {
         final w = constraints.maxWidth;
         // Mobile 2 / Tablet 3 / Desktop 4 — per spec.
         final cols = w >= 1024 ? 4 : (w >= 600 ? 3 : 2);
-        // Compact aspect so 4 rows fit above-the-fold on phones.
-        final aspect = w >= 1024 ? 1.45 : (w >= 600 ? 1.35 : 1.15);
+        // Slightly wider-than-tall on phones; closer to square on large
+        // screens to match the Sales Analytics grid.
+        final aspect = w >= 1100 ? 1.65 : (w >= 600 ? 1.55 : 1.35);
+        final spacing = cols >= 3 ? 12.0 : 10.0;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -197,8 +204,8 @@ class _KpiGrid extends StatelessWidget {
               itemCount: cards.length,
               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: cols,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
+                crossAxisSpacing: spacing,
+                mainAxisSpacing: spacing,
                 childAspectRatio: aspect,
               ),
               itemBuilder: (context, i) => _KpiCard(data: cards[i]),
@@ -209,10 +216,17 @@ class _KpiGrid extends StatelessWidget {
     );
   }
 
-  static double? _deriveCompletion(double? podValue, double salesValue) {
-    if (podValue == null) return null;
+  static double? _deriveCompletion(double? zydusValue, double salesValue) {
+    if (zydusValue == null) return null;
     if (salesValue <= 0) return 0;
-    return (podValue / salesValue) * 100;
+    return (zydusValue / salesValue) * 100;
+  }
+
+  static List<Color> _pctGradient(double pct) {
+    if (pct >= 100) return const [Color(0xFF059669), Color(0xFF10B981)];
+    if (pct >= 75) return const [Color(0xFF0EA5E9), Color(0xFF38BDF8)];
+    if (pct >= 50) return const [Color(0xFFF59E0B), Color(0xFFFBBF24)];
+    return const [Color(0xFFEF4444), Color(0xFFF87171)];
   }
 }
 
@@ -252,19 +266,19 @@ class _SectionHeader extends StatelessWidget {
 class _KpiCardData {
   final String title;
   final String value;
+  final String subtitle;
   final IconData icon;
-  final Color color;
+  final List<Color> gradient;
   final double? progress;
-  final String? progressCaption;
   final String? hint;
 
   const _KpiCardData({
     required this.title,
     required this.value,
+    required this.subtitle,
     required this.icon,
-    required this.color,
+    required this.gradient,
     this.progress,
-    this.progressCaption,
     this.hint,
   });
 }
@@ -276,90 +290,107 @@ class _KpiCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final mobile = MediaQuery.of(context).size.width < 600;
+    final cardPad = mobile ? 11.0 : 13.0;
+    final iconSize = mobile ? 16.0 : 18.0;
+    final iconBoxPad = mobile ? 6.0 : 7.0;
+    final progressDim = mobile ? 30.0 : 34.0;
+    final titleSize = mobile ? 11.0 : 12.0;
+    final valueSize = mobile ? 20.0 : 24.0;
+    final subtitleSize = mobile ? 10.0 : 11.0;
+
     final card = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: EdgeInsets.all(cardPad),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE8EEF2)),
+        gradient: LinearGradient(
+          colors: data.gradient,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(mobile ? 14 : 16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.025),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
+            color: data.gradient.first.withOpacity(0.28),
+            blurRadius: mobile ? 9 : 14,
+            offset: Offset(0, mobile ? 4 : 6),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(6),
+                padding: EdgeInsets.all(iconBoxPad),
                 decoration: BoxDecoration(
-                  color: data.color.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(8),
+                  color: Colors.white.withOpacity(0.22),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(data.icon, color: data.color, size: 16),
+                child: Icon(data.icon, color: Colors.white, size: iconSize),
               ),
               const Spacer(),
+              if (data.progress != null)
+                SizedBox(
+                  width: progressDim,
+                  height: progressDim,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      CircularProgressIndicator(
+                        value: data.progress,
+                        strokeWidth: mobile ? 3.5 : 4,
+                        backgroundColor: Colors.white.withOpacity(0.25),
+                        valueColor: const AlwaysStoppedAnimation(Colors.white),
+                      ),
+                      Text(
+                        '${((data.progress ?? 0) * 100).round()}%',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: mobile ? 8 : 9,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
             ],
           ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  data.value,
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    color: data.color,
-                    height: 1.1,
-                  ),
-                ),
+          const Spacer(),
+          Text(
+            data.title,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.9),
+              fontSize: titleSize,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.3,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              data.value,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: valueSize,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.5,
               ),
-              const SizedBox(height: 2),
-              Text(
-                data.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade700,
-                ),
-              ),
-              if (data.progress != null) ...[
-                const SizedBox(height: 6),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: data.progress,
-                    minHeight: 4,
-                    backgroundColor: data.color.withOpacity(0.12),
-                    valueColor: AlwaysStoppedAnimation<Color>(data.color),
-                  ),
-                ),
-                if (data.progressCaption != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    data.progressCaption!,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 9.5,
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
-                ],
-              ],
-            ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            data.subtitle,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.78),
+              fontSize: subtitleSize,
+            ),
+            maxLines: mobile ? 2 : 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
@@ -377,7 +408,8 @@ class _SkeletonGrid extends StatelessWidget {
       builder: (context, constraints) {
         final w = constraints.maxWidth;
         final cols = w >= 1024 ? 4 : (w >= 600 ? 3 : 2);
-        final aspect = w >= 1024 ? 1.45 : (w >= 600 ? 1.35 : 1.15);
+        final aspect = w >= 1100 ? 1.65 : (w >= 600 ? 1.55 : 1.35);
+        final spacing = cols >= 3 ? 12.0 : 10.0;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -389,14 +421,14 @@ class _SkeletonGrid extends StatelessWidget {
               itemCount: 8,
               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: cols,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
+                crossAxisSpacing: spacing,
+                mainAxisSpacing: spacing,
                 childAspectRatio: aspect,
               ),
               itemBuilder: (_, __) => Container(
                 decoration: BoxDecoration(
                   color: const Color(0xFFF3F6F8),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(14),
                 ),
               ),
             ),
@@ -443,13 +475,17 @@ class _ErrorPanel extends StatelessWidget {
   }
 }
 
-String _formatAmount(double amount) {
+String _inr(double amount) {
+  // Unicode escape for the Indian rupee glyph (U+20B9) — avoids the
+  // CP1252/UTF-8 round-trip mojibake that turned earlier literal '₹'
+  // characters into '_' on disk.
+  const rupee = '₹';
   if (amount.abs() >= 10000000) {
-    return '${(amount / 10000000).toStringAsFixed(2)} Cr';
+    return '$rupee${(amount / 10000000).toStringAsFixed(2)} Cr';
   } else if (amount.abs() >= 100000) {
-    return '${(amount / 100000).toStringAsFixed(2)} L';
+    return '$rupee${(amount / 100000).toStringAsFixed(2)} L';
   } else if (amount.abs() >= 1000) {
-    return '${(amount / 1000).toStringAsFixed(1)} K';
+    return '$rupee${(amount / 1000).toStringAsFixed(1)} K';
   }
-  return amount.toStringAsFixed(0);
+  return '$rupee${amount.toStringAsFixed(0)}';
 }
