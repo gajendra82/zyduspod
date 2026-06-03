@@ -370,6 +370,7 @@ class _ZoneRowTile extends StatelessWidget {
 
 class _EntityTab extends StatefulWidget {
   const _EntityTab({
+    super.key,
     required this.entity,
     required this.filters,
     required this.searchHint,
