@@ -16,6 +16,7 @@ import 'package:zydus_vistaar/screens/documents_list_screen.dart';
 import 'package:zydus_vistaar/screens/notifications_screen.dart';
 import 'package:zydus_vistaar/services/hospital_dashboard_service.dart';
 import 'package:zydus_vistaar/services/sales_service.dart';
+import 'package:zydus_vistaar/widgets/executive_kpi_section.dart';
 
 class UnifiedDashboardScreen extends StatefulWidget {
   const UnifiedDashboardScreen({super.key});
@@ -267,7 +268,13 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildHeader(context),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
+            // Executive KPIs pulled from the hierarchy-scoped
+            // /api/sales-dashboard/summary-cards endpoint — gives the user
+            // Sales / POD / Target / Achievement / Growth at a glance on the
+            // home screen without opening Sales Analytics.
+            const ExecutiveKpiSection(),
+            const SizedBox(height: 20),
             _buildStatsGrid(context, state.dashboardData),
             const SizedBox(height: 24),
             _buildRecentDocumentsSection(context, state.recentDocuments),

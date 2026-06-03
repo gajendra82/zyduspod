@@ -26,6 +26,13 @@ class SalesSummaryCards {
   final int totalProductSalesQty;
   final int totalStatements;
 
+  // Optional POD-side KPIs surfaced alongside sales KPIs on the executive
+  // home screen. Nullable because the public summary-cards endpoint may not
+  // expose them yet — when the backend starts returning these keys the
+  // Flutter UI lights up automatically without further code changes.
+  final double? totalPodValue;            // pods_uploaded_value / zydus_pod_value
+  final double? salesVsPodsCompletion;    // sales_vs_pods_completion_rate
+
   const SalesSummaryCards({
     required this.totalTargetAmount,
     required this.netSalesAmount,
@@ -42,11 +49,18 @@ class SalesSummaryCards {
     required this.activeStockistsCount,
     required this.totalProductSalesQty,
     required this.totalStatements,
+    this.totalPodValue,
+    this.salesVsPodsCompletion,
   });
 
   factory SalesSummaryCards.fromJson(Map<String, dynamic> json) {
     double d(dynamic v) => (v ?? 0) is num ? (v as num).toDouble() : 0.0;
     int i(dynamic v) => (v ?? 0) is num ? (v as num).toInt() : 0;
+    double? dNullable(dynamic v) {
+      if (v == null) return null;
+      if (v is num) return v.toDouble();
+      return null;
+    }
     return SalesSummaryCards(
       totalTargetAmount: d(json['total_target_amount']),
       netSalesAmount: d(json['net_sales_amount']),
@@ -63,6 +77,11 @@ class SalesSummaryCards {
       activeStockistsCount: i(json['active_stockists_count']),
       totalProductSalesQty: i(json['total_product_sales_qty']),
       totalStatements: i(json['total_statements']),
+      totalPodValue: dNullable(json['total_pod_value'])
+          ?? dNullable(json['pods_uploaded_value'])
+          ?? dNullable(json['zydus_pod_value']),
+      salesVsPodsCompletion: dNullable(json['sales_vs_pods_completion_rate'])
+          ?? dNullable(json['sales_vs_pods_completion']),
     );
   }
 
