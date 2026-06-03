@@ -148,39 +148,69 @@ class _KpiGrid extends StatelessWidget {
         value: _inr(summary.netSalesAmount),
         subtitle: 'Net sales (sales − returns)',
         icon: Icons.emoji_events_rounded,
+        gradient: const [Color(0xFF06B6D4), Color(0xFF22D3EE)], // cyan
+      ),
+      // Achievement % — honest "—" when there's no target in the window
+      // (e.g. monthly view where seed only has yearly targets) so the user
+      // doesn't read "0.0%" as "actually zero achievement". When a target
+      // exists, recompute defensively from achievement/target so the card
+      // never disagrees with the two numbers above it.
+      () {
+        final hasTarget = summary.totalTargetAmount > 0;
+        final pct = hasTarget
+            ? (summary.netSalesAmount / summary.totalTargetAmount) * 100
+            : null;
+        return _KpiCardData(
+          title: 'Achievement %',
+          value: pct == null ? '—' : '${pct.toStringAsFixed(1)}%',
+          subtitle: hasTarget ? 'vs target' : 'No target in window',
+          icon: Icons.percent_rounded,
+          gradient: pct == null
+              ? const [Color(0xFF94A3B8), Color(0xFFCBD5E1)] // slate (neutral)
+              : _pctGradient(pct),
+          progress: pct == null ? null : (pct / 100).clamp(0.0, 1.0).toDouble(),
+        );
+      }(),
+      // Gap to Target — show SIGNED variance so a KAM who's exceeded the
+      // target sees their surplus instead of a flat "₹0". Backend's
+      // `gap_to_target` is clamped to ≥ 0 which hides surplus; use
+      // `variance_amount` (net − target, signed) for the right semantic.
+      () {
+        final variance = summary.varianceAmount; // signed
+        final isSurplus = variance > 0;
+        final hasTarget = summary.totalTargetAmount > 0;
+        return _KpiCardData(
+          title: 'Gap to Target',
+          value: variance == 0
+              ? _inr(0)
+              : (isSurplus ? '+${_inr(variance)}' : _inr(variance.abs())),
+          subtitle: !hasTarget
+              ? 'No target — surplus over zero'
+              : isSurplus
+                  ? 'Target met or exceeded'
+                  : 'Still to achieve',
+          icon: isSurplus
+              ? Icons.check_circle_rounded
+              : Icons.trending_down_rounded,
+          gradient: isSurplus
+              ? const [Color(0xFF059669), Color(0xFF10B981)] // green (surplus)
+              : const [Color(0xFFEF4444), Color(0xFFF87171)], // red (shortfall)
+        );
+      }(),
+      // Processed POD Count — replaces the "Growth vs Last Year" card per
+      // product call (growth is already on the Sales Analytics tab and
+      // showing it twice was redundant).
+      _KpiCardData(
+        title: 'Processed POD Count',
+        value: summary.processedPodCount == null
+            ? '—'
+            : _int(summary.processedPodCount!),
+        subtitle: 'PODs with status=processed',
+        icon: Icons.task_alt_rounded,
         gradient: const [Color(0xFF14B8A6), Color(0xFF2DD4BF)], // teal
-      ),
-      _KpiCardData(
-        title: 'Achievement %',
-        value: '${summary.achievementPercentage.toStringAsFixed(1)}%',
-        subtitle: 'vs target',
-        icon: Icons.percent_rounded,
-        gradient: _pctGradient(summary.achievementPercentage),
-        progress: (summary.achievementPercentage / 100).clamp(0.0, 1.0).toDouble(),
-      ),
-      _KpiCardData(
-        title: 'Gap to Target',
-        value: _inr(summary.gapToTarget.abs()),
-        subtitle: summary.gapToTarget > 0
-            ? 'Still to achieve'
-            : 'Target met or exceeded',
-        icon: summary.gapToTarget > 0
-            ? Icons.trending_down_rounded
-            : Icons.check_circle_rounded,
-        gradient: summary.gapToTarget > 0
-            ? const [Color(0xFFEF4444), Color(0xFFF87171)]  // red
-            : const [Color(0xFF059669), Color(0xFF10B981)], // green
-      ),
-      _KpiCardData(
-        title: 'Growth vs Last Year',
-        value: '${summary.growthPercentage >= 0 ? '+' : ''}${summary.growthPercentage.toStringAsFixed(1)}%',
-        subtitle: 'YoY net sales',
-        icon: summary.growthPercentage >= 0
-            ? Icons.trending_up_rounded
-            : Icons.trending_down_rounded,
-        gradient: summary.growthPercentage >= 0
-            ? const [Color(0xFFEC4899), Color(0xFFF472B6)]  // pink
-            : const [Color(0xFFF59E0B), Color(0xFFFBBF24)], // amber
+        hint: summary.processedPodCount == null
+            ? 'Pending backend: summary-cards.processed_pod_count'
+            : null,
       ),
     ];
 
@@ -473,6 +503,19 @@ class _ErrorPanel extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Indian-grouped integer formatter (e.g. 1234567 → "12,34,567").
+String _int(int n) {
+  final s = n.abs().toString();
+  if (s.length <= 3) return (n < 0 ? '-' : '') + s;
+  final last3 = s.substring(s.length - 3);
+  final rest = s.substring(0, s.length - 3);
+  final grouped = rest.replaceAllMapped(
+    RegExp(r'(\d)(?=(\d{2})+$)'),
+    (m) => '${m.group(1)},',
+  );
+  return (n < 0 ? '-' : '') + '$grouped,$last3';
 }
 
 String _inr(double amount) {
