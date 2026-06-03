@@ -39,13 +39,17 @@ class SalesSummaryCards {
   //                        web POD Tracker dashboard.
   // [salesVsPodsCompletion] — pre-computed by the backend from Zydus / Sales.
   final double? totalPodValue;
+  // Count of PODs uploaded in the window — pairs with [totalPodValue] on
+  // the consolidated "Total PODs Uploaded" executive card.
+  final int? podsUploadedCount;
   final double? zydusProductValue;
   final double? salesVsPodsCompletion;
-  // Count of PODs with status='processed' in the date window. Drives the
-  // "Processed POD Count" executive card. Nullable so the card degrades
-  // gracefully if an older backend version is still returning the legacy
-  // shape.
+  // Count + value of PODs with status='processed' in the date window.
+  // Drive the consolidated "E-Invoices Processed" executive card.
+  // Nullable so the card degrades gracefully on older backends that
+  // don't return these keys yet.
   final int? processedPodCount;
+  final double? processedPodValue;
 
   const SalesSummaryCards({
     required this.totalTargetAmount,
@@ -64,9 +68,11 @@ class SalesSummaryCards {
     required this.totalProductSalesQty,
     required this.totalStatements,
     this.totalPodValue,
+    this.podsUploadedCount,
     this.zydusProductValue,
     this.salesVsPodsCompletion,
     this.processedPodCount,
+    this.processedPodValue,
   });
 
   factory SalesSummaryCards.fromJson(Map<String, dynamic> json) {
@@ -95,6 +101,9 @@ class SalesSummaryCards {
       totalStatements: i(json['total_statements']),
       totalPodValue: dNullable(json['total_pod_value'])
           ?? dNullable(json['pods_uploaded_value']),
+      podsUploadedCount: json['pods_uploaded_count'] is num
+          ? (json['pods_uploaded_count'] as num).toInt()
+          : null,
       zydusProductValue: dNullable(json['zydus_product_value'])
           ?? dNullable(json['zydus_pod_value']),
       salesVsPodsCompletion: dNullable(json['sales_vs_pods_completion_rate'])
@@ -102,6 +111,7 @@ class SalesSummaryCards {
       processedPodCount: json['processed_pod_count'] is num
           ? (json['processed_pod_count'] as num).toInt()
           : null,
+      processedPodValue: dNullable(json['processed_pod_value']),
     );
   }
 
