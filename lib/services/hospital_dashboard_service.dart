@@ -5,10 +5,20 @@ import 'package:zydus_vistaar/services/api_client.dart';
 class HospitalDashboardService {
   final ApiClient _apiClient = ApiClient();
 
-  Future<Map<String, dynamic>> getDashboardStats() async {
+  Future<Map<String, dynamic>> getDashboardStats({String? dateFrom, String? dateTo}) async {
     try {
+      // Append optional month-window query params so the dashboard counts
+      // honour the user's selected month on the POD Dashboard tab. The
+      // backend (`appApi/DashboardApiController::overview`) reads
+      // date_from/date_to and filters pods.pod_date / grns.grn_date /
+      // e_invoices.invoice_date when both are present.
+      final qp = <String, String>{};
+      if (dateFrom != null && dateFrom.isNotEmpty) qp['date_from'] = dateFrom;
+      if (dateTo != null && dateTo.isNotEmpty) qp['date_to'] = dateTo;
+      final uri = Uri.parse('${API_BASE_URL}dashboard/overview')
+          .replace(queryParameters: qp.isEmpty ? null : qp);
       final response = await _apiClient.get(
-        Uri.parse('${API_BASE_URL}dashboard/overview'),
+        uri,
         headers: {
           'Accept': 'application/json',
         },
@@ -31,10 +41,18 @@ class HospitalDashboardService {
     }
   }
 
-  Future<List<Map<String, dynamic>>> getRecentDocuments() async {
+  Future<List<Map<String, dynamic>>> getRecentDocuments({String? dateFrom, String? dateTo}) async {
     try {
+      // Mirror the month window into the documents-list query so the
+      // "Recent Documents" panel stays consistent with the headline KPIs
+      // when the user switches months on the POD Dashboard.
+      final qp = <String, String>{'limit': '10'};
+      if (dateFrom != null && dateFrom.isNotEmpty) qp['start_date'] = dateFrom;
+      if (dateTo != null && dateTo.isNotEmpty) qp['end_date'] = dateTo;
+      final uri = Uri.parse('${API_BASE_URL}dashboard/documents/all')
+          .replace(queryParameters: qp);
       final response = await _apiClient.get(
-        Uri.parse('${API_BASE_URL}dashboard/documents/all?limit=10'),
+        uri,
         headers: {
           'Accept': 'application/json',
         },
