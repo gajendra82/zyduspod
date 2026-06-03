@@ -100,7 +100,22 @@ class _KpiGrid extends StatelessWidget {
     // absent — the card degrades to "—" so the user knows the value
     // upstream hasn't been computed yet.
     final zydusValue = summary.zydusProductValue;
-    final salesValue = summary.totalSalesAmount;
+    // SINGLE SOURCE OF TRUTH for the headline Sales figure.
+    //
+    // This MUST equal the value Sales Analytics shows as "Total Achievement"
+    // (sales_dashboard_screen → summary.netSalesAmount = `net_sales_amount`,
+    // i.e. net sales = sales − returns). Both surfaces already hit the same
+    // /api/sales-dashboard/summary-cards endpoint with the same month window
+    // and the same (server-enforced) hierarchy scope — the only thing that
+    // ever differed was the field read here.
+    //
+    // Previously this card read `totalSalesAmount` (= `total_sales_amount`,
+    // GROSS sales before returns), so the POD Dashboard's Sales KPI drifted
+    // from Sales Analytics by exactly the returns amount. Reading
+    // `netSalesAmount` instead makes the difference zero by construction.
+    // The same value also feeds the POD-vs-Sales completion denominator
+    // below so the whole dashboard speaks one sales number.
+    final salesValue = summary.netSalesAmount;
     final podVsSalesPct = summary.salesVsPodsCompletion
         ?? _deriveCompletion(zydusValue, salesValue);
 
@@ -111,9 +126,11 @@ class _KpiGrid extends StatelessWidget {
     // single card per metric to keep the surface dense on a phone (one card
     // = one concept).
     final cards = <_KpiCardData>[
-      // 1) Total Sales — value (₹) on the headline, invoice count on the
-      //    subtitle. `totalStatements` is the count of sales statements in
-      //    the window from `salesValuesForDateRange()`.
+      // 1) Total Sales — net sales (₹) on the headline, invoice count on the
+      //    subtitle. Headline value is `netSalesAmount` so it matches Sales
+      //    Analytics' "Total Achievement" exactly (see salesValue above).
+      //    `totalStatements` is the count of sales statements in the window
+      //    from `salesValuesForDateRange()`.
       _KpiCardData(
         title: 'Total Sales',
         value: _inr(salesValue),
