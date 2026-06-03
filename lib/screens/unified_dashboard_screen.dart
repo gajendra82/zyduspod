@@ -20,6 +20,7 @@ import 'package:zydus_vistaar/services/hospital_dashboard_service.dart';
 import 'package:zydus_vistaar/services/sales_service.dart';
 import 'package:zydus_vistaar/widgets/executive_kpi_section.dart';
 import 'package:zydus_vistaar/widgets/pod_centered_performance.dart';
+import 'package:zydus_vistaar/widgets/pod_entity_performance.dart';
 
 class UnifiedDashboardScreen extends StatefulWidget {
   const UnifiedDashboardScreen({super.key});
@@ -339,6 +340,24 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
             // /api/sales-dashboard/pod-centered-performance endpoint so the
             // widget only needs one round trip for both sections.
             PodCenteredPerformanceSection(
+              filters: SalesDashboardFilters(
+                dateFrom: _dateFrom,
+                dateTo: _dateTo,
+              ),
+            ),
+            const SizedBox(height: 20),
+            // Stockist + Hospital analytics — same month window + hierarchy
+            // scope as everything above. Server-paginated (lazy "Load more")
+            // with server-side search + sort, so the dashboard never pulls the
+            // full stockist/hospital tables at once.
+            PodStockistPerformanceSection(
+              filters: SalesDashboardFilters(
+                dateFrom: _dateFrom,
+                dateTo: _dateTo,
+              ),
+            ),
+            const SizedBox(height: 20),
+            PodHospitalPerformanceSection(
               filters: SalesDashboardFilters(
                 dateFrom: _dateFrom,
                 dateTo: _dateTo,
