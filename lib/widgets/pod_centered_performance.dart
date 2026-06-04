@@ -60,7 +60,15 @@ class _PodCenteredPerformanceSectionState
     final a = oldWidget.filters;
     final b = widget.filters;
     if (a?.dateFrom != b?.dateFrom || a?.dateTo != b?.dateTo || a?.empId != b?.empId) {
-      setState(() => _zoneFuture = _fetchZones());
+      // Block form (NOT arrow). With the arrow form the closure returns
+      // the value of the assignment expression — which is a Future<...>
+      // because _fetchZones() is async. setState then asserts:
+      //   "setState() callback argument returned a Future."
+      // The block form returns void from the closure, which is what
+      // setState expects.
+      setState(() {
+        _zoneFuture = _fetchZones();
+      });
     }
   }
 
