@@ -11,6 +11,7 @@ import 'package:zydus_vistaar/Bloc/sales_dashboard_event.dart';
 import 'package:zydus_vistaar/Bloc/sales_dashboard_state.dart';
 import 'package:zydus_vistaar/Models/sales_dashboard_models.dart';
 import 'package:zydus_vistaar/services/sales_dashboard_service.dart';
+import 'package:zydus_vistaar/widgets/pod_kam_filter.dart';
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Responsive helpers — used throughout to tighten paddings, font sizes and
@@ -255,6 +256,25 @@ class _FilterBar extends StatelessWidget {
                   .read<SalesDashboardBloc>()
                   .add(SalesDashboardFiltersChanged(filters.copyWith(clearZone: true))),
             ),
+          // KAM filter — same pill UX as POD Dashboard. Picking a KAM
+          // dispatches SalesDashboardFiltersChanged with the new empId so
+          // every Sales Analytics surface (KPI cards, trend, leaderboards)
+          // narrows in one round trip through the existing bloc reducer.
+          // Hierarchy: the picker's underlying endpoint already returns
+          // only the KAMs this user can see (admin → all, manager → team,
+          // KAM → self), so no extra gate needed here.
+          PodKamFilter(
+            filters: filters,
+            selectedEmpId: filters.empId,
+            onChanged: (empId) {
+              final updated = (empId == null || empId.isEmpty)
+                  ? filters.copyWith(clearEmp: true)
+                  : filters.copyWith(empId: empId);
+              context
+                  .read<SalesDashboardBloc>()
+                  .add(SalesDashboardFiltersChanged(updated));
+            },
+          ),
           // Spacer pushes the action group to the right when the row is wide
           // enough; on narrow widths it just wraps to the next line via Wrap.
           const SizedBox(width: 4),
