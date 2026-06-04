@@ -11,12 +11,13 @@ import 'package:zydus_vistaar/Bloc/sales_dashboard_event.dart';
 import 'package:zydus_vistaar/Bloc/sales_dashboard_state.dart';
 import 'package:zydus_vistaar/Models/sales_dashboard_models.dart';
 import 'package:zydus_vistaar/services/sales_dashboard_service.dart';
+import 'package:zydus_vistaar/widgets/pod_kam_filter.dart';
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Responsive helpers — used throughout to tighten paddings, font sizes and
 // chart dimensions on phones without redesigning the premium look. Breakpoints
 // match the conventional Material 3 / web-app tiers.
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const double _bpMobile = 600;   // < 600px = phone
 const double _bpTablet = 1024;  // < 1024px = tablet
@@ -30,7 +31,7 @@ bool _isTablet(BuildContext context) {
 
 /// Premium "executive BI" Sales Analytics Dashboard.
 ///
-/// Layout (top → bottom):
+/// Layout (top â†’ bottom):
 ///  1. Filter bar (date range, zone, leaderboard type, refresh)
 ///  2. KPI grid — 8 large cards (Target / Achievement / Achievement % /
 ///     Gap / Growth / Active KAMs / Hospitals / Stockists)
@@ -86,7 +87,7 @@ class SalesDashboardBody extends StatelessWidget {
   }
 }
 
-/// First day → last day of the current month as ISO yyyy-MM-dd strings.
+/// First day â†’ last day of the current month as ISO yyyy-MM-dd strings.
 /// Exposed as a top-level helper so the filter bar can compare against it
 /// (to highlight "this month" vs. a custom range).
 SalesDashboardFilters _currentMonthFilters() {
@@ -132,9 +133,9 @@ class _SalesDashboardView extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // LOADED VIEW
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _LoadedView extends StatelessWidget {
   const _LoadedView({required this.state});
@@ -193,9 +194,9 @@ class _LoadedView extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // FILTER BAR — minimal in Phase 2; expand with more dropdowns as needed
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _FilterBar extends StatelessWidget {
   const _FilterBar({required this.filters});
@@ -203,7 +204,11 @@ class _FilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dateFmt = DateFormat('d MMM yyyy');
+    final mobile = _isMobile(context);
+    // Drop the year on phones: "1 May" instead of "1 May 2026" — the
+    // Month dropdown already shows the year so it's redundant on the
+    // From/To chips and was the main reason the bar overflowed.
+    final dateFmt = DateFormat(mobile ? 'd MMM' : 'd MMM yyyy');
     final fromLabel = filters.dateFrom != null && filters.dateFrom!.isNotEmpty
         ? dateFmt.format(DateTime.tryParse(filters.dateFrom!) ?? DateTime.now())
         : 'From';
@@ -212,7 +217,10 @@ class _FilterBar extends StatelessWidget {
         : 'To';
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: EdgeInsets.symmetric(
+        horizontal: mobile ? 10 : 14,
+        vertical: mobile ? 8 : 10,
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -248,6 +256,25 @@ class _FilterBar extends StatelessWidget {
                   .read<SalesDashboardBloc>()
                   .add(SalesDashboardFiltersChanged(filters.copyWith(clearZone: true))),
             ),
+          // KAM filter — same pill UX as POD Dashboard. Picking a KAM
+          // dispatches SalesDashboardFiltersChanged with the new empId so
+          // every Sales Analytics surface (KPI cards, trend, leaderboards)
+          // narrows in one round trip through the existing bloc reducer.
+          // Hierarchy: the picker's underlying endpoint already returns
+          // only the KAMs this user can see (admin → all, manager → team,
+          // KAM → self), so no extra gate needed here.
+          PodKamFilter(
+            filters: filters,
+            selectedEmpId: filters.empId,
+            onChanged: (empId) {
+              final updated = (empId == null || empId.isEmpty)
+                  ? filters.copyWith(clearEmp: true)
+                  : filters.copyWith(empId: empId);
+              context
+                  .read<SalesDashboardBloc>()
+                  .add(SalesDashboardFiltersChanged(updated));
+            },
+          ),
           // Spacer pushes the action group to the right when the row is wide
           // enough; on narrow widths it just wraps to the next line via Wrap.
           const SizedBox(width: 4),
@@ -377,8 +404,8 @@ class _MonthDropdown extends StatelessWidget {
   }
 
   /// Return the dropdown value that matches the current filter window. If
-  /// the user has set a custom range via the From/To pickers (date_from ≠
-  /// first-of-month or date_to ≠ last-of-month), fall back to the synthetic
+  /// the user has set a custom range via the From/To pickers (date_from â‰ 
+  /// first-of-month or date_to â‰  last-of-month), fall back to the synthetic
   /// "__custom__" key so the dropdown doesn't lie about what's selected.
   String _selectedKey(List<DateTime> months) {
     final from = DateTime.tryParse(filters.dateFrom ?? '');
@@ -448,9 +475,9 @@ class _ActiveFilterChip extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // KPI GRID
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _KpiGrid extends StatelessWidget {
   const _KpiGrid({required this.summary});
@@ -460,27 +487,32 @@ class _KpiGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // 4 cards on desktop, 3 on small desktops, 2 on tablets/large
-        // phones, 1 on phones. Aspect ratios tightened across the board —
-        // the previous values made phone cards near-square with a
-        // stretched-out empty middle. _KpiCard chrome (padding, icon,
-        // radius, shadow) was trimmed to match the shorter cell.
+        // Column rules:
+        //   • â‰¥ 1100 px  â†’ 4 cards/row (full desktop)
+        //   • â‰¥ 720 px   â†’ 3 cards/row (small desktop / large tablet)
+        //   • else       â†’ 2 cards/row, including phones in portrait.
+        // Phones used to drop to a single column which felt web-oriented:
+        // 8 KPIs Ã— 1 col = 8 vertical scroll units. Two columns halves that
+        // and keeps each card readable since the value uses FittedBox.
         final w = constraints.maxWidth;
         final columns = w >= 1100
             ? 4
             : w >= 720
                 ? 3
-                : w >= 480
-                    ? 2
-                    : 1;
+                : 2;
+        // Aspect (width / height). Tighter than before — the old phone
+        // bucket (1.1) made cards nearly square with a stretched-out
+        // empty middle. Compact buckets put more KPIs in the viewport
+        // and reduce wasted whitespace. _KpiCard internals were trimmed
+        // (padding, icon size, gaps) to match.
         final aspect = columns == 4
             ? 1.75
             : columns == 3
                 ? 1.65
-                : columns == 2
-                    ? 1.7
-                    : 2.4; // single column on phone — wide banner, not tall
-        final spacing = columns >= 3 ? 12.0 : 10.0;
+                : w >= 480
+                    ? 1.7      // tablet / wide phone landscape
+                    : 1.5;     // narrow phone portrait — short + dense
+        final spacing = columns >= 3 ? 12.0 : (w >= 480 ? 9.0 : 8.0);
         final cards = _buildCards();
         return GridView.builder(
           shrinkWrap: true,
@@ -510,7 +542,7 @@ class _KpiGrid extends StatelessWidget {
       _KpiCard(
         title: 'Total Achievement',
         value: _inr(summary.netSalesAmount),
-        subtitle: 'Net sales (sales − returns)',
+        subtitle: 'Net sales (sales âˆ’ returns)',
         icon: Icons.trending_up_rounded,
         gradient: const [Color(0xFF10B981), Color(0xFF34D399)],
       ),
@@ -593,36 +625,51 @@ class _KpiCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Trimmed across the board to remove empty whitespace — padding,
-    // icon, badge dim, radius, and shadow were sized for a taller card;
-    // with the grid's larger aspect ratio (shorter cell) the old chrome
-    // made the cards look swollen.
-    final mobile = _isMobile(context);
-    final cardPad = mobile ? 11.0 : 13.0;
-    final iconSize = mobile ? 16.0 : 18.0;
-    final iconBoxPad = mobile ? 6.0 : 7.0;
-    final progressDim = mobile ? 30.0 : 34.0;
-    final titleSize = mobile ? 11.0 : 12.0;
-    final valueSize = mobile ? 20.0 : 24.0; // FittedBox still scales down further if needed
-    final subtitleSize = mobile ? 10.0 : 11.0;
+    // Size off the card's actual rendered width rather than screen width —
+    // a 2-col phone places cards at ~180px while a 2-col tablet places
+    // them at ~340px. The phone case needs noticeably tighter padding and
+    // smaller chrome to keep the value + subtitle from getting squeezed.
+    return LayoutBuilder(builder: (context, c) {
+      final w = c.maxWidth;
+      final narrow = w < 200;  // 2-col phone bucket
+      final compact = w < 260; // small phone or large phone landscape pair
 
-    return Container(
-      padding: EdgeInsets.all(cardPad),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: gradient,
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(mobile ? 14 : 16),
-        boxShadow: [
-          BoxShadow(
-            color: gradient.first.withOpacity(0.28),
-            blurRadius: mobile ? 9 : 14,
-            offset: Offset(0, mobile ? 4 : 6),
+      // Trimmed from the previous values to kill empty whitespace —
+      // padding, icon, badge dim, radius, and shadow were sized for a
+      // taller card; with the grid's larger aspect ratio (shorter cell)
+      // the old chrome made the cards look swollen.
+      final cardPad = narrow ? 9.0 : (compact ? 11.0 : 13.0);
+      final iconSize = narrow ? 14.0 : (compact ? 16.0 : 18.0);
+      final iconBoxPad = narrow ? 5.0 : (compact ? 6.0 : 7.0);
+      final progressDim = narrow ? 26.0 : (compact ? 30.0 : 34.0);
+      final titleSize = narrow ? 10.0 : (compact ? 11.0 : 12.0);
+      final valueSize = narrow ? 17.0 : (compact ? 20.0 : 24.0);
+      final subtitleSize = narrow ? 9.0 : (compact ? 10.0 : 11.0);
+      final radius = narrow ? 12.0 : (compact ? 14.0 : 16.0);
+      final blur = narrow ? 6.0 : (compact ? 9.0 : 14.0);
+      final yShadow = narrow ? 3.0 : (compact ? 4.0 : 6.0);
+      // On the narrowest tiles drop the subtitle entirely — value +
+      // title + (optional) progress badge are the priorities; the
+      // explanatory subtitle is the first thing to sacrifice.
+      final showSubtitle = !narrow;
+
+      return Container(
+        padding: EdgeInsets.all(cardPad),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: gradient,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
-        ],
-      ),
+          borderRadius: BorderRadius.circular(radius),
+          boxShadow: [
+            BoxShadow(
+              color: gradient.first.withOpacity(0.28),
+              blurRadius: blur,
+              offset: Offset(0, yShadow),
+            ),
+          ],
+        ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -646,7 +693,7 @@ class _KpiCard extends StatelessWidget {
                     children: [
                       CircularProgressIndicator(
                         value: progress,
-                        strokeWidth: mobile ? 3.5 : 4,
+                        strokeWidth: narrow ? 3.0 : (compact ? 3.5 : 4.0),
                         backgroundColor: Colors.white.withOpacity(0.25),
                         valueColor: const AlwaysStoppedAnimation(Colors.white),
                       ),
@@ -654,7 +701,7 @@ class _KpiCard extends StatelessWidget {
                         '${((progress ?? 0) * 100).round()}%',
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: mobile ? 8 : 9,
+                          fontSize: narrow ? 7.5 : (compact ? 8.0 : 9.0),
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -675,7 +722,7 @@ class _KpiCard extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
-          const SizedBox(height: 4),
+          SizedBox(height: narrow ? 2 : 4),
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
@@ -689,25 +736,28 @@ class _KpiCard extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.78),
-              fontSize: subtitleSize,
+          if (showSubtitle) ...[
+            SizedBox(height: narrow ? 2 : 4),
+            Text(
+              subtitle,
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.78),
+                fontSize: subtitleSize,
+              ),
+              maxLines: compact ? 2 : 1,
+              overflow: TextOverflow.ellipsis,
             ),
-            maxLines: mobile ? 2 : 1,
-            overflow: TextOverflow.ellipsis,
-          ),
+          ],
         ],
       ),
     );
+    });
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // TARGET vs ACHIEVEMENT TREND
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _TrendCard extends StatelessWidget {
   const _TrendCard({required this.points});
@@ -743,7 +793,7 @@ class _TrendCard extends StatelessWidget {
       subtitle: 'From Jan 2026 (${visible.length} months) — hierarchy-scoped',
       child: SizedBox(
         // Tighter on phones so the chart doesn't hog the viewport.
-        height: _isMobile(context) ? 200 : 260,
+        height: _isMobile(context) ? 180 : 260,
         child: LineChart(
           LineChartData(
             minY: 0,
@@ -876,14 +926,14 @@ class _LegendDot extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // LEADERBOARD — All KAMs / All Hospitals / All Products (Brands)
 //
 // One paginated, searchable list. Server-side hierarchy scope is applied
 // before pagination, so a KAM only sees their own slice + the total
 // reflects that scope. The dropdown only offers the three live types now;
 // managers/HQs/regions/zones/stockists were dropped from the dashboard.
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _LeaderboardCard extends StatefulWidget {
   const _LeaderboardCard({required this.state});
@@ -1233,7 +1283,7 @@ class _LeaderboardSkeletonRow extends StatelessWidget {
 ///   • mobile (< 600px): name + sales on the top line, the three secondary
 ///     metrics (Target / Achievement % / Gap) wrap into pill chips below,
 ///     then the progress bar. No horizontal scroll needed.
-///   • wider screens (≥ 600px): the row stays compact and the metrics
+///   • wider screens (â‰¥ 600px): the row stays compact and the metrics
 ///     render as a single right-aligned strip beside the name.
 ///
 /// Achievement % drives the progress bar so the user can eyeball who is
@@ -1274,7 +1324,7 @@ class _KamLeaderboardRow extends StatelessWidget {
 
     final List<Widget> metrics;
     if (isProduct) {
-      // Brands have no target → no Target / Gap pills. Show the share of
+      // Brands have no target â†’ no Target / Gap pills. Show the share of
       // total brand sales instead.
       metrics = [
         _MetricPill(
@@ -1484,9 +1534,9 @@ class _RankBadge extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // SHARED WIDGETS
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _SectionCard extends StatelessWidget {
   const _SectionCard({
@@ -1671,9 +1721,9 @@ class _ErrorView extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // FORMATTING HELPERS
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 String _inr(double v) {
   // Indian rupee with Cr/L suffixes for compactness.
