@@ -346,8 +346,10 @@ class _KamPickerSheetState extends State<_KamPickerSheet> {
                   ),
                   const Spacer(),
                   TextButton.icon(
-                    onPressed: () =>
-                        Navigator.of(context).pop(const _KamPick(empId: null)),
+                    onPressed: () => _popWithDefer(
+                      context,
+                      const _KamPick(empId: null),
+                    ),
                     icon: const Icon(Icons.clear_rounded, size: 16),
                     label: const Text('Clear'),
                   ),
@@ -494,13 +496,39 @@ class _KamPickerSheetState extends State<_KamPickerSheet> {
                     size: 18, color: Color(0xFF94A3B8)),
             onTap: r.empId.isEmpty
                 ? null  // defensive: never close with an empty empId
-                : () => Navigator.of(context).pop(
+                : () => _popWithDefer(
+                      context,
                       _KamPick(empId: r.empId, label: r.name),
                     ),
           );
         },
       ),
     );
+  }
+
+  /// Drop the keyboard, then pop on the next frame.
+  ///
+  /// Fixes the Flutter assertion
+  ///   'referenceBox.attached': is not true
+  /// from `material.dart` line 768 (`InkFeatures.paint` /
+  /// `InkResponse.deactivate`). Cause: tapping a ListTile while the
+  /// keyboard is open kicks off three things at once — the InkResponse
+  /// splash animation, the keyboard hide, and the route pop. If the pop
+  /// completes before the splash finishes, the splash tries to paint
+  /// against a RenderBox that's already been detached and the framework
+  /// throws. Letting one frame elapse before popping is enough for the
+  /// splash to settle on a still-attached box. Unfocus first so the
+  /// keyboard slide-down doesn't add another in-flight animation when we
+  /// finally pop.
+  void _popWithDefer(BuildContext context, _KamPick value) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final nav = Navigator.of(context);
+      if (nav.canPop()) {
+        nav.pop(value);
+      }
+    });
   }
 }
 
