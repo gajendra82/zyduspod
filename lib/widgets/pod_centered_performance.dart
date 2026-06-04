@@ -59,7 +59,7 @@ class _PodCenteredPerformanceSectionState
     super.didUpdateWidget(oldWidget);
     final a = oldWidget.filters;
     final b = widget.filters;
-    if (a?.dateFrom != b?.dateFrom || a?.dateTo != b?.dateTo) {
+    if (a?.dateFrom != b?.dateFrom || a?.dateTo != b?.dateTo || a?.empId != b?.empId) {
       setState(() => _zoneFuture = _fetchZones());
     }
   }
@@ -76,6 +76,7 @@ class _PodCenteredPerformanceSectionState
     final f = widget.filters;
     if (f?.dateFrom != null && f!.dateFrom!.isNotEmpty) q['date_from'] = f.dateFrom!;
     if (f?.dateTo != null && f!.dateTo!.isNotEmpty) q['date_to'] = f.dateTo!;
+    if (f?.empId != null && f!.empId!.isNotEmpty) q['emp_id'] = f.empId!;
     final uri = Uri.parse('${API_BASE_URL}sales-dashboard/pod-centered-performance')
         .replace(queryParameters: q.isEmpty ? null : q);
     final res = await _authedGet(uri);
@@ -419,7 +420,7 @@ class _EntityTabState extends State<_EntityTab> {
     super.didUpdateWidget(oldWidget);
     final a = oldWidget.filters;
     final b = widget.filters;
-    if (a?.dateFrom != b?.dateFrom || a?.dateTo != b?.dateTo) {
+    if (a?.dateFrom != b?.dateFrom || a?.dateTo != b?.dateTo || a?.empId != b?.empId) {
       _reload();
     }
   }
@@ -488,6 +489,7 @@ class _EntityTabState extends State<_EntityTab> {
     final f = widget.filters;
     if (f?.dateFrom != null && f!.dateFrom!.isNotEmpty) q['date_from'] = f.dateFrom!;
     if (f?.dateTo != null && f!.dateTo!.isNotEmpty) q['date_to'] = f.dateTo!;
+    if (f?.empId != null && f!.empId!.isNotEmpty) q['emp_id'] = f.empId!;
     if (_search.isNotEmpty) q['search'] = _search;
 
     final uri = Uri.parse('${API_BASE_URL}sales-dashboard/pod-entity-performance/${widget.entity}')

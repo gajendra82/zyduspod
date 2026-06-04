@@ -50,6 +50,15 @@ class SalesSummaryCards {
   // don't return these keys yet.
   final int? processedPodCount;
   final double? processedPodValue;
+  // Hospital + Stockist Coverage KPI cards.
+  //   numerator   = distinct entity ids with POD activity in window
+  //   denominator = distinct entity ids with sales in window
+  //   coverage %  = numerator / denominator × 100
+  // Same hierarchy + month + KAM scope as everything else above.
+  final int? hospitalPodCount;
+  final int? hospitalSalesCount;
+  final int? stockistPodCount;
+  final int? stockistSalesCount;
 
   const SalesSummaryCards({
     required this.totalTargetAmount,
@@ -73,6 +82,10 @@ class SalesSummaryCards {
     this.salesVsPodsCompletion,
     this.processedPodCount,
     this.processedPodValue,
+    this.hospitalPodCount,
+    this.hospitalSalesCount,
+    this.stockistPodCount,
+    this.stockistSalesCount,
   });
 
   factory SalesSummaryCards.fromJson(Map<String, dynamic> json) {
@@ -112,6 +125,18 @@ class SalesSummaryCards {
           ? (json['processed_pod_count'] as num).toInt()
           : null,
       processedPodValue: dNullable(json['processed_pod_value']),
+      hospitalPodCount: json['hospital_pod_count'] is num
+          ? (json['hospital_pod_count'] as num).toInt()
+          : null,
+      hospitalSalesCount: json['hospital_sales_count'] is num
+          ? (json['hospital_sales_count'] as num).toInt()
+          : null,
+      stockistPodCount: json['stockist_pod_count'] is num
+          ? (json['stockist_pod_count'] as num).toInt()
+          : null,
+      stockistSalesCount: json['stockist_sales_count'] is num
+          ? (json['stockist_sales_count'] as num).toInt()
+          : null,
     );
   }
 
