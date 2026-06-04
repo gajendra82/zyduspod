@@ -11,12 +11,13 @@ import 'package:zydus_vistaar/Bloc/sales_dashboard_event.dart';
 import 'package:zydus_vistaar/Bloc/sales_dashboard_state.dart';
 import 'package:zydus_vistaar/Models/sales_dashboard_models.dart';
 import 'package:zydus_vistaar/services/sales_dashboard_service.dart';
+import 'package:zydus_vistaar/widgets/pod_kam_filter.dart';
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Responsive helpers — used throughout to tighten paddings, font sizes and
 // chart dimensions on phones without redesigning the premium look. Breakpoints
 // match the conventional Material 3 / web-app tiers.
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const double _bpMobile = 600;   // < 600px = phone
 const double _bpTablet = 1024;  // < 1024px = tablet
@@ -30,7 +31,7 @@ bool _isTablet(BuildContext context) {
 
 /// Premium "executive BI" Sales Analytics Dashboard.
 ///
-/// Layout (top → bottom):
+/// Layout (top â†’ bottom):
 ///  1. Filter bar (date range, zone, leaderboard type, refresh)
 ///  2. KPI grid — 8 large cards (Target / Achievement / Achievement % /
 ///     Gap / Growth / Active KAMs / Hospitals / Stockists)
@@ -86,7 +87,7 @@ class SalesDashboardBody extends StatelessWidget {
   }
 }
 
-/// First day → last day of the current month as ISO yyyy-MM-dd strings.
+/// First day â†’ last day of the current month as ISO yyyy-MM-dd strings.
 /// Exposed as a top-level helper so the filter bar can compare against it
 /// (to highlight "this month" vs. a custom range).
 SalesDashboardFilters _currentMonthFilters() {
@@ -132,9 +133,9 @@ class _SalesDashboardView extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // LOADED VIEW
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _LoadedView extends StatelessWidget {
   const _LoadedView({required this.state});
@@ -193,9 +194,9 @@ class _LoadedView extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // FILTER BAR — minimal in Phase 2; expand with more dropdowns as needed
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _FilterBar extends StatelessWidget {
   const _FilterBar({required this.filters});
@@ -255,6 +256,25 @@ class _FilterBar extends StatelessWidget {
                   .read<SalesDashboardBloc>()
                   .add(SalesDashboardFiltersChanged(filters.copyWith(clearZone: true))),
             ),
+          // KAM filter — same pill UX as POD Dashboard. Picking a KAM
+          // dispatches SalesDashboardFiltersChanged with the new empId so
+          // every Sales Analytics surface (KPI cards, trend, leaderboards)
+          // narrows in one round trip through the existing bloc reducer.
+          // Hierarchy: the picker's underlying endpoint already returns
+          // only the KAMs this user can see (admin → all, manager → team,
+          // KAM → self), so no extra gate needed here.
+          PodKamFilter(
+            filters: filters,
+            selectedEmpId: filters.empId,
+            onChanged: (empId) {
+              final updated = (empId == null || empId.isEmpty)
+                  ? filters.copyWith(clearEmp: true)
+                  : filters.copyWith(empId: empId);
+              context
+                  .read<SalesDashboardBloc>()
+                  .add(SalesDashboardFiltersChanged(updated));
+            },
+          ),
           // Spacer pushes the action group to the right when the row is wide
           // enough; on narrow widths it just wraps to the next line via Wrap.
           const SizedBox(width: 4),
@@ -384,8 +404,8 @@ class _MonthDropdown extends StatelessWidget {
   }
 
   /// Return the dropdown value that matches the current filter window. If
-  /// the user has set a custom range via the From/To pickers (date_from ≠
-  /// first-of-month or date_to ≠ last-of-month), fall back to the synthetic
+  /// the user has set a custom range via the From/To pickers (date_from â‰ 
+  /// first-of-month or date_to â‰  last-of-month), fall back to the synthetic
   /// "__custom__" key so the dropdown doesn't lie about what's selected.
   String _selectedKey(List<DateTime> months) {
     final from = DateTime.tryParse(filters.dateFrom ?? '');
@@ -455,9 +475,9 @@ class _ActiveFilterChip extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // KPI GRID
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _KpiGrid extends StatelessWidget {
   const _KpiGrid({required this.summary});
@@ -468,11 +488,11 @@ class _KpiGrid extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         // Column rules:
-        //   • ≥ 1100 px  → 4 cards/row (full desktop)
-        //   • ≥ 720 px   → 3 cards/row (small desktop / large tablet)
-        //   • else       → 2 cards/row, including phones in portrait.
+        //   • â‰¥ 1100 px  â†’ 4 cards/row (full desktop)
+        //   • â‰¥ 720 px   â†’ 3 cards/row (small desktop / large tablet)
+        //   • else       â†’ 2 cards/row, including phones in portrait.
         // Phones used to drop to a single column which felt web-oriented:
-        // 8 KPIs × 1 col = 8 vertical scroll units. Two columns halves that
+        // 8 KPIs Ã— 1 col = 8 vertical scroll units. Two columns halves that
         // and keeps each card readable since the value uses FittedBox.
         final w = constraints.maxWidth;
         final columns = w >= 1100
@@ -522,7 +542,7 @@ class _KpiGrid extends StatelessWidget {
       _KpiCard(
         title: 'Total Achievement',
         value: _inr(summary.netSalesAmount),
-        subtitle: 'Net sales (sales − returns)',
+        subtitle: 'Net sales (sales âˆ’ returns)',
         icon: Icons.trending_up_rounded,
         gradient: const [Color(0xFF10B981), Color(0xFF34D399)],
       ),
@@ -735,9 +755,9 @@ class _KpiCard extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // TARGET vs ACHIEVEMENT TREND
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _TrendCard extends StatelessWidget {
   const _TrendCard({required this.points});
@@ -906,14 +926,14 @@ class _LegendDot extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // LEADERBOARD — All KAMs / All Hospitals / All Products (Brands)
 //
 // One paginated, searchable list. Server-side hierarchy scope is applied
 // before pagination, so a KAM only sees their own slice + the total
 // reflects that scope. The dropdown only offers the three live types now;
 // managers/HQs/regions/zones/stockists were dropped from the dashboard.
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _LeaderboardCard extends StatefulWidget {
   const _LeaderboardCard({required this.state});
@@ -1263,7 +1283,7 @@ class _LeaderboardSkeletonRow extends StatelessWidget {
 ///   • mobile (< 600px): name + sales on the top line, the three secondary
 ///     metrics (Target / Achievement % / Gap) wrap into pill chips below,
 ///     then the progress bar. No horizontal scroll needed.
-///   • wider screens (≥ 600px): the row stays compact and the metrics
+///   • wider screens (â‰¥ 600px): the row stays compact and the metrics
 ///     render as a single right-aligned strip beside the name.
 ///
 /// Achievement % drives the progress bar so the user can eyeball who is
@@ -1304,7 +1324,7 @@ class _KamLeaderboardRow extends StatelessWidget {
 
     final List<Widget> metrics;
     if (isProduct) {
-      // Brands have no target → no Target / Gap pills. Show the share of
+      // Brands have no target â†’ no Target / Gap pills. Show the share of
       // total brand sales instead.
       metrics = [
         _MetricPill(
@@ -1514,9 +1534,9 @@ class _RankBadge extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // SHARED WIDGETS
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _SectionCard extends StatelessWidget {
   const _SectionCard({
@@ -1701,9 +1721,9 @@ class _ErrorView extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // FORMATTING HELPERS
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 String _inr(double v) {
   // Indian rupee with Cr/L suffixes for compactness.
