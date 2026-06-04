@@ -20,6 +20,7 @@ import 'package:zydus_vistaar/services/hospital_dashboard_service.dart';
 import 'package:zydus_vistaar/services/sales_service.dart';
 import 'package:zydus_vistaar/widgets/executive_kpi_section.dart';
 import 'package:zydus_vistaar/widgets/pod_centered_performance.dart';
+import 'package:zydus_vistaar/widgets/pod_kam_filter.dart';
 
 class UnifiedDashboardScreen extends StatefulWidget {
   const UnifiedDashboardScreen({super.key});
@@ -43,6 +44,19 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
       DateFormat('yyyy-MM-dd').format(DateTime(_selectedMonth.year, _selectedMonth.month, 1));
   String get _dateTo => DateFormat('yyyy-MM-dd')
       .format(DateTime(_selectedMonth.year, _selectedMonth.month + 1, 0));
+
+  /// Selected KAM emp_id for the POD Dashboard filter pill. `null` means
+  /// "all KAMs in the user's hierarchy" (default). When set, the same
+  /// emp_id threads through both `ExecutiveKpiSection` and
+  /// `PodCenteredPerformanceSection` via `SalesDashboardFilters.empId` so
+  /// the backend narrows EVERY card + tab consistently.
+  String? _selectedKamEmpId;
+
+  SalesDashboardFilters get _podDashFilters => SalesDashboardFilters(
+        dateFrom: _dateFrom,
+        dateTo: _dateTo,
+        empId: _selectedKamEmpId,
+      );
 
   HospitalDashboardBloc? _hospitalBloc;
 
@@ -322,28 +336,31 @@ class _UnifiedDashboardScreenState extends State<UnifiedDashboardScreen>
               selectedMonth: _selectedMonth,
               onMonthChanged: _onMonthChanged,
             ),
+            const SizedBox(height: 10),
+            // KAM filter pill — `null` = "All KAMs in scope" (default).
+            // Picking a KAM narrows every executive KPI card AND every
+            // analytics tab via SalesDashboardFilters.empId, which the
+            // backend honours in both summary-cards and
+            // pod-entity-performance.
+            PodKamFilter(
+              filters: _podDashFilters,
+              selectedEmpId: _selectedKamEmpId,
+              onChanged: (empId) {
+                setState(() => _selectedKamEmpId = empId);
+              },
+            ),
             const SizedBox(height: 14),
             // Executive KPIs pulled from the hierarchy-scoped
             // /api/sales-dashboard/summary-cards endpoint — gives the user
-            // Sales / POD / Target / Achievement / Growth at a glance on the
-            // home screen without opening Sales Analytics.
-            ExecutiveKpiSection(
-              filters: SalesDashboardFilters(
-                dateFrom: _dateFrom,
-                dateTo: _dateTo,
-              ),
-            ),
+            // Sales / POD / Coverage / Completion at a glance on the home
+            // screen without opening Sales Analytics.
+            ExecutiveKpiSection(filters: _podDashFilters),
             const SizedBox(height: 20),
-            // Zone + KAM analytics — same hierarchy scope + month window as
-            // the executive KPI cards above, surfaced via the dedicated
-            // /api/sales-dashboard/pod-centered-performance endpoint so the
-            // widget only needs one round trip for both sections.
-            PodCenteredPerformanceSection(
-              filters: SalesDashboardFilters(
-                dateFrom: _dateFrom,
-                dateTo: _dateTo,
-              ),
-            ),
+            // Zone + KAM / Hospital / Stockist analytics — same hierarchy
+            // scope, same month window, same KAM filter. Surfaced via the
+            // dedicated pod-centered-performance + pod-entity-performance
+            // endpoints.
+            PodCenteredPerformanceSection(filters: _podDashFilters),
             const SizedBox(height: 20),
             _buildStatsGrid(context, state.dashboardData),
             const SizedBox(height: 24),

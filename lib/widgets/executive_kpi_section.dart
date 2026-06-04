@@ -47,7 +47,9 @@ class _ExecutiveKpiSectionState extends State<ExecutiveKpiSection> {
     super.didUpdateWidget(oldWidget);
     final a = oldWidget.filters;
     final b = widget.filters;
-    final changed = a?.dateFrom != b?.dateFrom || a?.dateTo != b?.dateTo;
+    final changed = a?.dateFrom != b?.dateFrom
+        || a?.dateTo != b?.dateTo
+        || a?.empId != b?.empId;
     if (changed) {
       setState(() {
         _future = _service.fetchSummaryCards(_effectiveFilters);
@@ -199,6 +201,27 @@ class _KpiGrid extends StatelessWidget {
             ? 'Pending backend: summary-cards.processed_pod_value'
             : null,
       ),
+      // 6) Hospital Coverage — distinct POD hospitals / distinct sales
+      //    hospitals × 100. Headline shows the ratio (numerator clamped
+      //    visually at the denominator for the progress bar but the
+      //    literal ratio still surfaces).
+      _coverageCard(
+        title: 'Hospital Coverage',
+        podCount: summary.hospitalPodCount,
+        salesCount: summary.hospitalSalesCount,
+        icon: Icons.local_hospital_rounded,
+        gradient: const [Color(0xFFEC4899), Color(0xFFF472B6)], // pink
+        denominatorLabel: 'sales hospitals',
+      ),
+      // 7) Stockist Coverage — same shape, by stockist_id.
+      _coverageCard(
+        title: 'Stockist Coverage',
+        podCount: summary.stockistPodCount,
+        salesCount: summary.stockistSalesCount,
+        icon: Icons.warehouse_rounded,
+        gradient: const [Color(0xFFF97316), Color(0xFFFB923C)], // deep orange
+        denominatorLabel: 'sales stockists',
+      ),
     ];
 
     return LayoutBuilder(
@@ -206,10 +229,11 @@ class _KpiGrid extends StatelessWidget {
         final w = constraints.maxWidth;
         // Mobile 2 / Tablet 3 / Desktop 4 — per spec.
         final cols = w >= 1024 ? 4 : (w >= 600 ? 3 : 2);
-        // Slightly wider-than-tall on phones; closer to square on large
-        // screens to match the Sales Analytics grid.
-        final aspect = w >= 1100 ? 1.65 : (w >= 600 ? 1.55 : 1.35);
-        final spacing = cols >= 3 ? 12.0 : 10.0;
+        // Denser executive style — shorter cards so more KPIs fit in the
+        // first viewport. `_KpiCard` also tightened its padding / icon /
+        // font sizes below to match.
+        final aspect = w >= 1100 ? 1.95 : (w >= 600 ? 1.85 : 1.55);
+        final spacing = cols >= 3 ? 10.0 : 8.0;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -302,13 +326,16 @@ class _KpiCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final mobile = MediaQuery.of(context).size.width < 600;
-    final cardPad = mobile ? 11.0 : 13.0;
-    final iconSize = mobile ? 16.0 : 18.0;
-    final iconBoxPad = mobile ? 6.0 : 7.0;
-    final progressDim = mobile ? 30.0 : 34.0;
-    final titleSize = mobile ? 11.0 : 12.0;
-    final valueSize = mobile ? 20.0 : 24.0;
-    final subtitleSize = mobile ? 10.0 : 11.0;
+    // Denser executive sizes — tighter padding, smaller icon pill, smaller
+    // headline + subtitle so 6 cards fit two rows on a 360-px phone and 8
+    // cards fit two rows at tablet width.
+    final cardPad = mobile ? 9.0 : 11.0;
+    final iconSize = mobile ? 14.0 : 16.0;
+    final iconBoxPad = mobile ? 5.0 : 6.0;
+    final progressDim = mobile ? 26.0 : 30.0;
+    final titleSize = mobile ? 10.5 : 11.5;
+    final valueSize = mobile ? 17.0 : 21.0;
+    final subtitleSize = mobile ? 9.5 : 10.5;
 
     final card = Container(
       padding: EdgeInsets.all(cardPad),
@@ -484,6 +511,47 @@ class _ErrorPanel extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Build a coverage card ("Hospital Coverage" / "Stockist Coverage").
+///
+/// Headline shows `pod / sales` as the literal ratio (e.g. "125 / 320")
+/// with the coverage % as the subtitle. Progress bar is clamped to 100%
+/// for the bar fill, but the % text itself can exceed 100 — surfaces when
+/// a KAM uploaded PODs for hospitals/stockists they hadn't billed in the
+/// same month.
+_KpiCardData _coverageCard({
+  required String title,
+  required int? podCount,
+  required int? salesCount,
+  required IconData icon,
+  required List<Color> gradient,
+  required String denominatorLabel,
+}) {
+  final pod = podCount;
+  final sales = salesCount;
+  final pct = (pod != null && sales != null && sales > 0)
+      ? (pod / sales) * 100
+      : null;
+  final value = (pod == null || sales == null)
+      ? '—'
+      : '${_int(pod)} / ${_int(sales)}';
+  final subtitle = pct == null
+      ? denominatorLabel
+      : '${pct.toStringAsFixed(1)}% of $denominatorLabel';
+  return _KpiCardData(
+    title: title,
+    value: value,
+    subtitle: subtitle,
+    icon: icon,
+    gradient: gradient,
+    progress: pct == null
+        ? null
+        : (pct / 100).clamp(0.0, 1.0).toDouble(),
+    hint: (pod == null || sales == null)
+        ? 'Pending backend: summary-cards.hospital_pod_count / hospital_sales_count'
+        : null,
+  );
 }
 
 /// Indian-grouped integer formatter (e.g. 1234567 → "12,34,567").
