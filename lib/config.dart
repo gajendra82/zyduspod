@@ -1,5 +1,8 @@
 const String API_BASE_URL = "https://zydus.mediola.in/pod_dev/api/";
 //const String API_BASE_URL = "https://zydus.mediola.in/development/api/";
+// USB-tethered device via `adb reverse tcp:8000 tcp:8000` — phone's
+// localhost:8000 tunnels to this PC. No Wi-Fi/firewall dependency.
+//const String API_BASE_URL = "http://localhost:8000/api/";
 //const String API_BASE_URL = "http://192.168.1.19:8000/api/";
 //const String API_BASE_URL = "http://192.168.1.140:8000/api/";
 //const String API_BASE_URL = "http://192.168.0.122:8000/api/";
