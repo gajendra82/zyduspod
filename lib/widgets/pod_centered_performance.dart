@@ -168,18 +168,21 @@ class _PodCenteredPerformanceSectionState
                       entity: 'kam',
                       filters: widget.filters,
                       searchHint: 'Search KAM name or employee ID',
+                      isActive: _activeTab == 0,
                     ),
                     _EntityTab(
                       key: const PageStorageKey('pod-entity-tab-hospital'),
                       entity: 'hospital',
                       filters: widget.filters,
                       searchHint: 'Search hospital, BTST code, or city',
+                      isActive: _activeTab == 1,
                     ),
                     _EntityTab(
                       key: const PageStorageKey('pod-entity-tab-stockist'),
                       entity: 'stockist',
                       filters: widget.filters,
                       searchHint: 'Search stockist name or code',
+                      isActive: _activeTab == 2,
                     ),
                   ],
                 ),
@@ -375,11 +378,18 @@ class _EntityTab extends StatefulWidget {
     required this.entity,
     required this.filters,
     required this.searchHint,
+    this.isActive = true,
   });
 
   final String entity; // 'kam' | 'hospital' | 'stockist'
   final SalesDashboardFilters? filters;
   final String searchHint;
+  /// True iff this tab is currently visible. Inactive tabs no longer
+  /// refetch on every filter change — they mark themselves stale and
+  /// fetch only when the user actually navigates to them. Drops a
+  /// KAM-filter change from 5 concurrent API calls to 1 + (up to 2
+  /// deferred until activation).
+  final bool isActive;
 
   @override
   State<_EntityTab> createState() => _EntityTabState();
@@ -408,11 +418,28 @@ class _EntityTabState extends State<_EntityTab> {
   String _sortBy = 'sales'; // 'sales' | 'zydus' | 'completion' | 'processed'
   String _sortDir = 'desc';
   Object? _lastError;
+  // True when the filters / search / sort changed while this tab was
+  // off-screen. Cleared by _reload(). On next activation we'll fetch
+  // exactly once instead of immediately when the change happened — keeps
+  // a KAM-filter change from triggering 5 concurrent API calls.
+  bool _stale = false;
+  // Monotonic token incremented by every _reload/_loadMore so a stale
+  // response (e.g. user picked KAM A, then quickly picked KAM B) is
+  // dropped instead of overwriting fresh state. Without this guard a
+  // late-arriving response for KAM A would replace the rows the user is
+  // already looking at for KAM B.
+  int _fetchToken = 0;
 
   @override
   void initState() {
     super.initState();
-    _reload();
+    if (widget.isActive) {
+      _reload();
+    } else {
+      // Mark stale so the first activation triggers a fetch. Until then
+      // we render the initial-loading skeleton without firing a request.
+      _stale = true;
+    }
   }
 
   @override
@@ -420,7 +447,18 @@ class _EntityTabState extends State<_EntityTab> {
     super.didUpdateWidget(oldWidget);
     final a = oldWidget.filters;
     final b = widget.filters;
-    if (a?.dateFrom != b?.dateFrom || a?.dateTo != b?.dateTo || a?.empId != b?.empId) {
+    final filtersChanged = a?.dateFrom != b?.dateFrom
+        || a?.dateTo != b?.dateTo
+        || a?.empId != b?.empId;
+    if (filtersChanged) {
+      if (widget.isActive) {
+        _reload();
+      } else {
+        _stale = true;
+      }
+    } else if (widget.isActive && !oldWidget.isActive && _stale) {
+      // Tab just became visible after a filter changed while it was
+      // off-screen — fire the deferred reload now.
       _reload();
     }
   }
@@ -433,16 +471,18 @@ class _EntityTabState extends State<_EntityTab> {
   }
 
   Future<void> _reload() async {
+    final token = ++_fetchToken;
     setState(() {
       _page = 1;
       _isInitialLoading = true;
       _lastError = null;
+      _stale = false;
       _rows = const [];
       _hasMore = false;
     });
     try {
       final res = await _fetch(page: 1);
-      if (!mounted) return;
+      if (!mounted || token != _fetchToken) return;
       setState(() {
         _rows = res.rows;
         _total = res.total;
@@ -450,7 +490,7 @@ class _EntityTabState extends State<_EntityTab> {
         _isInitialLoading = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || token != _fetchToken) return;
       setState(() {
         _isInitialLoading = false;
         _lastError = e;
@@ -460,10 +500,12 @@ class _EntityTabState extends State<_EntityTab> {
 
   Future<void> _loadMore() async {
     if (_isLoadingMore || !_hasMore) return;
+    final token = _fetchToken; // do NOT increment — load-more should
+    // be invalidated by any subsequent _reload() too.
     setState(() => _isLoadingMore = true);
     try {
       final res = await _fetch(page: _page + 1);
-      if (!mounted) return;
+      if (!mounted || token != _fetchToken) return;
       setState(() {
         _page += 1;
         _rows = [..._rows, ...res.rows];
@@ -472,7 +514,7 @@ class _EntityTabState extends State<_EntityTab> {
         _isLoadingMore = false;
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || token != _fetchToken) return;
       // Swallow load-more errors into a clean isLoadingMore=false rather than
       // wiping out the visible rows — the user can scroll to retry.
       setState(() => _isLoadingMore = false);
