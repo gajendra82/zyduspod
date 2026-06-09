@@ -1,6 +1,6 @@
-const String API_BASE_URL = "https://zydus.mediola.in/pod_dev/api/";
+//const String API_BASE_URL = "https://zydus.mediola.in/pod_dev/api/";
 //const String API_BASE_URL = "https://zydus.mediola.in/development/api/";
-//const String API_BASE_URL = "http://192.168.1.19:8000/api/";
+const String API_BASE_URL = "http://192.168.1.19:8000/api/";
 //const String API_BASE_URL = "http://192.168.0.122:8000/api/";
 
 const String API_DOC_UPLOAD_URL = "${API_BASE_URL}grn/upload-pdf";
