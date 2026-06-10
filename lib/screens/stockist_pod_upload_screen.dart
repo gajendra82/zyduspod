@@ -205,14 +205,18 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
   // ── File picker ───────────────────────────────────────────────────────
   Future<void> _pickFiles() async {
     try {
+      // Allowed formats: PDF, JPG, JPEG, PNG and ZIP archives.
+      // ZIPs are uploaded as-is — the backend unpacks them server-side
+      // and feeds each supported entry through the existing pipeline.
       final result = await FilePicker.platform.pickFiles(
         allowMultiple: true,
         type: FileType.custom,
-        allowedExtensions: ['pdf'],
+        allowedExtensions: const ['pdf', 'jpg', 'jpeg', 'png', 'zip'],
         withData: kIsWeb,
       );
       if (result == null) return;
       final added = <_PickedFile>[];
+      String? zipPickedName;
       for (final f in result.files) {
         if (f.size <= 0) continue;
         added.add(_PickedFile(
@@ -221,8 +225,23 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
           bytes: f.bytes,
           sizeBytes: f.size,
         ));
+        if (zipPickedName == null && f.name.toLowerCase().endsWith('.zip')) {
+          zipPickedName = f.name;
+        }
       }
       if (mounted) setState(() => _files.addAll(added));
+
+      if (zipPickedName != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'ZIP archive selected: $zipPickedName\n'
+              'Number of files will be processed after upload.',
+            ),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -240,7 +259,7 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
   Future<void> _upload() async {
     if (_files.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Pick at least one PDF first.')),
+        const SnackBar(content: Text('Pick at least one file first.')),
       );
       return;
     }
@@ -295,19 +314,24 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
           req.fields['multi_page'] = (_files.length > 1).toString();
 
           for (final f in _files) {
+            // Derive the correct Content-Type from the file extension so
+            // ZIP archives and images aren't sent under application/pdf
+            // (the server validates by sniffing content too, but a wrong
+            // Content-Type header makes debugging painful).
+            final mt = _mediaTypeForName(f.name);
             if (f.file != null) {
               req.files.add(await http.MultipartFile.fromPath(
                 'files[]',
                 f.file!.path,
                 filename: f.name,
-                contentType: MediaType('application', 'pdf'),
+                contentType: mt,
               ));
             } else if (f.bytes != null) {
               req.files.add(http.MultipartFile.fromBytes(
                 'files[]',
                 f.bytes!,
                 filename: f.name,
-                contentType: MediaType('application', 'pdf'),
+                contentType: mt,
               ));
             }
           }
@@ -332,8 +356,11 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        'Uploading ${_files.length} POD(s)… '
-                        'attempt ${attempt + 1}/$maxRetries',
+                        _hasZipPicked()
+                            ? 'Uploading ZIP… '
+                              'attempt ${attempt + 1}/$maxRetries'
+                            : 'Uploading ${_files.length} POD(s)… '
+                              'attempt ${attempt + 1}/$maxRetries',
                       ),
                     ),
                   ],
@@ -761,7 +788,7 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
                 ElevatedButton.icon(
                   onPressed: _pickFiles,
                   icon: const Icon(Icons.add),
-                  label: const Text('Add PDFs'),
+                  label: const Text('Add Files'),
                 ),
               ],
             ),
@@ -798,6 +825,32 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
         ),
       ),
     );
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────
+
+  /// Map a filename to the correct multipart Content-Type. Only the
+  /// extensions we accept in the picker are listed; anything else falls
+  /// back to application/octet-stream and the server's MIME sniffer
+  /// figures it out.
+  MediaType _mediaTypeForName(String name) {
+    final lower = name.toLowerCase();
+    if (lower.endsWith('.zip')) return MediaType('application', 'zip');
+    if (lower.endsWith('.pdf')) return MediaType('application', 'pdf');
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
+      return MediaType('image', 'jpeg');
+    }
+    if (lower.endsWith('.png')) return MediaType('image', 'png');
+    return MediaType('application', 'octet-stream');
+  }
+
+  /// True if the current batch about to be uploaded contains any .zip
+  /// archive — used to tailor the in-flight upload progress message.
+  bool _hasZipPicked() {
+    for (final f in _files) {
+      if (f.name.toLowerCase().endsWith('.zip')) return true;
+    }
+    return false;
   }
 }
 

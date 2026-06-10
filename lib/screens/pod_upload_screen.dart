@@ -652,7 +652,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
                 ListTile(
                   leading: const Icon(Icons.picture_as_pdf),
                   title: const Text('PDF Files'),
-                  subtitle: const Text('Select PDF files'),
+                  subtitle: const Text('Select PDF, image or ZIP files'),
                   onTap: () {
                     Navigator.pop(context);
                     _pickPDFFiles();
@@ -911,14 +911,17 @@ class _PODUploadScreenState extends State<PODUploadScreen>
 
     setState(() {
       _isProcessingDocuments = true;
-      _currentProcessingMessage = 'Selecting PDF files...';
+      _currentProcessingMessage = 'Selecting files...';
       _updateBusyState();
     });
 
     try {
+      // Allowed formats: PDF, JPG, JPEG, PNG and ZIP archives.
+      // ZIPs are uploaded as-is — the backend unpacks them and feeds each
+      // supported entry through the existing POD extraction pipeline.
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['pdf'],
+        allowedExtensions: const ['pdf', 'jpg', 'jpeg', 'png', 'zip'],
         allowMultiple: true,
         withData: true, // IMPORTANT for Web
       );
@@ -944,7 +947,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Pick PDF error: $e')));
+      ).showSnackBar(SnackBar(content: Text('Pick file error: $e')));
     } finally {
       if (mounted) {
         setState(() {
@@ -969,31 +972,13 @@ class _PODUploadScreenState extends State<PODUploadScreen>
     try {
       final displayNameBase = p.basenameWithoutExtension(originalFile.path);
       final extension = p.extension(originalFile.path).toLowerCase();
+      final fileName = p.basename(originalFile.path);
 
-      if (extension == '.pdf') {
-        setState(() {
-          _currentProcessingMessage =
-              'Adding ${p.basename(originalFile.path)}...';
-        });
+      final isPdf = extension == '.pdf';
+      final isImage = const ['.jpg', '.jpeg', '.png'].contains(extension);
+      final isZip = extension == '.zip';
 
-        // ✅ UPDATED: Add PDF directly - backend will handle splitting
-        final newDoc = DocumentInfo(
-          file: originalFile,
-          webBytes: null,
-          displayName: p.basename(originalFile.path),
-          isValid: true,
-          qrData: null,
-          qrStatus: QRProcessingStatus.completed,
-          originalRawFile: null, // Not needed - backend handles everything
-          isGoodForExtraction: true,
-          ocrConfidence: 100.0,
-          qualityMessage: 'PDF - Backend will process',
-        );
-
-        setState(() {
-          _capturedDocuments.add(newDoc);
-        });
-      } else {
+      if (!isPdf && !isImage && !isZip) {
         // Unsupported file format
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1005,6 +990,47 @@ class _PODUploadScreenState extends State<PODUploadScreen>
           );
         }
         return;
+      }
+
+      setState(() {
+        _currentProcessingMessage = isZip
+            ? 'Adding ZIP archive $fileName...'
+            : 'Adding $fileName...';
+      });
+
+      final String qualityMessage = isPdf
+          ? 'PDF - Backend will process'
+          : isImage
+              ? 'Image - Backend will process'
+              : 'ZIP archive — backend will unpack and process';
+
+      final newDoc = DocumentInfo(
+        file: originalFile,
+        webBytes: null,
+        displayName: fileName,
+        isValid: true,
+        qrData: null,
+        qrStatus: QRProcessingStatus.completed,
+        originalRawFile: null, // Not needed - backend handles everything
+        isGoodForExtraction: true,
+        ocrConfidence: 100.0,
+        qualityMessage: qualityMessage,
+      );
+
+      setState(() {
+        _capturedDocuments.add(newDoc);
+      });
+
+      if (isZip && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'ZIP archive selected: $fileName\n'
+              'Number of files will be processed after upload.',
+            ),
+            duration: const Duration(seconds: 3),
+          ),
+        );
       }
 
       _scheduleScrollToBottom();
@@ -1043,6 +1069,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         '.bmp',
         '.webp',
       ].contains(extension);
+      final isZip = extension == '.zip';
 
       // CREATE A COPY of bytes to prevent reference issues
       final bytesCopy = Uint8List.fromList(bytes);
@@ -1064,6 +1091,42 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         setState(() {
           _capturedDocuments.add(newDoc);
         });
+
+        _scheduleScrollToBottom();
+        return;
+      }
+
+      if (isZip) {
+        // ZIP archive — pass the raw bytes through. The backend unpacks
+        // server-side and feeds each supported entry through the existing
+        // pipeline; Flutter must NOT attempt to read the archive.
+        final newDoc = DocumentInfo(
+          file: null,
+          webBytes: bytesCopy,
+          displayName: displayName,
+          isValid: true,
+          qrData: null,
+          qrStatus: QRProcessingStatus.completed,
+          isGoodForExtraction: true,
+          ocrConfidence: 100.0,
+          qualityMessage: 'ZIP archive — backend will unpack and process',
+        );
+
+        setState(() {
+          _capturedDocuments.add(newDoc);
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'ZIP archive selected: $displayName\n'
+                'Number of files will be processed after upload.',
+              ),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
 
         _scheduleScrollToBottom();
         return;
@@ -1243,10 +1306,19 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       // anything other than application/pdf. If the batch contains any image
       // (JPG/JPEG/PNG/etc.), route to the image-friendly endpoint so it
       // doesn't get rejected by the server's `extensions:pdf` validation.
-      final bool hasNonPdf = validDocs.any(
-        (d) => p.extension(d.displayName).toLowerCase() != '.pdf',
+      // ZIPs always go to Multi_Api_POD_UPLOAD_URL because only that
+      // endpoint (split-file-processor/process) has server-side ZIP
+      // unpacking — it then feeds each entry through the same pipeline.
+      final bool hasZip = validDocs.any(
+        (d) => p.extension(d.displayName).toLowerCase() == '.zip',
       );
-      final String uploadUrl = hasNonPdf
+      final bool hasNonPdfNonZip = validDocs.any(
+        (d) {
+          final ext = p.extension(d.displayName).toLowerCase();
+          return ext != '.pdf' && ext != '.zip';
+        },
+      );
+      final String uploadUrl = (!hasZip && hasNonPdfNonZip)
           ? Multi_Api_POD_UPLOAD_URL_IMAGES
           : Multi_Api_POD_UPLOAD_URL;
       final uri = Uri.parse(uploadUrl);
@@ -1259,7 +1331,10 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         );
       }
 
-      debugPrint('[UPLOAD] API Endpoint: $uploadUrl (hasNonPdf=$hasNonPdf)');
+      debugPrint(
+        '[UPLOAD] API Endpoint: $uploadUrl '
+        '(hasZip=$hasZip hasNonPdfNonZip=$hasNonPdfNonZip)',
+      );
 
       for (int attempt = 0; attempt < maxRetries; attempt++) {
         try {
@@ -1368,8 +1443,11 @@ class _PODUploadScreenState extends State<PODUploadScreen>
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        'Uploading ${validDocs.length} POD(s)… '
-                        'attempt ${attempt + 1}/$maxRetries',
+                        hasZip
+                            ? 'Uploading ZIP… '
+                              'attempt ${attempt + 1}/$maxRetries'
+                            : 'Uploading ${validDocs.length} POD(s)… '
+                              'attempt ${attempt + 1}/$maxRetries',
                       ),
                     ),
                   ],
@@ -1649,6 +1727,8 @@ class _PODUploadScreenState extends State<PODUploadScreen>
   MediaType _inferContentTypeByName(String filename, {File? fallbackFromFile}) {
     final ext = p.extension(filename).toLowerCase();
     switch (ext) {
+      case '.zip':
+        return MediaType('application', 'zip');
       case '.pdf':
         return MediaType('application', 'pdf');
       case '.jpg':
@@ -1666,6 +1746,8 @@ class _PODUploadScreenState extends State<PODUploadScreen>
   MediaType _inferContentTypeFile(File file) {
     final ext = p.extension(file.path).toLowerCase();
     switch (ext) {
+      case '.zip':
+        return MediaType('application', 'zip');
       case '.pdf':
         return MediaType('application', 'pdf');
       case '.jpg':

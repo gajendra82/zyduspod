@@ -156,8 +156,8 @@ class _PODUploadPageState extends State<PODUploadPage> {
           ),
           const SizedBox(height: 24),
           ModernUIComponents.buildUploadCard(
-            title: 'Upload POD Documents',
-            subtitle: 'Select and upload your POD files',
+            title: 'Upload POD Documents (PDF, Images or ZIP)',
+            subtitle: 'Supported formats: PDF, JPG, JPEG, PNG, ZIP',
             icon: Icons.upload_file,
             color: const Color(0xFF00A0A8),
             onTap: () async {
