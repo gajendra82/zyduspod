@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show File, SocketException;
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -11,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:zydus_vistaar/config.dart';
 import 'package:zydus_vistaar/routes.dart';
+import 'package:zydus_vistaar/services/ChunkedUploader.dart';
 import 'package:zydus_vistaar/widgets/modern_ui_components.dart';
 
 /// Dedicated POD upload screen for stockist logins.
@@ -265,6 +267,19 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
     }
 
     setState(() => _uploading = true);
+
+    // ── Chunked-upload guard ────────────────────────────────────────────
+    // If any file in the batch exceeds the 500 MB single-shot ceiling,
+    // route the entire batch through the streamed chunked endpoint.
+    final bool anyBig = _files.any((f) => f.sizeBytes > kChunkSizeBytes);
+    if (anyBig) {
+      try {
+        await _performChunkedUpload();
+      } finally {
+        if (mounted) setState(() => _uploading = false);
+      }
+      return;
+    }
 
     // Compute a payload-aware timeout: req.send() must cover connect + TLS
     // + ALL multipart bytes + first response byte, so a flat 5-min worked
@@ -828,6 +843,159 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────
+
+  /// Streamed chunked upload for batches that contain any file > 500 MB.
+  /// Each picked file is uploaded individually via ChunkedUploader; the
+  /// server reassembles and dispatches the SAME OCR pipeline a one-shot
+  /// upload would.
+  Future<void> _performChunkedUpload() async {
+    final token = await _authToken();
+    if (token == null || token.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Not signed in — please log in and retry.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final Map<String, String> baseContext = {};
+    if (_stockistId != null) {
+      baseContext['stockist_id'] = _stockistId.toString();
+    }
+    if (_selectedHospital != null) {
+      baseContext['hospital_id'] = _selectedHospital!.id.toString();
+    }
+    var i = 0;
+    for (final invoiceId in _selectedInvoiceIds) {
+      baseContext['sales_statement_ids[$i]'] = invoiceId.toString();
+      i++;
+    }
+
+    int? lastBatchDbId;
+    String? lastExternalBatchId;
+    ScaffoldMessengerState? messenger;
+    if (mounted) messenger = ScaffoldMessenger.of(context);
+
+    for (int idx = 0; idx < _files.length; idx++) {
+      final f = _files[idx];
+      final fileLabel = f.name;
+      final int totalFilesInBatch = _files.length;
+
+      void showProgress(ChunkUploadProgress p) {
+        if (!mounted) return;
+        final pct = p.percent.toStringAsFixed(0);
+        final etaSec = p.estimatedRemaining?.inSeconds;
+        final etaTxt = etaSec == null || etaSec <= 0 ? '' : ' — ~${etaSec}s left';
+        messenger?.hideCurrentSnackBar();
+        messenger?.showSnackBar(SnackBar(
+          content: Row(
+            children: [
+              const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation(Colors.white),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Uploading $fileLabel '
+                  '(file ${idx + 1}/$totalFilesInBatch)\n'
+                  'Chunk ${p.chunkIndex} of ${p.totalChunks} — $pct%$etaTxt',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          duration: const Duration(minutes: 30),
+        ));
+      }
+
+      final uploader = ChunkedUploader(
+        authToken: token,
+        context: baseContext,
+        onProgress: showProgress,
+      );
+
+      ChunkUploadResult result;
+      try {
+        if (f.file != null) {
+          result = await uploader.upload(f.file!);
+        } else if (f.bytes != null) {
+          // FilePicker's bytes are typed List<int> on _PickedFile; the
+          // uploader needs a Uint8List view for sublist() to stay efficient.
+          result = await uploader.uploadBytes(
+            fileName: fileLabel,
+            bytes: Uint8List.fromList(f.bytes!),
+          );
+        } else {
+          continue;
+        }
+      } catch (e) {
+        if (mounted) {
+          messenger?.hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Upload error: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      if (!result.success) {
+        if (mounted) {
+          messenger?.hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Upload failed: ${result.message ?? result.error ?? "Unknown error"}',
+              ),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      lastBatchDbId = result.podUploadBatchId;
+      lastExternalBatchId = result.externalBatchId;
+    }
+
+    if (mounted) {
+      messenger?.hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Upload complete — processing on server.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      if (lastBatchDbId != null) {
+        Navigator.pushReplacementNamed(
+          context,
+          AppRoutes.uploadStatus,
+          arguments: {
+            'uploadData': {
+              'success': true,
+              'data': {
+                'batch_id': lastExternalBatchId ?? lastBatchDbId.toString(),
+                'batch_db_id': lastBatchDbId,
+              },
+            },
+            'totalFiles': _files.length,
+          },
+        );
+      }
+      setState(() => _files.clear());
+    }
+  }
 
   /// Map a filename to the correct multipart Content-Type. Only the
   /// extensions we accept in the picker are listed; anything else falls

@@ -23,6 +23,7 @@ import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import 'package:zydus_vistaar/config.dart';
 import 'package:zydus_vistaar/GstInvoiceScanner.dart'; // COMMENTED OUT: Used for QR processing
 import 'package:zydus_vistaar/Models/_SplitOut.dart';
+import 'package:zydus_vistaar/services/ChunkedUploader.dart';
 import 'package:zydus_vistaar/services/PythonQRService.dart'; // COMMENTED OUT: Used for QR processing
 import 'package:zydus_vistaar/widgets/EInvoiceQRExtractor.dart'; // COMMENTED OUT: Used for QR processing
 import 'package:zydus_vistaar/widgets/PdfPreviewScreen.dart'; // existing File-based preview
@@ -1272,6 +1273,28 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       final token = prefs.getString('authToken');
       final stockistIdStr = _selectedStockist!.id.trim();
 
+      // ── Chunked-upload guard ────────────────────────────────────────
+      // If any file in this batch exceeds the 500 MB single-shot ceiling
+      // (Apache LimitRequestBody / PHP post_max_size in practice), route
+      // the whole batch through the streamed chunked endpoint instead.
+      // ChunkedUploader uploads each file as <=500 MB chunks; the server
+      // reassembles and dispatches the SAME ProcessSplitAndExtractJob a
+      // one-shot upload would, so OCR behavior is identical.
+      bool anyBig = false;
+      for (final d in validDocs) {
+        final int s = d.file != null
+            ? await d.file!.length()
+            : (d.webBytes?.length ?? 0);
+        if (s > kChunkSizeBytes) {
+          anyBig = true;
+          break;
+        }
+      }
+      if (anyBig) {
+        await _performChunkedUpload(validDocs, stockistIdStr, token);
+        return;
+      }
+
       const int maxRetries = 4;
 
       // Compute the upload timeout from the actual payload — `req.send()`
@@ -1702,6 +1725,161 @@ class _PODUploadScreenState extends State<PODUploadScreen>
     const ladder = [4, 8, 16, 30];
     final idx = attempt.clamp(0, ladder.length - 1);
     return Duration(seconds: ladder[idx]);
+  }
+
+  /// Streamed-chunk upload path for files larger than the 500 MB single-shot
+  /// ceiling. Each file in [validDocs] is uploaded individually via
+  /// ChunkedUploader — small files use a single chunk, large ones split
+  /// automatically. Resume bookmark is per-file-name via SharedPreferences.
+  Future<void> _performChunkedUpload(
+    List<DocumentInfo> validDocs,
+    String stockistIdStr,
+    String? authToken,
+  ) async {
+    if (authToken == null || authToken.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Not signed in — please log in and retry.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    final Map<String, String> baseContext = {
+      'stockist_id': stockistIdStr,
+    };
+
+    int? lastBatchDbId;
+    String? lastExternalBatchId;
+    ScaffoldMessengerState? messenger;
+    if (mounted) {
+      messenger = ScaffoldMessenger.of(context);
+    }
+
+    for (int i = 0; i < validDocs.length; i++) {
+      final d = validDocs[i];
+      final fileLabel = d.displayName;
+      final int totalFilesInBatch = validDocs.length;
+
+      void showProgress(ChunkUploadProgress p) {
+        if (!mounted) return;
+        final pct = p.percent.toStringAsFixed(0);
+        final etaSec = p.estimatedRemaining?.inSeconds;
+        final etaTxt = etaSec == null || etaSec <= 0
+            ? ''
+            : ' — ~${etaSec}s left';
+        messenger?.hideCurrentSnackBar();
+        messenger?.showSnackBar(SnackBar(
+          content: Row(
+            children: [
+              const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation(Colors.white),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Uploading $fileLabel '
+                  '(file ${i + 1}/$totalFilesInBatch)\n'
+                  'Chunk ${p.chunkIndex} of ${p.totalChunks} — $pct%$etaTxt',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          duration: const Duration(minutes: 30),
+        ));
+      }
+
+      final uploader = ChunkedUploader(
+        authToken: authToken,
+        context: baseContext,
+        onProgress: showProgress,
+      );
+
+      ChunkUploadResult result;
+      try {
+        if (d.file != null) {
+          result = await uploader.upload(d.file!);
+        } else if (d.webBytes != null) {
+          result = await uploader.uploadBytes(
+            fileName: fileLabel,
+            bytes: d.webBytes!,
+          );
+        } else {
+          continue;
+        }
+      } catch (e) {
+        if (mounted) {
+          messenger?.hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Upload error: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      if (!result.success) {
+        if (mounted) {
+          messenger?.hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Upload failed: ${result.message ?? result.error ?? "Unknown error"}',
+              ),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      lastBatchDbId = result.podUploadBatchId;
+      lastExternalBatchId = result.externalBatchId;
+    }
+
+    if (mounted) {
+      messenger?.hideCurrentSnackBar();
+    }
+
+    if (lastBatchDbId != null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Upload complete — processing on server.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.pushReplacementNamed(
+          context,
+          AppRoutes.uploadStatus,
+          arguments: {
+            'uploadData': {
+              'success': true,
+              'data': {
+                'batch_id': lastExternalBatchId ?? lastBatchDbId.toString(),
+                'batch_db_id': lastBatchDbId,
+              },
+            },
+            'totalFiles': validDocs.length,
+          },
+        );
+      }
+      setState(() {
+        _capturedDocuments.clear();
+      });
+    }
   }
 
   bool _isRetryableUploadStatus(int statusCode) {
