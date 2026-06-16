@@ -24,6 +24,8 @@ import 'package:zydus_vistaar/config.dart';
 import 'package:zydus_vistaar/GstInvoiceScanner.dart'; // COMMENTED OUT: Used for QR processing
 import 'package:zydus_vistaar/Models/_SplitOut.dart';
 import 'package:zydus_vistaar/services/ChunkedUploader.dart';
+import 'package:zydus_vistaar/services/BlobDirectUploader.dart';
+import 'package:zydus_vistaar/services/PodZipExpander.dart';
 import 'package:zydus_vistaar/services/PythonQRService.dart'; // COMMENTED OUT: Used for QR processing
 import 'package:zydus_vistaar/widgets/EInvoiceQRExtractor.dart'; // COMMENTED OUT: Used for QR processing
 import 'package:zydus_vistaar/widgets/PdfPreviewScreen.dart'; // existing File-based preview
@@ -1003,7 +1005,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
           ? 'PDF - Backend will process'
           : isImage
               ? 'Image - Backend will process'
-              : 'ZIP archive — backend will unpack and process';
+              : 'ZIP archive — extracted and uploaded to cloud storage';
 
       final newDoc = DocumentInfo(
         file: originalFile,
@@ -1027,7 +1029,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
           SnackBar(
             content: Text(
               'ZIP archive selected: $fileName\n'
-              'Number of files will be processed after upload.',
+              'Files will be extracted and uploaded to cloud storage.',
             ),
             duration: const Duration(seconds: 3),
           ),
@@ -1273,404 +1275,56 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       final token = prefs.getString('authToken');
       final stockistIdStr = _selectedStockist!.id.trim();
 
-      // ── Chunked-upload guard ────────────────────────────────────────
-      // If any file in this batch exceeds the 500 MB single-shot ceiling
-      // (Apache LimitRequestBody / PHP post_max_size in practice), route
-      // the whole batch through the streamed chunked endpoint instead.
-      // ChunkedUploader uploads each file as <=500 MB chunks; the server
-      // reassembles and dispatches the SAME ProcessSplitAndExtractJob a
-      // one-shot upload would, so OCR behavior is identical.
-      bool anyBig = false;
-      for (final d in validDocs) {
-        final int s = d.file != null
-            ? await d.file!.length()
-            : (d.webBytes?.length ?? 0);
-        if (s > kChunkSizeBytes) {
-          anyBig = true;
-          break;
+      // Every file: expand ZIPs client-side, then upload direct to Azure Blob.
+      final pickItems = validDocs
+          .map(
+            (d) => PodUploadItem(
+              fileName: d.displayName,
+              file: d.file,
+              bytes: d.webBytes,
+            ),
+          )
+          .toList();
+
+      List<PodUploadItem> uploadItems;
+      try {
+        if (pickItems.any((i) => PodZipExpander.isZipName(i.fileName))) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Extracting ZIP archive…'),
+                duration: Duration(seconds: 4),
+              ),
+            );
+          }
         }
-      }
-      if (anyBig) {
-        await _performChunkedUpload(validDocs, stockistIdStr, token);
+        uploadItems = await PodZipExpander.expandItems(pickItems);
+      } on PodZipExpandException catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(e.message), backgroundColor: Colors.red),
+          );
+        }
         return;
       }
 
-      const int maxRetries = 4;
-
-      // Compute the upload timeout from the actual payload — `req.send()`
-      // covers TCP connect + TLS + ALL multipart bytes + first response
-      // byte, so a flat 45s timed out on slow links the moment the user
-      // queued more than a few PDFs. Formula:
-      //   base 60s + 20s per file + 1s per 50 KB total, capped at 12 min.
-      int totalBytesEstimate = 0;
-      for (final d in validDocs) {
-        try {
-          if (d.file != null) {
-            totalBytesEstimate += await d.file!.length();
-          } else if (d.webBytes != null) {
-            totalBytesEstimate += d.webBytes!.length;
-          }
-        } catch (_) {
-          // best-effort; missing size doesn't break the timeout calc
+      if (uploadItems.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No PDF or image files to upload.'),
+              backgroundColor: Colors.red,
+            ),
+          );
         }
-      }
-      final int dynamicSendSeconds = (60
-              + (validDocs.length * 20)
-              + (totalBytesEstimate / 50000).ceil())
-          .clamp(120, 12 * 60);
-      final Duration connectTimeout = Duration(seconds: dynamicSendSeconds);
-      const Duration responseTimeout = Duration(minutes: 5);
-      debugPrint(
-        '[UPLOAD] Computed send timeout: ${connectTimeout.inSeconds}s '
-        '(files: ${validDocs.length}, ~${(totalBytesEstimate / 1024).toStringAsFixed(0)} KB)',
-      );
-
-      // The default endpoint runs an external split-pdf pipeline and rejects
-      // anything other than application/pdf. If the batch contains any image
-      // (JPG/JPEG/PNG/etc.), route to the image-friendly endpoint so it
-      // doesn't get rejected by the server's `extensions:pdf` validation.
-      // ZIPs always go to Multi_Api_POD_UPLOAD_URL because only that
-      // endpoint (split-file-processor/process) has server-side ZIP
-      // unpacking — it then feeds each entry through the same pipeline.
-      final bool hasZip = validDocs.any(
-        (d) => p.extension(d.displayName).toLowerCase() == '.zip',
-      );
-      final bool hasNonPdfNonZip = validDocs.any(
-        (d) {
-          final ext = p.extension(d.displayName).toLowerCase();
-          return ext != '.pdf' && ext != '.zip';
-        },
-      );
-      final String uploadUrl = (!hasZip && hasNonPdfNonZip)
-          ? Multi_Api_POD_UPLOAD_URL_IMAGES
-          : Multi_Api_POD_UPLOAD_URL;
-      final uri = Uri.parse(uploadUrl);
-
-      // Validate URL
-      if (!uri.isAbsolute) {
-        throw Exception(
-          'Invalid API URL: $uploadUrl\n'
-          'URL must be absolute (start with http/https)',
-        );
+        return;
       }
 
-      debugPrint(
-        '[UPLOAD] API Endpoint: $uploadUrl '
-        '(hasZip=$hasZip hasNonPdfNonZip=$hasNonPdfNonZip)',
+      await _performDirectBlobUploadItems(
+        uploadItems,
+        stockistIdStr,
+        token,
       );
-
-      for (int attempt = 0; attempt < maxRetries; attempt++) {
-        try {
-          debugPrint(
-            '[UPLOAD] Attempt ${attempt + 1}/$maxRetries: sending ${validDocs.length} file(s)',
-          );
-
-          final req = http.MultipartRequest('POST', uri);
-
-          // Attach files
-          for (final d in validDocs) {
-            if (d.file != null) {
-              // Mobile/desktop: use file path
-              final filename = p.basename(d.file!.path);
-              final contentType = _inferContentTypeFile(d.file!);
-              req.files.add(
-                await http.MultipartFile.fromPath(
-                  'files[]',
-                  d.file!.path,
-                  filename: filename,
-                  contentType: contentType,
-                ),
-              );
-            } else if (d.webBytes != null) {
-              // Web: use bytes
-              final filename = d.displayName;
-              final contentType = _inferContentTypeByName(filename);
-              req.files.add(
-                await _multipartFromBytes(
-                  fieldName: 'files[]',
-                  filename: filename,
-                  bytes: d.webBytes!,
-                  contentType: contentType,
-                ),
-              );
-            }
-          }
-
-          // Attach original raw files if documents were split
-          final Set<String> rawFilePaths = {};
-          for (final d in validDocs) {
-            if (d.originalRawFile != null &&
-                await d.originalRawFile!.exists()) {
-              rawFilePaths.add(d.originalRawFile!.path);
-            }
-          }
-          for (final rawFilePath in rawFilePaths) {
-            final rawFile = File(rawFilePath);
-            final filename = p.basename(rawFile.path);
-            final contentType = _inferContentTypeFile(rawFile);
-            req.files.add(
-              await http.MultipartFile.fromPath(
-                'raw_file',
-                rawFile.path,
-                filename: filename,
-                contentType: contentType,
-              ),
-            );
-            debugPrint('[UPLOAD] Attached original raw file: $filename');
-          }
-
-          if (token != null) {
-            req.headers['Authorization'] = 'Bearer $token';
-          }
-
-          // Force fresh connection to reduce stale keep-alive socket aborts.
-          req.headers['Connection'] = 'close';
-
-          final phpStyleJson = _buildPhpStyleJson(validDocs);
-          req.fields['file_einvoice_sequence'] = phpStyleJson;
-          req.fields['doc_type'] = 'POD';
-          req.fields['document_count'] = validDocs.length.toString();
-          req.fields['multi_page'] = (validDocs.length > 1).toString();
-          req.fields['ocr_enhanced'] = 'true';
-          req.fields['dpi'] = '300';
-          req.fields['stockist_id'] = stockistIdStr;
-          req.fields['stockistId'] = stockistIdStr;
-
-          debugPrint('[UPLOAD] ======================');
-          debugPrint('[UPLOAD] Request ready to send:');
-          debugPrint('[UPLOAD]   Files: ${req.files.length}');
-          debugPrint('[UPLOAD]   Fields: ${req.fields.keys.join(", ")}');
-          debugPrint(
-            '[UPLOAD]   Has auth token: ${token != null && token.isNotEmpty}',
-          );
-          debugPrint('[UPLOAD] ======================');
-
-          // Long-running upload: keep the user informed while the bytes
-          // travel. Without this the screen looks frozen on slow links.
-          ScaffoldMessengerState? messenger;
-          if (mounted) {
-            messenger = ScaffoldMessenger.of(context);
-            messenger.hideCurrentSnackBar();
-            messenger.showSnackBar(
-              SnackBar(
-                content: Row(
-                  children: [
-                    const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation(Colors.white),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        hasZip
-                            ? 'Uploading ZIP… '
-                              'attempt ${attempt + 1}/$maxRetries'
-                            : 'Uploading ${validDocs.length} POD(s)… '
-                              'attempt ${attempt + 1}/$maxRetries',
-                      ),
-                    ),
-                  ],
-                ),
-                duration: connectTimeout, // visible for the whole window
-              ),
-            );
-          }
-
-          final resp = await req.send().timeout(connectTimeout);
-          final responseBody = await resp.stream.bytesToString().timeout(
-            responseTimeout,
-          );
-
-          if (messenger != null) {
-            messenger.hideCurrentSnackBar();
-          }
-
-          debugPrint('[UPLOAD] Response Status: ${resp.statusCode}');
-          debugPrint('[UPLOAD] Response Headers: ${resp.headers}');
-          debugPrint(
-            '[UPLOAD] Response Body (first 500 chars): ${responseBody.substring(0, math.min(500, responseBody.length))}',
-          );
-
-          // Check if response is HTML (error page) instead of JSON
-          if (responseBody.trim().startsWith('<') ||
-              responseBody.trim().startsWith('<!')) {
-            String errorMsg =
-                'Server returned an error page. This may indicate:\n'
-                '• CORS issues\n'
-                '• Server error or service unavailable\n'
-                '• Network redirect';
-
-            if (responseBody.contains('error')) {
-              final regex = RegExp(
-                r'<[^>]*>([^<]*error[^<]*)<[^>]*>',
-                caseSensitive: false,
-              );
-              final match = regex.firstMatch(responseBody);
-              if (match != null) {
-                errorMsg = match.group(1)?.trim() ?? errorMsg;
-              }
-            }
-
-            debugPrint('[UPLOAD] HTML Error Response detected');
-
-            // HTML errors from 5xx are retryable
-            if (_isRetryableUploadStatus(resp.statusCode) &&
-                attempt < maxRetries - 1) {
-              final wait = _uploadRetryDelay(attempt);
-              debugPrint('[UPLOAD] Retrying after HTML error response...');
-              await Future.delayed(wait);
-              continue;
-            }
-
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Upload failed: $errorMsg\n\nPlease check your internet connection.',
-                  ),
-                  backgroundColor: Colors.red,
-                  duration: const Duration(seconds: 5),
-                ),
-              );
-            }
-            return;
-          }
-
-          if (resp.statusCode == 201) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    '✅ Uploaded ${validDocs.length} POD document(s) successfully. Data generated.',
-                  ),
-                  backgroundColor: Colors.green,
-                ),
-              );
-            }
-
-            setState(() {
-              _capturedDocuments.clear();
-            });
-
-            if (mounted) {
-              Navigator.pop(context);
-            }
-            return;
-          }
-
-          if (resp.statusCode == 202) {
-            try {
-              final responseData = jsonDecode(responseBody);
-
-              if (mounted) {
-                Navigator.pushReplacementNamed(
-                  context,
-                  AppRoutes.uploadStatus,
-                  arguments: {
-                    'uploadData': responseData,
-                    'totalFiles': validDocs.length,
-                  },
-                );
-              }
-            } catch (e) {
-              debugPrint('Error parsing 202 response: $e');
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      '✅ Uploaded ${validDocs.length} POD document(s). Background processing initiated.',
-                    ),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              }
-              setState(() {
-                _capturedDocuments.clear();
-              });
-              if (mounted) {
-                Navigator.pop(context);
-              }
-            }
-            return;
-          }
-
-          if (_isRetryableUploadStatus(resp.statusCode) &&
-              attempt < maxRetries - 1) {
-            final wait = _uploadRetryDelay(attempt);
-            debugPrint(
-              '[UPLOAD] Retryable HTTP ${resp.statusCode}. Retrying in ${wait.inSeconds}s',
-            );
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Server is busy (HTTP ${resp.statusCode}). Retrying ${attempt + 2}/$maxRetries...',
-                  ),
-                  duration: const Duration(seconds: 2),
-                ),
-              );
-            }
-            await Future.delayed(wait);
-            continue;
-          }
-
-          // Non-retryable HTTP error — parse and surface the message
-          String errorMessage = 'Unknown error';
-          try {
-            final errorData = jsonDecode(responseBody);
-            errorMessage =
-                errorData['error'] ??
-                errorData['message'] ??
-                errorData['detail'] ??
-                'Server error (${resp.statusCode})';
-          } catch (_) {
-            errorMessage =
-                responseBody.isNotEmpty
-                    ? responseBody.length > 200
-                        ? '${responseBody.substring(0, 200)}...'
-                        : responseBody
-                    : 'Server error (${resp.statusCode})';
-          }
-
-          debugPrint('POD upload failed: ${resp.statusCode} - $errorMessage');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('POD upload failed: $errorMessage'),
-                backgroundColor: Colors.red,
-                duration: const Duration(seconds: 4),
-              ),
-            );
-          }
-          return;
-        } catch (e) {
-          final canRetry =
-              _isRetryableUploadError(e) && attempt < maxRetries - 1;
-          debugPrint('[UPLOAD] Attempt ${attempt + 1} error: $e');
-
-          if (canRetry) {
-            final wait = _uploadRetryDelay(attempt);
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Network issue while uploading. Retrying ${attempt + 2}/$maxRetries...',
-                  ),
-                  duration: const Duration(seconds: 2),
-                ),
-              );
-            }
-            await Future.delayed(wait);
-            continue;
-          }
-
-          rethrow;
-        }
-      }
     } catch (e) {
       debugPrint('Upload error: $e');
 
@@ -1727,6 +1381,160 @@ class _PODUploadScreenState extends State<PODUploadScreen>
     return Duration(seconds: ladder[idx]);
   }
 
+  /// Direct Azure Blob upload for every POD file (PDF / image).
+  /// Flutter uploads to Azure; Laravel only verifies and queues OCR.
+  Future<void> _performDirectBlobUploadItems(
+    List<PodUploadItem> uploadItems,
+    String stockistIdStr,
+    String? authToken,
+  ) async {
+    if (authToken == null || authToken.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Not signed in — please log in and retry.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    final Map<String, dynamic> baseContext = {
+      'stockist_id': int.tryParse(stockistIdStr) ?? stockistIdStr,
+    };
+
+    int? lastBatchDbId;
+    String? lastExternalBatchId;
+    ScaffoldMessengerState? messenger;
+    if (mounted) messenger = ScaffoldMessenger.of(context);
+
+    for (int i = 0; i < uploadItems.length; i++) {
+      final item = uploadItems[i];
+      final fileLabel = item.fileName;
+      final int totalFilesInBatch = uploadItems.length;
+
+      void showProgress(BlobUploadProgress p) {
+        if (!mounted) return;
+        if (p.stage == 'done') {
+          messenger?.clearSnackBars();
+          return;
+        }
+        final pct = p.stage == 'finalizing'
+            ? '…'
+            : p.percent.toStringAsFixed(0);
+        final etaSec = p.estimatedRemaining?.inSeconds;
+        final etaTxt = etaSec == null || etaSec <= 0
+            ? ''
+            : ' — ~${etaSec}s left';
+        final stageLine = switch (p.stage) {
+          'preparing' => 'Preparing Azure upload…',
+          'uploading' => 'Uploading to cloud storage…',
+          'finalizing' => 'Finalizing on server…',
+          'done' => 'Complete',
+          _ => 'Uploading…',
+        };
+        messenger?.hideCurrentSnackBar();
+        messenger?.showSnackBar(SnackBar(
+          content: Row(
+            children: [
+              const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation(Colors.white),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Uploading $fileLabel '
+                  '(file ${i + 1}/$totalFilesInBatch)\n'
+                  '$stageLine — $pct%$etaTxt',
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          duration: const Duration(minutes: 60),
+        ));
+      }
+
+      final uploader = BlobDirectUploader(
+        authToken: authToken,
+        context: baseContext,
+        onProgress: showProgress,
+      );
+
+      BlobUploadResult result;
+      try {
+        if (item.file != null) {
+          result = await uploader.upload(item.file!);
+        } else if (item.bytes != null) {
+          result = await uploader.uploadBytes(
+            fileName: fileLabel,
+            bytes: item.bytes!,
+          );
+        } else {
+          continue;
+        }
+      } catch (e) {
+        if (mounted) {
+          messenger?.hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Blob upload error: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      if (!result.success) {
+        if (mounted) {
+          messenger?.hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Upload failed: ${result.message ?? result.error ?? "Unknown error"}',
+              ),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      lastBatchDbId = result.podUploadBatchId;
+      lastExternalBatchId = result.externalBatchId;
+    }
+
+    if (mounted) messenger?.clearSnackBars();
+
+    if (lastBatchDbId != null && mounted) {
+      Navigator.pushReplacementNamed(
+        context,
+        AppRoutes.uploadStatus,
+        arguments: {
+          'uploadData': {
+            'success': true,
+            'data': {
+              'batch_id': lastExternalBatchId ?? lastBatchDbId.toString(),
+              'batch_db_id': lastBatchDbId,
+            },
+          },
+          'totalFiles': uploadItems.length,
+        },
+      );
+      setState(() {
+        _capturedDocuments.clear();
+      });
+    }
+  }
+
   /// Streamed-chunk upload path for files larger than the 500 MB single-shot
   /// ceiling. Each file in [validDocs] is uploaded individually via
   /// ChunkedUploader — small files use a single chunk, large ones split
@@ -1766,7 +1574,13 @@ class _PODUploadScreenState extends State<PODUploadScreen>
 
       void showProgress(ChunkUploadProgress p) {
         if (!mounted) return;
-        final pct = p.percent.toStringAsFixed(0);
+        if (p.stage == 'done') {
+          messenger?.clearSnackBars();
+          return;
+        }
+        final pct = p.stage == 'finalizing'
+            ? '…'
+            : p.percent.toStringAsFixed(0);
         final etaSec = p.estimatedRemaining?.inSeconds;
         final etaTxt = etaSec == null || etaSec <= 0
             ? ''
@@ -1862,32 +1676,24 @@ class _PODUploadScreenState extends State<PODUploadScreen>
     }
 
     if (mounted) {
-      messenger?.hideCurrentSnackBar();
+      messenger?.clearSnackBars();
     }
 
-    if (lastBatchDbId != null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Upload complete — processing on server.'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        Navigator.pushReplacementNamed(
-          context,
-          AppRoutes.uploadStatus,
-          arguments: {
-            'uploadData': {
-              'success': true,
-              'data': {
-                'batch_id': lastExternalBatchId ?? lastBatchDbId.toString(),
-                'batch_db_id': lastBatchDbId,
-              },
+    if (lastBatchDbId != null && mounted) {
+      Navigator.pushReplacementNamed(
+        context,
+        AppRoutes.uploadStatus,
+        arguments: {
+          'uploadData': {
+            'success': true,
+            'data': {
+              'batch_id': lastExternalBatchId ?? lastBatchDbId.toString(),
+              'batch_db_id': lastBatchDbId,
             },
-            'totalFiles': validDocs.length,
           },
-        );
-      }
+          'totalFiles': validDocs.length,
+        },
+      );
       setState(() {
         _capturedDocuments.clear();
       });

@@ -16,6 +16,12 @@ const String Multi_Api_POD_UPLOAD_URL =
 const String Multi_Api_POD_UPLOAD_URL_IMAGES =
     "${API_BASE_URL}pod/upload-multi-allow-images";
 
+/// Direct Azure Blob upload for large PDFs (Flutter → Blob → split-pdf).
+const String API_BLOB_UPLOAD_INIT_URL =
+    "${API_BASE_URL}split-file-processor/blob-upload/init";
+const String API_BLOB_UPLOAD_COMPLETE_URL =
+    "${API_BASE_URL}split-file-processor/blob-upload/complete";
+
 const String API_GRNS_URL = "${API_BASE_URL}grns";
 const String API_EINV_JSON_URL = "${API_BASE_URL}einv/json";
 const String API_STOCKISTS_URL = "${API_BASE_URL}stockists";

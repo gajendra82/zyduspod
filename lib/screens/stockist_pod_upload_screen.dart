@@ -13,6 +13,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zydus_vistaar/config.dart';
 import 'package:zydus_vistaar/routes.dart';
 import 'package:zydus_vistaar/services/ChunkedUploader.dart';
+import 'package:zydus_vistaar/services/BlobDirectUploader.dart';
+import 'package:zydus_vistaar/services/PodZipExpander.dart';
 import 'package:zydus_vistaar/widgets/modern_ui_components.dart';
 
 /// Dedicated POD upload screen for stockist logins.
@@ -267,243 +269,52 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
     }
 
     setState(() => _uploading = true);
-
-    // ── Chunked-upload guard ────────────────────────────────────────────
-    // If any file in the batch exceeds the 500 MB single-shot ceiling,
-    // route the entire batch through the streamed chunked endpoint.
-    final bool anyBig = _files.any((f) => f.sizeBytes > kChunkSizeBytes);
-    if (anyBig) {
-      try {
-        await _performChunkedUpload();
-      } finally {
-        if (mounted) setState(() => _uploading = false);
-      }
-      return;
-    }
-
-    // Compute a payload-aware timeout: req.send() must cover connect + TLS
-    // + ALL multipart bytes + first response byte, so a flat 5-min worked
-    // for tiny uploads but timed out on slow links once the user batched
-    // many PDFs.
-    int totalBytes = 0;
-    for (final f in _files) {
-      totalBytes += f.sizeBytes;
-    }
-    final int sendSeconds = (60
-            + (_files.length * 20)
-            + (totalBytes / 50000).ceil())
-        .clamp(120, 12 * 60);
-    final Duration sendTimeout = Duration(seconds: sendSeconds);
-    const int maxRetries = 4;
-    const ladder = [4, 8, 16, 30];
-
-    http.Response? finalResp;
-    Object? lastError;
-
     try {
-      final token = await _authToken();
-      final uri = Uri.parse(Multi_Api_POD_UPLOAD_URL);
+      final pickItems = _files
+          .map(
+            (f) => PodUploadItem(
+              fileName: f.name,
+              file: f.file,
+              bytes: f.bytes != null ? Uint8List.fromList(f.bytes!) : null,
+            ),
+          )
+          .toList();
 
-      for (int attempt = 0; attempt < maxRetries; attempt++) {
-        try {
-          // Build a fresh request per attempt — http.MultipartFile streams
-          // can only be read once, so reuse across retries doesn't work.
-          final req = http.MultipartRequest('POST', uri);
-          if (token != null) req.headers['Authorization'] = 'Bearer $token';
-          req.headers['Connection'] = 'close';
-
-          // Always send our stockist_id explicitly even though the backend
-          // will auto-resolve it — keeps the request self-describing.
-          if (_stockistId != null) {
-            req.fields['stockist_id'] = _stockistId.toString();
-          }
-          if (_selectedHospital != null) {
-            req.fields['hospital_id'] = _selectedHospital!.id.toString();
-          }
-          var i = 0;
-          for (final invoiceId in _selectedInvoiceIds) {
-            req.fields['sales_statement_ids[$i]'] = invoiceId.toString();
-            i++;
-          }
-          req.fields['document_count'] = _files.length.toString();
-          req.fields['multi_page'] = (_files.length > 1).toString();
-
-          for (final f in _files) {
-            // Derive the correct Content-Type from the file extension so
-            // ZIP archives and images aren't sent under application/pdf
-            // (the server validates by sniffing content too, but a wrong
-            // Content-Type header makes debugging painful).
-            final mt = _mediaTypeForName(f.name);
-            if (f.file != null) {
-              req.files.add(await http.MultipartFile.fromPath(
-                'files[]',
-                f.file!.path,
-                filename: f.name,
-                contentType: mt,
-              ));
-            } else if (f.bytes != null) {
-              req.files.add(http.MultipartFile.fromBytes(
-                'files[]',
-                f.bytes!,
-                filename: f.name,
-                contentType: mt,
-              ));
-            }
-          }
-
-          // Long upload visibility — keep the user informed.
-          ScaffoldMessengerState? messenger;
+      List<PodUploadItem> uploadItems;
+      try {
+        if (pickItems.any((i) => PodZipExpander.isZipName(i.fileName))) {
           if (mounted) {
-            messenger = ScaffoldMessenger.of(context);
-            messenger.hideCurrentSnackBar();
-            messenger.showSnackBar(
-              SnackBar(
-                content: Row(
-                  children: [
-                    const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation(Colors.white),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        _hasZipPicked()
-                            ? 'Uploading ZIP… '
-                              'attempt ${attempt + 1}/$maxRetries'
-                            : 'Uploading ${_files.length} POD(s)… '
-                              'attempt ${attempt + 1}/$maxRetries',
-                      ),
-                    ),
-                  ],
-                ),
-                duration: sendTimeout,
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Extracting ZIP archive…'),
+                duration: Duration(seconds: 4),
               ),
             );
           }
-
-          final streamed = await req.send().timeout(sendTimeout);
-          final resp = await http.Response.fromStream(streamed);
-          messenger?.hideCurrentSnackBar();
-          finalResp = resp;
-          // Only retry on retryable HTTP statuses (5xx / 408 / 429); 4xx
-          // and 2xx exit the loop.
-          if (resp.statusCode == 408 ||
-              resp.statusCode == 429 ||
-              resp.statusCode >= 500) {
-            if (attempt < maxRetries - 1) {
-              final wait = Duration(
-                seconds: ladder[attempt.clamp(0, ladder.length - 1)],
-              );
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'Server is busy (HTTP ${resp.statusCode}). Retrying in ${wait.inSeconds}s…',
-                    ),
-                    duration: const Duration(seconds: 2),
-                  ),
-                );
-              }
-              await Future.delayed(wait);
-              continue;
-            }
-          }
-          break;
-        } on TimeoutException catch (e) {
-          lastError = e;
-          if (attempt < maxRetries - 1) {
-            final wait = Duration(
-              seconds: ladder[attempt.clamp(0, ladder.length - 1)],
-            );
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Upload timed out. Retrying in ${wait.inSeconds}s…',
-                  ),
-                  duration: const Duration(seconds: 2),
-                ),
-              );
-            }
-            await Future.delayed(wait);
-            continue;
-          }
-          rethrow;
-        } catch (e) {
-          lastError = e;
-          // SocketException, ClientException → retryable network errors.
-          final s = e.toString().toLowerCase();
-          final retryable = e is SocketException
-              || s.contains('socketexception')
-              || s.contains('connection abort')
-              || s.contains('connection reset')
-              || s.contains('timed out')
-              || s.contains('connection closed');
-          if (retryable && attempt < maxRetries - 1) {
-            final wait = Duration(
-              seconds: ladder[attempt.clamp(0, ladder.length - 1)],
-            );
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Network issue while uploading. Retrying in ${wait.inSeconds}s…',
-                  ),
-                  duration: const Duration(seconds: 2),
-                ),
-              );
-            }
-            await Future.delayed(wait);
-            continue;
-          }
-          rethrow;
         }
-      }
-
-      if (finalResp == null) {
-        throw lastError ?? Exception('Upload failed without a response.');
-      }
-      final resp = finalResp;
-
-      if (!mounted) return;
-      if (resp.statusCode >= 200 && resp.statusCode < 300) {
-        final body = jsonDecode(resp.body);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '✅ Uploaded ${_files.length} POD(s). Background processing started.',
-            ),
-            backgroundColor: Colors.green,
-          ),
-        );
-        setState(() {
-          _files.clear();
-          _selectedInvoiceIds.clear();
-        });
-
-        // Reuse the existing upload-status screen so the user sees the same
-        // progress UI the KAM flow uses.
-        if (body is Map<String, dynamic>) {
-          Navigator.of(context).pushNamed(
-            AppRoutes.uploadStatus,
-            arguments: {
-              'uploadData': body,
-              'totalFiles': (body['data']?['total_files'] as num?)?.toInt() ?? 0,
-            },
+        uploadItems = await PodZipExpander.expandItems(pickItems);
+      } on PodZipExpandException catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(e.message), backgroundColor: Colors.red),
           );
         }
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Upload failed: ${resp.statusCode} ${resp.body}'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        return;
       }
+
+      if (uploadItems.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No PDF or image files to upload.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      await _performDirectBlobUpload(uploadItems);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -844,6 +655,162 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
 
   // ── Helpers ───────────────────────────────────────────────────────────
 
+  /// Direct Azure Blob upload for every POD file (PDF / image).
+  Future<void> _performDirectBlobUpload(List<PodUploadItem> uploadItems) async {
+    final token = await _authToken();
+    if (token == null || token.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Not signed in — please log in and retry.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final Map<String, dynamic> baseContext = {};
+    if (_stockistId != null) {
+      baseContext['stockist_id'] = _stockistId;
+    }
+    if (_selectedHospital != null) {
+      baseContext['hospital_id'] = _selectedHospital!.id;
+    }
+    if (_selectedInvoiceIds.isNotEmpty) {
+      baseContext['sales_statement_ids'] =
+          _selectedInvoiceIds.map((id) => id).toList();
+    }
+
+    int? lastBatchDbId;
+    String? lastExternalBatchId;
+    ScaffoldMessengerState? messenger;
+    if (mounted) messenger = ScaffoldMessenger.of(context);
+
+    for (int idx = 0; idx < uploadItems.length; idx++) {
+      final item = uploadItems[idx];
+      final fileLabel = item.fileName;
+      final int totalFilesInBatch = uploadItems.length;
+
+      void showProgress(BlobUploadProgress p) {
+        if (!mounted) return;
+        if (p.stage == 'done') {
+          messenger?.clearSnackBars();
+          return;
+        }
+        final pct = p.stage == 'finalizing'
+            ? '…'
+            : p.percent.toStringAsFixed(0);
+        final etaSec = p.estimatedRemaining?.inSeconds;
+        final etaTxt = etaSec == null || etaSec <= 0 ? '' : ' — ~${etaSec}s left';
+        final stageLine = switch (p.stage) {
+          'preparing' => 'Preparing Azure upload…',
+          'uploading' => 'Uploading to cloud storage…',
+          'finalizing' => 'Finalizing on server…',
+          'done' => 'Complete',
+          _ => 'Uploading…',
+        };
+        messenger?.hideCurrentSnackBar();
+        messenger?.showSnackBar(SnackBar(
+          content: Row(
+            children: [
+              const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation(Colors.white),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Uploading $fileLabel '
+                  '(file ${idx + 1}/$totalFilesInBatch)\n'
+                  '$stageLine — $pct%$etaTxt',
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          duration: const Duration(minutes: 60),
+        ));
+      }
+
+      final uploader = BlobDirectUploader(
+        authToken: token,
+        context: baseContext,
+        onProgress: showProgress,
+      );
+
+      BlobUploadResult result;
+      try {
+        if (item.file != null) {
+          result = await uploader.upload(item.file!);
+        } else if (item.bytes != null) {
+          result = await uploader.uploadBytes(
+            fileName: fileLabel,
+            bytes: item.bytes!,
+          );
+        } else {
+          continue;
+        }
+      } catch (e) {
+        if (mounted) {
+          messenger?.hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Blob upload error: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      if (!result.success) {
+        if (mounted) {
+          messenger?.hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Upload failed: ${result.message ?? result.error ?? "Unknown error"}',
+              ),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      lastBatchDbId = result.podUploadBatchId;
+      lastExternalBatchId = result.externalBatchId;
+    }
+
+    if (mounted) messenger?.clearSnackBars();
+
+    if (lastBatchDbId != null && mounted) {
+      Navigator.pushReplacementNamed(
+        context,
+        AppRoutes.uploadStatus,
+        arguments: {
+          'uploadData': {
+            'success': true,
+            'data': {
+              'batch_id': lastExternalBatchId ?? lastBatchDbId.toString(),
+              'batch_db_id': lastBatchDbId,
+            },
+          },
+          'totalFiles': uploadItems.length,
+        },
+      );
+      setState(() {
+        _files.clear();
+        _selectedInvoiceIds.clear();
+      });
+    }
+  }
+
   /// Streamed chunked upload for batches that contain any file > 500 MB.
   /// Each picked file is uploaded individually via ChunkedUploader; the
   /// server reassembles and dispatches the SAME OCR pipeline a one-shot
@@ -886,7 +853,13 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
 
       void showProgress(ChunkUploadProgress p) {
         if (!mounted) return;
-        final pct = p.percent.toStringAsFixed(0);
+        if (p.stage == 'done') {
+          messenger?.clearSnackBars();
+          return;
+        }
+        final pct = p.stage == 'finalizing'
+            ? '…'
+            : p.percent.toStringAsFixed(0);
         final etaSec = p.estimatedRemaining?.inSeconds;
         final etaTxt = etaSec == null || etaSec <= 0 ? '' : ' — ~${etaSec}s left';
         final stageLine = switch (p.stage) {
@@ -982,13 +955,7 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
     }
 
     if (mounted) {
-      messenger?.hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Upload complete — processing on server.'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      messenger?.clearSnackBars();
       if (lastBatchDbId != null) {
         Navigator.pushReplacementNamed(
           context,

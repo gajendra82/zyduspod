@@ -55,12 +55,16 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
 
     _pollStartedAt = DateTime.now();
     _pollTimer = Timer.periodic(_pollInterval, (_) => _pollStatus());
-    WidgetsBinding.instance.addPostFrameCallback((_) => _pollStatus());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ScaffoldMessenger.of(context).clearSnackBars();
+      _pollStatus();
+    });
   }
 
   @override
   void dispose() {
     _pollTimer?.cancel();
+    ScaffoldMessenger.maybeOf(context)?.clearSnackBars();
     super.dispose();
   }
 
@@ -186,6 +190,7 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
       if (newStatus == 'completed') {
         _pollTimer?.cancel();
         if (!mounted) return;
+        ScaffoldMessenger.of(context).clearSnackBars();
         setState(() {
           // Use the backend-supplied terminal label when present (e.g.
           // "no_new_pods" for all-duplicate batches); otherwise advertise
@@ -196,6 +201,7 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
         });
       } else if (newStatus == 'failed') {
         _pollTimer?.cancel();
+        if (mounted) ScaffoldMessenger.of(context).clearSnackBars();
       }
     } on TimeoutException {
       // ignore; next tick will retry
