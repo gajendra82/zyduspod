@@ -889,6 +889,18 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
         final pct = p.percent.toStringAsFixed(0);
         final etaSec = p.estimatedRemaining?.inSeconds;
         final etaTxt = etaSec == null || etaSec <= 0 ? '' : ' — ~${etaSec}s left';
+        final stageLine = switch (p.stage) {
+          'preparing' => 'Preparing…',
+          'sending' =>
+            'Sending ~${(kChunkSizeBytes / (1024 * 1024)).round()} MB to server (chunk ${p.chunkIndex} of ${p.totalChunks})',
+          'finalizing' => 'Finalizing on server…',
+          'done' => 'Complete',
+          _ => 'Uploading chunk ${p.chunkIndex} of ${p.totalChunks}',
+        };
+        final slowHint = (p.stage == 'uploading' || p.stage == 'sending') &&
+                p.percent < 1
+            ? '\nFirst chunk can take 5–20 min — keep app open'
+            : '';
         messenger?.hideCurrentSnackBar();
         messenger?.showSnackBar(SnackBar(
           content: Row(
@@ -906,8 +918,8 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
                 child: Text(
                   'Uploading $fileLabel '
                   '(file ${idx + 1}/$totalFilesInBatch)\n'
-                  'Chunk ${p.chunkIndex} of ${p.totalChunks} — $pct%$etaTxt',
-                  maxLines: 2,
+                  '$stageLine — $pct%$etaTxt$slowHint',
+                  maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),

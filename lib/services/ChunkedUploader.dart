@@ -107,7 +107,8 @@ class ChunkedUploader {
     this.onProgress,
     this.chunkSize = kChunkSizeBytes,
     this.maxRetriesPerChunk = 4,
-    this.chunkUploadTimeout = const Duration(minutes: 15),
+    // 500 MB over slow Wi‑Fi can exceed 15 min; allow up to 45 min per chunk.
+    this.chunkUploadTimeout = const Duration(minutes: 45),
   });
 
   Uri get _chunkUri => Uri.parse('${API_BASE_URL}split-file-processor/chunk');
@@ -179,8 +180,13 @@ class ChunkedUploader {
       fileName: fileName,
       fileSize: bytes.length,
       readChunk: (int start, int length) async {
+        // Zero-copy view into the picker's byte buffer. Using sublist() +
+        // Uint8List.fromList() here previously made TWO 500 MB copies per
+        // chunk on Web (~1 GB peak allocation just to prepare chunk 0
+        // out of a 1.17 GB file), causing V8/Chrome to stall before the
+        // chunk POST went out. sublistView is a view, not a copy.
         final end = (start + length).clamp(0, bytes.length);
-        return Uint8List.fromList(bytes.sublist(start, end));
+        return Uint8List.sublistView(bytes, start, end);
       },
     );
   }
@@ -254,19 +260,33 @@ class ChunkedUploader {
     uploadId ??= _generateUploadId();
     await _writeResumeId(fileName, uploadId);
 
+    final startedAt = DateTime.now();
+    int bytesUploadedSoFar = 0;
+    for (final idx in alreadyHave) {
+      final int startOffset = idx * chunkSize;
+      final int chunkLen = (idx == totalChunks - 1)
+          ? (fileSize - startOffset)
+          : chunkSize;
+      bytesUploadedSoFar += chunkLen;
+    }
+    if (bytesUploadedSoFar > fileSize) bytesUploadedSoFar = fileSize;
+
+    final int firstPendingChunk = () {
+      for (int i = 0; i < totalChunks; i++) {
+        if (!alreadyHave.contains(i)) return i + 1;
+      }
+      return totalChunks;
+    }();
+
     _emit(
       uploadId: uploadId,
-      chunkIndex: 0,
+      chunkIndex: firstPendingChunk,
       totalChunks: totalChunks,
-      bytesUploaded: 0,
+      bytesUploaded: bytesUploadedSoFar,
       totalBytes: fileSize,
       stage: 'preparing',
-      startedAt: DateTime.now(),
+      startedAt: startedAt,
     );
-
-    final startedAt = DateTime.now();
-    int bytesUploadedSoFar = alreadyHave.fold<int>(0, (acc, _) => acc + chunkSize);
-    if (bytesUploadedSoFar > fileSize) bytesUploadedSoFar = fileSize;
 
     ChunkUploadResult? lastResponse;
 
@@ -278,6 +298,18 @@ class ChunkedUploader {
       final int thisChunkSize = (i == totalChunks - 1)
           ? (fileSize - startOffset)
           : chunkSize;
+
+      // Emit before read/upload so the UI never sits on "Chunk 0 of N" while
+      // the first 500 MB chunk is being read and posted (can take many minutes).
+      _emit(
+        uploadId: uploadId,
+        chunkIndex: i + 1,
+        totalChunks: totalChunks,
+        bytesUploaded: bytesUploadedSoFar,
+        totalBytes: fileSize,
+        stage: 'uploading',
+        startedAt: startedAt,
+      );
 
       Uint8List chunkBytes;
       try {
@@ -299,6 +331,17 @@ class ChunkedUploader {
               'Chunk $i short-read: expected $thisChunkSize, got ${chunkBytes.length}.',
         );
       }
+
+      // File read done — now the slow part is POSTing up to 500 MB to the API.
+      _emit(
+        uploadId: uploadId,
+        chunkIndex: i + 1,
+        totalChunks: totalChunks,
+        bytesUploaded: bytesUploadedSoFar,
+        totalBytes: fileSize,
+        stage: 'sending',
+        startedAt: startedAt,
+      );
 
       ChunkUploadResult? attemptResult;
       Object? lastError;

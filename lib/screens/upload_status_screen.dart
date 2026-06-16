@@ -99,7 +99,42 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
           )
           .timeout(const Duration(seconds: 15));
 
-      if (resp.statusCode != 200) return;
+      if (resp.statusCode == 401 || resp.statusCode == 403) {
+        // Session expired or token missing — don't keep showing "PENDING".
+        _pollTimer?.cancel();
+        if (!mounted) return;
+        setState(() {
+          _status = 'failed';
+          _terminalResult = 'auth_required';
+          _terminalMessage =
+              'Session expired. Please log in again, then retry the upload.';
+        });
+        return;
+      }
+
+      if (resp.statusCode == 404) {
+        // Common when polling with the wrong key or before the batch row exists.
+        // Keep polling, but surface a hint after a short while so the UI doesn't
+        // look frozen forever.
+        if (_pollStartedAt != null &&
+            DateTime.now().difference(_pollStartedAt!) >
+                const Duration(seconds: 20)) {
+          if (!mounted) return;
+          setState(() {
+            _terminalMessage ??=
+                'Processing started but batch status is not available yet. If this stays for more than 1–2 minutes, ensure the server OCR worker is running.';
+          });
+        }
+        return;
+      }
+
+      if (resp.statusCode != 200) {
+        if (!mounted) return;
+        setState(() {
+          _terminalMessage = 'Server returned HTTP ${resp.statusCode}. Retrying…';
+        });
+        return;
+      }
 
       final decoded = jsonDecode(resp.body);
       if (decoded is! Map<String, dynamic>) return;
@@ -164,8 +199,13 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
       }
     } on TimeoutException {
       // ignore; next tick will retry
-    } catch (_) {
-      // ignore transient errors; polling continues
+    } catch (e) {
+      // If polling fails due to network/CORS issues, don't silently freeze.
+      if (!mounted) return;
+      setState(() {
+        _terminalMessage ??=
+            'Network error while polling. Check server URL/CORS and retrying…';
+      });
     }
   }
 
@@ -228,7 +268,11 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                _progressPercentage > 0 ? '$_progressPercentage%' : 'Starting…',
+                _progressPercentage > 0
+                    ? '$_progressPercentage%'
+                    : (_blocksTotal > 0
+                        ? 'Extracting blocks… (large files can take 10+ min)'
+                        : 'Server is preparing your file…'),
                 style: const TextStyle(fontSize: 12, color: Colors.black54),
               ),
               const SizedBox(height: 16),
@@ -284,7 +328,8 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
                     'Extraction complete. Hospital mapping is handled in the web portal.')
                 : (isCompleted
                     ? 'Finishing up…'
-                    : 'Background processing is running. This screen auto-updates.')));
+                    : (_terminalMessage ??
+                        'Background processing is running. This screen auto-updates.'))));
 
     return Card(
       elevation: 4,

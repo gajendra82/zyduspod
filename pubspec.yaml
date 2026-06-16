@@ -5,7 +5,7 @@ name: zydus_vistaar
 # iOS CFBundleDisplayName/CFBundleName.
 description: "Zydus Vistaar — Zydus Healthcare KAM CRM Platform."
 publish_to: "none"
-version: 1.0.26+36
+version: 1.0.27+37
 environment:
   sdk: ^3.7.0
 
