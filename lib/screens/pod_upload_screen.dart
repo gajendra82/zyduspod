@@ -25,6 +25,7 @@ import 'package:zydus_vistaar/GstInvoiceScanner.dart'; // COMMENTED OUT: Used fo
 import 'package:zydus_vistaar/Models/_SplitOut.dart';
 import 'package:zydus_vistaar/services/ChunkedUploader.dart';
 import 'package:zydus_vistaar/services/BlobDirectUploader.dart';
+import 'package:zydus_vistaar/services/PodZipPackager.dart';
 import 'package:zydus_vistaar/services/PodZipExpander.dart';
 import 'package:zydus_vistaar/services/PythonQRService.dart'; // COMMENTED OUT: Used for QR processing
 import 'package:zydus_vistaar/widgets/EInvoiceQRExtractor.dart'; // COMMENTED OUT: Used for QR processing
@@ -1286,20 +1287,24 @@ class _PODUploadScreenState extends State<PODUploadScreen>
           )
           .toList();
 
-      List<PodUploadItem> uploadItems;
+      // Package everything into one ZIP and upload once to Azure Blob.
+      // Laravel downloads, extracts, and processes files server-side.
+      PodUploadItem zipItem;
       try {
-        if (pickItems.any((i) => PodZipExpander.isZipName(i.fileName))) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Extracting ZIP archive…'),
-                duration: Duration(seconds: 4),
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                pickItems.length == 1 && PodZipExpander.isZipName(pickItems.first.fileName)
+                    ? 'Uploading ZIP to cloud storage…'
+                    : 'Packaging ${pickItems.length} file(s) into ZIP…',
               ),
-            );
-          }
+              duration: const Duration(seconds: 4),
+            ),
+          );
         }
-        uploadItems = await PodZipExpander.expandItems(pickItems);
-      } on PodZipExpandException catch (e) {
+        zipItem = await PodZipPackager.packageForUpload(pickItems);
+      } on PodZipPackException catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(e.message), backgroundColor: Colors.red),
@@ -1308,11 +1313,45 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         return;
       }
 
-      if (uploadItems.isEmpty) {
+      final uploader = BlobDirectUploader(
+        authToken: token ?? '',
+        context: {
+          'stockist_id': int.tryParse(stockistIdStr) ?? stockistIdStr,
+        },
+        onProgress: (p) {
+          if (!mounted) return;
+          if (p.stage == 'done') {
+            ScaffoldMessenger.of(context).clearSnackBars();
+            return;
+          }
+          final pct = p.stage == 'finalizing' ? '…' : p.percent.toStringAsFixed(0);
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Uploading ZIP to cloud… $pct%'),
+              duration: const Duration(minutes: 30),
+            ),
+          );
+        },
+      );
+
+      BlobUploadResult result;
+      try {
+        if (zipItem.file != null) {
+          result = await uploader.upload(zipItem.file!);
+        } else if (zipItem.bytes != null) {
+          result = await uploader.uploadBytes(
+            fileName: zipItem.fileName,
+            bytes: zipItem.bytes!,
+          );
+        } else {
+          throw Exception('ZIP item has no data');
+        }
+      } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('No PDF or image files to upload.'),
+            SnackBar(
+              content: Text('Blob upload error: $e'),
               backgroundColor: Colors.red,
             ),
           );
@@ -1320,11 +1359,43 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         return;
       }
 
-      await _performDirectBlobUploadItems(
-        uploadItems,
-        stockistIdStr,
-        token,
-      );
+      if (!result.success) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Upload failed: ${result.message ?? result.error ?? "Unknown error"}',
+              ),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        Navigator.pushReplacementNamed(
+          context,
+          AppRoutes.uploadStatus,
+          arguments: {
+            'uploadData': {
+              'success': true,
+              'data': {
+                'status': 'processing',
+                'batch_id': result.externalBatchId ?? result.batchId,
+                'batch_db_id': result.podUploadBatchId,
+              },
+            },
+            'totalFiles': pickItems.length,
+            'zipUpload': true,
+          },
+        );
+        setState(() {
+          _capturedDocuments.clear();
+        });
+      }
+      return;
     } catch (e) {
       debugPrint('Upload error: $e');
 

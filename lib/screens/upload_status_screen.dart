@@ -9,6 +9,7 @@ import 'package:zydus_vistaar/config.dart';
 // AppRoutes import dropped along with the in-app review navigation —
 // hospital mapping now happens on the web portal.
 // import 'package:zydus_vistaar/routes.dart';
+import 'package:zydus_vistaar/services/pod_background_upload_manager.dart';
 import 'package:zydus_vistaar/widgets/modern_ui_components.dart';
 
 class UploadStatusScreen extends StatefulWidget {
@@ -30,19 +31,26 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
   static const Duration _pollTimeout = Duration(minutes: 15);
 
   Timer? _pollTimer;
+  Timer? _bgUploadTimer;
   DateTime? _pollStartedAt;
   String _status = 'processing';
   int _progressPercentage = 0;
   int _blocksCompleted = 0;
   int _blocksTotal = 0;
+  int _blocksFailed = 0;
   int _invoicesProcessed = 0;
   String? _currentBlock;
   String _batchId = 'N/A';
   int? _batchDbId;
+  String? _backgroundUploadId;
   Map<String, dynamic> _steps = {};
   bool _navigatedToReview = false;
   String? _terminalResult; // e.g. 'no_new_pods'
   String? _terminalMessage;
+  String? _statusMessage;
+  // Keep for internal debugging only (do not surface to user).
+  // ignore: unused_field
+  int _consecutivePollFailures = 0;
 
   @override
   void initState() {
@@ -52,11 +60,14 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
     _batchId = (data?['batch_id'] ?? 'N/A').toString();
     _batchDbId = _coerceInt(data?['batch_db_id']) ?? _coerceInt(data?['id']);
     _status = (data?['status'] ?? 'processing').toString();
+    _backgroundUploadId = data?['background_upload_id']?.toString();
 
     _pollStartedAt = DateTime.now();
     _pollTimer = Timer.periodic(_pollInterval, (_) => _pollStatus());
+    _bgUploadTimer = Timer.periodic(const Duration(milliseconds: 500), (_) => _syncBackgroundUpload());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) ScaffoldMessenger.of(context).clearSnackBars();
+      _syncBackgroundUpload();
       _pollStatus();
     });
   }
@@ -64,8 +75,49 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _bgUploadTimer?.cancel();
     ScaffoldMessenger.maybeOf(context)?.clearSnackBars();
     super.dispose();
+  }
+
+  void _syncBackgroundUpload() {
+    if (_backgroundUploadId == null || _backgroundUploadId!.isEmpty) return;
+    final s = PodBackgroundUploadManager.instance.state.value;
+    if (s == null || s.uploadId != _backgroundUploadId) return;
+
+    if (!mounted) return;
+
+    // If upload produced batch ids, start polling the server.
+    if (_batchDbId == null && s.podUploadBatchId != null) {
+      setState(() {
+        _batchDbId = s.podUploadBatchId;
+        _batchId = s.externalBatchId ?? _batchId;
+        _status = 'processing';
+        _statusMessage = 'Upload complete. Processing on server…';
+      });
+      return;
+    }
+
+    // While still uploading to Azure, show local progress and avoid scary
+    // network/CORS messages (the status API isn't available yet).
+    if (_batchDbId == null && s.isRunning) {
+      final pct = s.percent;
+      final fileIdx = s.currentFileIndex <= 0 ? 1 : s.currentFileIndex;
+      final total = s.totalFiles <= 0 ? widget.totalFiles : s.totalFiles;
+      setState(() {
+        _status = 'uploading_to_cloud';
+        _progressPercentage = pct ?? 0;
+        _statusMessage =
+            '${s.message} (file $fileIdx/$total)${pct != null ? ' — $pct%' : ''}';
+      });
+    }
+
+    if (_batchDbId == null && !s.isRunning && s.errorMessage != null) {
+      setState(() {
+        _status = 'failed';
+        _terminalMessage = s.errorMessage;
+      });
+    }
   }
 
   int? _coerceInt(dynamic v) {
@@ -80,6 +132,11 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
     if (_pollStartedAt != null &&
         DateTime.now().difference(_pollStartedAt!) > _pollTimeout) {
       _pollTimer?.cancel();
+      if (!mounted) return;
+      setState(() {
+        _statusMessage =
+            'Processing your files. Large uploads may take a few minutes.';
+      });
       return;
     }
 
@@ -91,7 +148,9 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('authToken');
-      final uri = Uri.parse('${API_BASE_URL}pod/upload-background/$pollKey');
+      // `include_review=0` keeps the status API lightweight while processing
+      // (review payload can be expensive and cause timeouts).
+      final uri = Uri.parse('${API_BASE_URL}pod/upload-background/$pollKey?include_review=0');
 
       final resp = await http
           .get(
@@ -101,10 +160,9 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
               'Accept': 'application/json',
             },
           )
-          .timeout(const Duration(seconds: 15));
+          .timeout(const Duration(seconds: 30));
 
       if (resp.statusCode == 401 || resp.statusCode == 403) {
-        // Session expired or token missing — don't keep showing "PENDING".
         _pollTimer?.cancel();
         if (!mounted) return;
         setState(() {
@@ -117,31 +175,42 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
       }
 
       if (resp.statusCode == 404) {
-        // Common when polling with the wrong key or before the batch row exists.
-        // Keep polling, but surface a hint after a short while so the UI doesn't
-        // look frozen forever.
         if (_pollStartedAt != null &&
             DateTime.now().difference(_pollStartedAt!) >
                 const Duration(seconds: 20)) {
           if (!mounted) return;
           setState(() {
-            _terminalMessage ??=
-                'Processing started but batch status is not available yet. If this stays for more than 1–2 minutes, ensure the server OCR worker is running.';
+            // Keep UX friendly: don't show polling errors.
+            _statusMessage =
+                'Your files are being processed in the background. Please wait…';
           });
         }
         return;
       }
 
       if (resp.statusCode != 200) {
-        if (!mounted) return;
-        setState(() {
-          _terminalMessage = 'Server returned HTTP ${resp.statusCode}. Retrying…';
-        });
+        _consecutivePollFailures++;
+        // Silent retry; keep last known progress on screen.
         return;
       }
 
-      final decoded = jsonDecode(resp.body);
-      if (decoded is! Map<String, dynamic>) return;
+      Map<String, dynamic> decoded;
+      try {
+        final raw = jsonDecode(resp.body);
+        if (raw is! Map<String, dynamic>) return;
+        decoded = raw;
+      } on FormatException {
+        _consecutivePollFailures++;
+        // Silent retry.
+        return;
+      }
+
+      if (decoded['success'] == false) {
+        _consecutivePollFailures++;
+        // Silent retry.
+        return;
+      }
+
       final data = decoded['data'] as Map<String, dynamic>?;
       if (data == null) return;
 
@@ -150,15 +219,23 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
       final newProgress = rawProgress.clamp(0, 100);
       final blockProgress = data['block_progress'] as Map<String, dynamic>?;
       final steps = data['steps'] as Map<String, dynamic>? ?? _steps;
+      final statusMessage = data['status_message']?.toString();
 
       if (!mounted) return;
       setState(() {
+        _consecutivePollFailures = 0;
         _status = newStatus;
         _progressPercentage = newProgress;
         _steps = steps;
+        if (statusMessage != null && statusMessage.isNotEmpty) {
+          _statusMessage = statusMessage;
+        }
         if (blockProgress != null) {
           _blocksCompleted = _coerceInt(blockProgress['blocks_completed']) ?? 0;
-          _blocksTotal = _coerceInt(blockProgress['blocks_total']) ?? 0;
+          _blocksTotal = _coerceInt(blockProgress['blocks_total'])
+              ?? _coerceInt(blockProgress['split_count'])
+              ?? 0;
+          _blocksFailed = _coerceInt(blockProgress['blocks_failed']) ?? 0;
           _invoicesProcessed = _coerceInt(blockProgress['invoices_processed']) ?? 0;
           _currentBlock = blockProgress['current_block']?.toString();
         }
@@ -187,46 +264,76 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
 
       final terminalResult = data['result']?.toString();
 
-      if (newStatus == 'completed') {
+      if (newStatus == 'completed' || newStatus == 'partially_completed') {
         _pollTimer?.cancel();
         if (!mounted) return;
         ScaffoldMessenger.of(context).clearSnackBars();
         setState(() {
-          // Use the backend-supplied terminal label when present (e.g.
-          // "no_new_pods" for all-duplicate batches); otherwise advertise
-          // the new web-handoff message.
-          _terminalResult = terminalResult ?? 'completed_review_on_web';
+          _terminalResult = terminalResult
+              ?? (newStatus == 'partially_completed'
+                  ? 'partial_success'
+                  : 'completed_review_on_web');
           _terminalMessage = data['result_message']?.toString()
-              ?? 'Extraction complete. Hospital mapping is handled in the web portal — your administrator will verify these PODs there.';
+              ?? (newStatus == 'partially_completed'
+                  ? 'Partial extraction complete. Successfully processed PODs are saved; failed blocks can be resumed from the web portal.'
+                  : 'Extraction complete. Hospital mapping is handled in the web portal — your administrator will verify these PODs there.');
         });
       } else if (newStatus == 'failed') {
         _pollTimer?.cancel();
         if (mounted) ScaffoldMessenger.of(context).clearSnackBars();
       }
     } on TimeoutException {
-      // ignore; next tick will retry
+      _consecutivePollFailures++;
+      // Silent retry.
     } catch (e) {
-      // If polling fails due to network/CORS issues, don't silently freeze.
-      if (!mounted) return;
-      setState(() {
-        _terminalMessage ??=
-            'Network error while polling. Check server URL/CORS and retrying…';
-      });
+      _consecutivePollFailures++;
+      // Silent retry.
     }
+  }
+
+  String _processingSubtitle() {
+    if (_statusMessage != null && _statusMessage!.isNotEmpty) {
+      return _statusMessage!;
+    }
+    if (_blocksTotal > 0) {
+      if (_blocksCompleted > 0) {
+        return 'Extracting block $_blocksCompleted of $_blocksTotal'
+            '${_currentBlock != null ? ' ($_currentBlock)' : ''}';
+      }
+      return 'Split complete — extracting $_blocksTotal block(s)…';
+    }
+    return 'Background processing is running. This screen auto-updates.';
+  }
+
+  String _progressDetailText() {
+    if (_progressPercentage > 0) {
+      return '$_progressPercentage% — ${_statusMessage ?? 'Processing…'}';
+    }
+    if (_blocksTotal > 0) {
+      return _statusMessage ?? 'Extracting blocks… (large files can take several minutes per block)';
+    }
+    return _statusMessage ?? 'Server is preparing your file…';
   }
 
   @override
   Widget build(BuildContext context) {
     final hasTerminal = _terminalResult != null;
-    final isProcessing = !hasTerminal && (_status == 'processing' || _status == 'pending');
-    final isCompleted = _status == 'completed' || hasTerminal;
+    final isProcessing = !hasTerminal &&
+        (_status == 'processing' ||
+            _status == 'pending' ||
+            _status == 'uploading_to_cloud');
+    final isCompleted = _status == 'completed'
+        || _status == 'partially_completed'
+        || hasTerminal;
     final isFailed = _status == 'failed';
 
     return Scaffold(
       appBar: ModernUIComponents.buildModernAppBar(
         title: 'Upload Status',
         subtitle: isCompleted
-            ? 'Extraction complete'
+            ? (_terminalResult == 'partial_success'
+                ? 'Partial extraction complete'
+                : 'Extraction complete')
             : (isFailed ? 'Extraction failed' : 'Processing…'),
         icon: Icons.cloud_upload,
         color: const Color(0xFF00A0A8),
@@ -254,10 +361,13 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
                     _buildInfoRow('Total Files', widget.totalFiles.toString()),
                     _buildInfoRow('Batch ID', _batchId),
                     _buildInfoRow('Status', _status.toUpperCase()),
+                    if (_statusMessage != null && _statusMessage!.isNotEmpty)
+                      _buildInfoRow('Current Step', _statusMessage!),
                     if (_blocksTotal > 0)
                       _buildInfoRow(
                         'Blocks',
                         '$_blocksCompleted / $_blocksTotal'
+                            '${_blocksFailed > 0 ? '  •  $_blocksFailed failed' : ''}'
                             '${_currentBlock != null ? '  •  $_currentBlock' : ''}',
                       ),
                     if (_invoicesProcessed > 0)
@@ -274,29 +384,17 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                _progressPercentage > 0
-                    ? '$_progressPercentage%'
-                    : (_blocksTotal > 0
-                        ? 'Extracting blocks… (large files can take 10+ min)'
-                        : 'Server is preparing your file…'),
+                _progressDetailText(),
                 style: const TextStyle(fontSize: 12, color: Colors.black54),
               ),
               const SizedBox(height: 16),
-              if (_steps.isNotEmpty)
-                _buildSectionCard(
-                  icon: Icons.timeline,
-                  title: 'Processing Steps',
-                  child: Column(
-                    children: _steps.entries
-                        .map((entry) => _buildProcessingStep(
-                              entry.key,
-                              entry.value is Map
-                                  ? (entry.value['status']?.toString() ?? '')
-                                  : entry.value.toString(),
-                            ))
-                        .toList(),
-                  ),
+              _buildSectionCard(
+                icon: Icons.timeline,
+                title: 'Processing Stages',
+                child: Column(
+                  children: _buildStageRows(),
                 ),
+              ),
               const SizedBox(height: 20),
               _buildNoticeCard(isCompleted, isFailed),
               const SizedBox(height: 20),
@@ -309,33 +407,42 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
   }
 
   Widget _buildStatusHeader(bool isProcessing, bool isCompleted, bool isFailed) {
-    final color = isFailed
-        ? Colors.red
-        : (isCompleted ? Colors.green : Colors.teal);
-    final icon = isFailed
-        ? Icons.error
-        : (isCompleted ? Icons.check_circle : Icons.hourglass_top);
+    final isTerminalPartial = _terminalResult == 'partial_success';
     final isTerminalNoNew = _terminalResult == 'no_new_pods';
     final isTerminalReviewOnWeb = _terminalResult == 'completed_review_on_web';
+    final color = isFailed
+        ? Colors.red
+        : (isTerminalPartial
+            ? Colors.orange
+            : (isCompleted ? Colors.green : Colors.teal));
+    final icon = isFailed
+        ? Icons.error
+        : (isTerminalPartial
+            ? Icons.warning_amber_rounded
+            : (isCompleted ? Icons.check_circle : Icons.hourglass_top));
     final title = isFailed
         ? 'Extraction Failed'
         : (isTerminalNoNew
             ? 'No New Invoices'
-            : (isTerminalReviewOnWeb
-                ? 'Upload Complete'
-                : (isCompleted ? 'Extraction Complete' : 'Files Uploaded')));
+            : (isTerminalPartial
+                ? 'Partial Extraction'
+                : (isTerminalReviewOnWeb
+                    ? 'Upload Complete'
+                    : (isCompleted ? 'Extraction Complete' : 'Files Uploaded'))));
     final subtitle = isFailed
         ? 'Something went wrong during processing. Try again.'
         : (isTerminalNoNew
             ? (_terminalMessage ??
                 'All invoices in this upload were already recorded earlier.')
-            : (isTerminalReviewOnWeb
+            : (isTerminalPartial
                 ? (_terminalMessage ??
-                    'Extraction complete. Hospital mapping is handled in the web portal.')
-                : (isCompleted
-                    ? 'Finishing up…'
-                    : (_terminalMessage ??
-                        'Background processing is running. This screen auto-updates.'))));
+                    'Some blocks could not be extracted. Successfully processed PODs are saved; failed blocks can be resumed from the web portal.')
+                : (isTerminalReviewOnWeb
+                    ? (_terminalMessage ??
+                        'Extraction complete. Hospital mapping is handled in the web portal.')
+                    : (isCompleted
+                        ? 'Finishing up…'
+                        : _processingSubtitle()))));
 
     return Card(
       elevation: 4,
@@ -467,6 +574,8 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
     );
   }
 
+  // Kept for rollback (old UI), currently unused.
+  // ignore: unused_element
   Widget _buildProcessingStep(String stepKey, String stepValue) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -511,10 +620,148 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
     );
   }
 
+  List<Widget> _buildStageRows() {
+    String statusOf(dynamic step) {
+      if (step is Map) return (step['status']?.toString() ?? '');
+      if (step is String) return step;
+      return '';
+    }
+
+    final zipStatus = statusOf(_steps['step_0_zip_unpacking']).toLowerCase();
+    final splitStatus = statusOf(_steps['step_0_split_pdf_processing']).toLowerCase();
+    final extractStatus = statusOf(_steps['step_1_extract_processing']).toLowerCase();
+
+    // Stage 1: Files uploaded (we only land on this screen after upload request).
+    final filesUploadedDone = true;
+
+    // Stage 2: Either server-side ZIP unpack, or split-pdf.
+    final preparingLabel =
+        zipStatus.isNotEmpty ? 'ZIP Processing' : 'Split PDF Processing';
+    final preparingDone = zipStatus.contains('completed') ||
+        splitStatus.contains('completed') ||
+        splitStatus.contains('skipped');
+    final preparingActive = !preparingDone &&
+        (zipStatus.contains('progress') ||
+            zipStatus.contains('in_progress') ||
+            zipStatus.contains('processing') ||
+            splitStatus.contains('progress') ||
+            splitStatus.contains('in_progress') ||
+            splitStatus.contains('processing'));
+
+    // Stage 3: Extraction progress.
+    final extractionDone = extractStatus.contains('completed') ||
+        extractStatus.contains('success') ||
+        extractStatus.contains('partial_success');
+    final extractionActive = !extractionDone &&
+        (extractStatus.contains('progress') ||
+            extractStatus.contains('in_progress') ||
+            extractStatus.contains('processing') ||
+            extractStatus.isEmpty);
+
+    final extractionPct = _progressPercentage.clamp(0, 100);
+    final extractionDetail = (_blocksTotal > 0)
+        ? '$_blocksCompleted / $_blocksTotal files processed'
+        : (_invoicesProcessed > 0 ? '$_invoicesProcessed invoices extracted' : '');
+
+    return [
+      _stageRow(
+        title: 'Files Uploaded',
+        trailing: '100%',
+        isDone: filesUploadedDone,
+        isActive: false,
+        subtitle: '100% Completed',
+      ),
+      const SizedBox(height: 8),
+      _stageRow(
+        title: preparingLabel,
+        trailing: preparingDone ? '100%' : 'Processing…',
+        isDone: preparingDone,
+        isActive: preparingActive,
+        subtitle: preparingDone ? '100% Completed' : 'Processing…',
+      ),
+      const SizedBox(height: 8),
+      _stageRow(
+        title: 'Data Extraction',
+        trailing: extractionDone ? '100%' : '$extractionPct%',
+        isDone: extractionDone,
+        isActive: extractionActive,
+        subtitle: extractionDone
+            ? '100% Completed'
+            : (extractionDetail.isNotEmpty ? extractionDetail : 'Processing…'),
+      ),
+    ];
+  }
+
+  Widget _stageRow({
+    required String title,
+    required String trailing,
+    required bool isDone,
+    required bool isActive,
+    required String subtitle,
+  }) {
+    final color = isDone ? Colors.green : (isActive ? Colors.orange : Colors.grey);
+    final icon = isDone
+        ? Icons.check_circle
+        : (isActive ? Icons.hourglass_top : Icons.radio_button_unchecked);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF2C3E50),
+                        ),
+                      ),
+                    ),
+                    Text(
+                      trailing,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: color,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildNoticeCard(bool isCompleted, bool isFailed) {
+    final isTerminalPartial = _terminalResult == 'partial_success';
     final color = isFailed
         ? Colors.red
-        : (isCompleted ? Colors.green : Colors.blue);
+        : (isTerminalPartial
+            ? Colors.orange
+            : (isCompleted ? Colors.green : Colors.blue));
     final isTerminalNoNew = _terminalResult == 'no_new_pods';
     final isTerminalReviewOnWeb = _terminalResult == 'completed_review_on_web';
     final text = isFailed
@@ -522,12 +769,16 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
         : (isTerminalNoNew
             ? (_terminalMessage ??
                 'No new PODs were created — the invoices in this upload match records that already exist. Use the dashboard to review existing PODs.')
-            : (isTerminalReviewOnWeb
+            : (isTerminalPartial
                 ? (_terminalMessage ??
-                    'Extraction complete. Hospital mapping is handled in the web portal — your administrator will verify these PODs there.')
-                : (isCompleted
-                    ? 'Extraction finished. The web portal will handle hospital mapping.'
-                    : 'Your files are being processed. This screen updates automatically every few seconds.')));
+                    'Partial extraction complete. Successfully extracted PODs are saved and visible in the web portal. Failed blocks can be resumed later without reprocessing completed work.')
+                : (isTerminalReviewOnWeb
+                    ? (_terminalMessage ??
+                        'Extraction complete. Hospital mapping is handled in the web portal — your administrator will verify these PODs there.')
+                    : (isCompleted
+                        ? 'Extraction finished. The web portal will handle hospital mapping.'
+                        : (_statusMessage ??
+                            'Your files are being processed in the background. This may take a few minutes for large uploads.')))));
 
     return Card(
       elevation: 2,
@@ -582,6 +833,7 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
 
   Color _getStepColor(String stepValue) {
     final v = stepValue.toLowerCase();
+    if (v.contains('partial')) return Colors.orange;
     if (v.contains('completed') || v.contains('success')) return Colors.green;
     if (v.contains('progress') || v.contains('processing')) return Colors.orange;
     if (v.contains('pending')) return Colors.grey;

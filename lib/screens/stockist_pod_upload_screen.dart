@@ -15,6 +15,7 @@ import 'package:zydus_vistaar/routes.dart';
 import 'package:zydus_vistaar/services/ChunkedUploader.dart';
 import 'package:zydus_vistaar/services/BlobDirectUploader.dart';
 import 'package:zydus_vistaar/services/PodZipExpander.dart';
+import 'package:zydus_vistaar/services/PodZipPackager.dart';
 import 'package:zydus_vistaar/widgets/modern_ui_components.dart';
 
 /// Dedicated POD upload screen for stockist logins.
@@ -280,20 +281,22 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
           )
           .toList();
 
-      List<PodUploadItem> uploadItems;
+      PodUploadItem zipItem;
       try {
-        if (pickItems.any((i) => PodZipExpander.isZipName(i.fileName))) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Extracting ZIP archive…'),
-                duration: Duration(seconds: 4),
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                pickItems.length == 1 && PodZipExpander.isZipName(pickItems.first.fileName)
+                    ? 'Uploading ZIP to cloud storage…'
+                    : 'Packaging ${pickItems.length} file(s) into ZIP…',
               ),
-            );
-          }
+              duration: const Duration(seconds: 4),
+            ),
+          );
         }
-        uploadItems = await PodZipExpander.expandItems(pickItems);
-      } on PodZipExpandException catch (e) {
+        zipItem = await PodZipPackager.packageForUpload(pickItems);
+      } on PodZipPackException catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(e.message), backgroundColor: Colors.red),
@@ -302,19 +305,7 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
         return;
       }
 
-      if (uploadItems.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('No PDF or image files to upload.'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-        return;
-      }
-
-      await _performDirectBlobUpload(uploadItems);
+      await _performZipBlobUpload(zipItem, pickItems.length);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -655,8 +646,8 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
 
   // ── Helpers ───────────────────────────────────────────────────────────
 
-  /// Direct Azure Blob upload for every POD file (PDF / image).
-  Future<void> _performDirectBlobUpload(List<PodUploadItem> uploadItems) async {
+  /// Upload one ZIP archive to Azure Blob; Laravel extracts and processes.
+  Future<void> _performZipBlobUpload(PodUploadItem zipItem, int sourceFileCount) async {
     final token = await _authToken();
     if (token == null || token.isEmpty) {
       if (!mounted) return;
@@ -686,76 +677,41 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
     ScaffoldMessengerState? messenger;
     if (mounted) messenger = ScaffoldMessenger.of(context);
 
-    for (int idx = 0; idx < uploadItems.length; idx++) {
-      final item = uploadItems[idx];
-      final fileLabel = item.fileName;
-      final int totalFilesInBatch = uploadItems.length;
+    final fileLabel = zipItem.fileName;
 
-      void showProgress(BlobUploadProgress p) {
-        if (!mounted) return;
-        if (p.stage == 'done') {
-          messenger?.clearSnackBars();
-          return;
-        }
-        final pct = p.stage == 'finalizing'
-            ? '…'
-            : p.percent.toStringAsFixed(0);
-        final etaSec = p.estimatedRemaining?.inSeconds;
-        final etaTxt = etaSec == null || etaSec <= 0 ? '' : ' — ~${etaSec}s left';
-        final stageLine = switch (p.stage) {
-          'preparing' => 'Preparing Azure upload…',
-          'uploading' => 'Uploading to cloud storage…',
-          'finalizing' => 'Finalizing on server…',
-          'done' => 'Complete',
-          _ => 'Uploading…',
-        };
-        messenger?.hideCurrentSnackBar();
-        messenger?.showSnackBar(SnackBar(
-          content: Row(
-            children: [
-              const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation(Colors.white),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Uploading $fileLabel '
-                  '(file ${idx + 1}/$totalFilesInBatch)\n'
-                  '$stageLine — $pct%$etaTxt',
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          duration: const Duration(minutes: 60),
-        ));
+    void showProgress(BlobUploadProgress p) {
+      if (!mounted) return;
+      if (p.stage == 'done') {
+        messenger?.clearSnackBars();
+        return;
       }
+      final pct = p.stage == 'finalizing' ? '…' : p.percent.toStringAsFixed(0);
+      messenger?.hideCurrentSnackBar();
+      messenger?.showSnackBar(SnackBar(
+        content: Text('Uploading ZIP $fileLabel — $pct%'),
+        duration: const Duration(minutes: 30),
+      ));
+    }
 
-      final uploader = BlobDirectUploader(
-        authToken: token,
-        context: baseContext,
-        onProgress: showProgress,
-      );
+    final uploader = BlobDirectUploader(
+      authToken: token,
+      context: baseContext,
+      onProgress: showProgress,
+    );
 
-      BlobUploadResult result;
-      try {
-        if (item.file != null) {
-          result = await uploader.upload(item.file!);
-        } else if (item.bytes != null) {
-          result = await uploader.uploadBytes(
-            fileName: fileLabel,
-            bytes: item.bytes!,
-          );
-        } else {
-          continue;
-        }
-      } catch (e) {
+    BlobUploadResult result;
+    try {
+      if (zipItem.file != null) {
+        result = await uploader.upload(zipItem.file!);
+      } else if (zipItem.bytes != null) {
+        result = await uploader.uploadBytes(
+          fileName: fileLabel,
+          bytes: zipItem.bytes!,
+        );
+      } else {
+        return;
+      }
+    } catch (e) {
         if (mounted) {
           messenger?.hideCurrentSnackBar();
           ScaffoldMessenger.of(context).showSnackBar(
@@ -768,24 +724,23 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
         return;
       }
 
-      if (!result.success) {
-        if (mounted) {
-          messenger?.hideCurrentSnackBar();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Upload failed: ${result.message ?? result.error ?? "Unknown error"}',
-              ),
-              backgroundColor: Colors.red,
+    if (!result.success) {
+      if (mounted) {
+        messenger?.hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Upload failed: ${result.message ?? result.error ?? "Unknown error"}',
             ),
-          );
-        }
-        return;
+            backgroundColor: Colors.red,
+          ),
+        );
       }
-
-      lastBatchDbId = result.podUploadBatchId;
-      lastExternalBatchId = result.externalBatchId;
+      return;
     }
+
+    lastBatchDbId = result.podUploadBatchId;
+    lastExternalBatchId = result.externalBatchId;
 
     if (mounted) messenger?.clearSnackBars();
 
@@ -799,9 +754,11 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
             'data': {
               'batch_id': lastExternalBatchId ?? lastBatchDbId.toString(),
               'batch_db_id': lastBatchDbId,
+              'status': 'processing',
             },
           },
-          'totalFiles': uploadItems.length,
+          'totalFiles': sourceFileCount,
+          'zipUpload': true,
         },
       );
       setState(() {

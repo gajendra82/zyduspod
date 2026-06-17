@@ -25,7 +25,8 @@ class PodUploadItem {
 /// Expands ZIP archives client-side so each PDF/image is uploaded via blob.
 class PodZipExpander {
   static const Set<String> _supportedExt = {'.pdf', '.jpg', '.jpeg', '.png'};
-  static const int maxEntriesPerZip = 300;
+  /// Max PDF/image files per ZIP (matches backend `pod.max_files_per_request`).
+  static const int maxSupportedFilesPerZip = 500;
   static const int maxTotalUncompressedBytes = 10 * 1024 * 1024 * 1024; // 10 GB
 
   static bool isZipName(String name) =>
@@ -33,6 +34,25 @@ class PodZipExpander {
 
   static bool isSupportedUploadName(String name) {
     final ext = p.extension(name).toLowerCase();
+    return _supportedExt.contains(ext);
+  }
+
+  /// Junk paths created by macOS/Windows archivers — not real POD files.
+  static bool _isSkippableArchivePath(String name) {
+    final normalized = name.replaceAll('\\', '/');
+    if (normalized.contains('__MACOSX/')) return true;
+    if (normalized.contains('/.')) return true;
+    final base = p.basename(normalized).toLowerCase();
+    if (base == 'thumbs.db' || base == 'desktop.ini' || base == '.ds_store') {
+      return true;
+    }
+    return false;
+  }
+
+  static bool _isSupportedArchiveEntry(ArchiveFile entry) {
+    if (!entry.isFile || entry.name.isEmpty) return false;
+    if (_isSkippableArchivePath(entry.name)) return false;
+    final ext = p.extension(p.basename(entry.name)).toLowerCase();
     return _supportedExt.contains(ext);
   }
 
@@ -75,10 +95,20 @@ class PodZipExpander {
       throw PodZipExpandException('ZIP "${zip.fileName}" is empty.');
     }
 
-    if (archive.files.length > maxEntriesPerZip) {
+    final supportedEntries =
+        archive.files.where(_isSupportedArchiveEntry).toList();
+
+    if (supportedEntries.isEmpty) {
       throw PodZipExpandException(
-        'ZIP "${zip.fileName}" has too many entries '
-        '(max $maxEntriesPerZip).',
+        'ZIP "${zip.fileName}" contains no PDF/JPG/PNG files.',
+      );
+    }
+
+    if (supportedEntries.length > maxSupportedFilesPerZip) {
+      throw PodZipExpandException(
+        'ZIP "${zip.fileName}" contains ${supportedEntries.length} PDF/image '
+        'files (max $maxSupportedFilesPerZip). '
+        'Split into smaller ZIPs or upload files in batches.',
       );
     }
 
@@ -86,12 +116,8 @@ class PodZipExpander {
     var totalBytes = 0;
     final zipStem = p.basenameWithoutExtension(zip.fileName);
 
-    for (final entry in archive.files) {
-      if (!entry.isFile || entry.name.isEmpty) continue;
-
+    for (final entry in supportedEntries) {
       final baseName = p.basename(entry.name);
-      final ext = p.extension(baseName).toLowerCase();
-      if (!_supportedExt.contains(ext)) continue;
 
       final content = entry.content;
       if (content == null) continue;
