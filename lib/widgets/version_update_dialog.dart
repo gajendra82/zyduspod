@@ -6,9 +6,8 @@ import 'package:zydus_vistaar/utils/app_hard_reload.dart'
     if (dart.library.io) 'package:zydus_vistaar/utils/app_hard_reload_stub.dart';
 
 /// "A new version is available" prompt. Non-dismissible — the only exit is
-/// the Refresh action, which records the acknowledgement (so a stuck
-/// browser cache doesn't keep re-firing the dialog) and then calls the
-/// platform-appropriate hard-reload.
+/// the Refresh action, which clears any stale acknowledgement and triggers
+/// a platform-appropriate hard-reload so the browser fetches the new bundle.
 class VersionUpdateDialog extends StatelessWidget {
   const VersionUpdateDialog({
     super.key,
@@ -20,10 +19,8 @@ class VersionUpdateDialog extends StatelessWidget {
   final String? currentVersion;
   final String? latestVersion;
 
-  /// The full backend version DTO. When provided, tapping Refresh persists
-  /// it via [AppVersionService.acknowledge] before the hard-reload so the
-  /// dialog won't re-fire on the next splash even if the cache still serves
-  /// the old bundle.
+  /// The full backend version DTO. Passed for display only; acknowledgement
+  /// is recorded on splash once the running bundle matches [latestInfo].
   final AppVersionInfo? latestInfo;
 
   static Future<void> show(
@@ -89,9 +86,9 @@ class VersionUpdateDialog extends StatelessWidget {
       actions: [
         ElevatedButton.icon(
           onPressed: () async {
-            if (latestInfo != null) {
-              await AppVersionService().acknowledge(latestInfo!);
-            }
+            // Do not acknowledge before reload — if the cache still serves
+            // the old bundle, splash must show this dialog again on next load.
+            await AppVersionService().clearAcknowledgement();
             await hardReloadApp();
           },
           icon: const Icon(Icons.refresh, size: 18),

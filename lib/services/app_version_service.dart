@@ -101,9 +101,7 @@ class AppVersionService {
     }
   }
 
-  /// Persists the backend [latest] as "user has tapped Refresh for this
-  /// version on this device". The splash skips the prompt next launch if
-  /// the backend version still matches this value.
+  /// Persists the backend [latest] after the running bundle matches it.
   Future<void> acknowledge(AppVersionInfo latest) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -111,6 +109,18 @@ class AppVersionService {
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[AppVersionService] acknowledge failed: $e');
+      }
+    }
+  }
+
+  /// Clears a stale acknowledgement (e.g. before retrying a hard reload).
+  Future<void> clearAcknowledgement() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_ackPrefsKey);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[AppVersionService] clearAcknowledgement failed: $e');
       }
     }
   }

@@ -202,23 +202,14 @@ class _SplashScreenState extends State<SplashScreen>
   /// Returns true when the backend reports a different version than what is
   /// bundled (and the prompt was shown). Caller must abort further
   /// navigation in that case.
-  ///
-  /// Per-device acknowledgement: once the user has tapped Refresh for a
-  /// given backend version, that value is persisted in SharedPreferences.
-  /// On subsequent launches we skip the prompt as long as the backend still
-  /// advertises the same version — this breaks the re-prompt loop when the
-  /// browser cache (or a stale service worker) keeps serving the old bundle
-  /// even after a hard-reload.
   Future<bool> _checkVersionAndPromptIfStale() async {
     final svc = AppVersionService();
     final latest = await svc.fetchLatest();
     if (latest == null) return false; // network/server failure → skip silently
     final current = await svc.getCurrent();
-    if (!svc.isOutdated(current, latest)) return false;
-    final ack = await svc.getAcknowledgedVersion();
-    if (ack != null && ack == latest.display) {
-      // User already refreshed for this exact backend version on this device;
-      // don't trap them in a loop if the cache still serves the old bundle.
+    if (!svc.isOutdated(current, latest)) {
+      // Running bundle matches backend — record so we don't re-check every launch.
+      await svc.acknowledge(latest);
       return false;
     }
     if (!mounted) return true;
