@@ -39,6 +39,9 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
   int _blocksTotal = 0;
   int _blocksFailed = 0;
   int _invoicesProcessed = 0;
+  int _processedFiles = 0;
+  int _failedFiles = 0;
+  int _totalFilesServer = 0;
   String? _currentBlock;
   String _batchId = 'N/A';
   int? _batchDbId;
@@ -220,6 +223,9 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
       final blockProgress = data['block_progress'] as Map<String, dynamic>?;
       final steps = data['steps'] as Map<String, dynamic>? ?? _steps;
       final statusMessage = data['status_message']?.toString();
+      final totalFilesServer = _coerceInt(data['total_files']) ?? 0;
+      final processedFiles = _coerceInt(data['processed_files']) ?? 0;
+      final failedFiles = _coerceInt(data['failed_files']) ?? 0;
 
       if (!mounted) return;
       setState(() {
@@ -227,6 +233,9 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
         _status = newStatus;
         _progressPercentage = newProgress;
         _steps = steps;
+        _totalFilesServer = totalFilesServer;
+        _processedFiles = processedFiles;
+        _failedFiles = failedFiles;
         if (statusMessage != null && statusMessage.isNotEmpty) {
           _statusMessage = statusMessage;
         }
@@ -291,20 +300,6 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
     }
   }
 
-  String _processingSubtitle() {
-    if (_statusMessage != null && _statusMessage!.isNotEmpty) {
-      return _statusMessage!;
-    }
-    if (_blocksTotal > 0) {
-      if (_blocksCompleted > 0) {
-        return 'Extracting block $_blocksCompleted of $_blocksTotal'
-            '${_currentBlock != null ? ' ($_currentBlock)' : ''}';
-      }
-      return 'Split complete — extracting $_blocksTotal block(s)…';
-    }
-    return 'Background processing is running. This screen auto-updates.';
-  }
-
   String _progressDetailText() {
     if (_progressPercentage > 0) {
       return '$_progressPercentage% — ${_statusMessage ?? 'Processing…'}';
@@ -363,6 +358,12 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
                     _buildInfoRow('Status', _status.toUpperCase()),
                     if (_statusMessage != null && _statusMessage!.isNotEmpty)
                       _buildInfoRow('Current Step', _statusMessage!),
+                    if (_totalFilesServer > 0)
+                      _buildInfoRow(
+                        'Files Processed',
+                        '$_processedFiles / $_totalFilesServer'
+                            '${_failedFiles > 0 ? '  •  $_failedFiles failed' : ''}',
+                      ),
                     if (_blocksTotal > 0)
                       _buildInfoRow(
                         'Blocks',
@@ -428,7 +429,9 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
                 ? 'Partial Extraction'
                 : (isTerminalReviewOnWeb
                     ? 'Upload Complete'
-                    : (isCompleted ? 'Extraction Complete' : 'Files Uploaded'))));
+                    : (isCompleted
+                        ? 'Extraction Complete'
+                        : 'Your files are being processed in the background.'))));
     final subtitle = isFailed
         ? 'Something went wrong during processing. Try again.'
         : (isTerminalNoNew
@@ -442,7 +445,7 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
                         'Extraction complete. Hospital mapping is handled in the web portal.')
                     : (isCompleted
                         ? 'Finishing up…'
-                        : _processingSubtitle()))));
+                        : "You don't need to keep this page open. You can safely leave this page or upload additional files while processing continues. We'll keep your uploads processing in the background."))));
 
     return Card(
       elevation: 4,
@@ -659,9 +662,11 @@ class _UploadStatusScreenState extends State<UploadStatusScreen> {
             extractStatus.isEmpty);
 
     final extractionPct = _progressPercentage.clamp(0, 100);
-    final extractionDetail = (_blocksTotal > 0)
-        ? '$_blocksCompleted / $_blocksTotal files processed'
-        : (_invoicesProcessed > 0 ? '$_invoicesProcessed invoices extracted' : '');
+    final extractionDetail = (_totalFilesServer > 0)
+        ? '$_processedFiles / $_totalFilesServer files processed'
+        : (_blocksTotal > 0
+            ? '$_blocksCompleted / $_blocksTotal blocks processed'
+            : (_invoicesProcessed > 0 ? '$_invoicesProcessed invoices extracted' : ''));
 
     return [
       _stageRow(

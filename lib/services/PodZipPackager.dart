@@ -7,8 +7,9 @@ import 'package:zydus_vistaar/services/PodZipExpander.dart';
 
 /// Build a single ZIP for blob upload (server extracts and processes).
 class PodZipPackager {
-  /// If [items] is already one ZIP, return it unchanged. Otherwise pack all
-  /// supported PDF/image files into a new ZIP archive.
+  /// If [items] is already one ZIP, return it unchanged. Otherwise expand any
+  /// nested ZIPs client-side and pack all supported PDF/image files into a
+  /// new ZIP archive (handles multi-ZIP picks and mixed ZIP + PDF selections).
   static Future<PodUploadItem> packageForUpload(
     List<PodUploadItem> items, {
     String? archiveName,
@@ -17,14 +18,35 @@ class PodZipPackager {
       throw PodZipPackException('No files to upload.');
     }
 
+    // Single ZIP — upload as-is; Laravel unpacks server-side.
     if (items.length == 1 && PodZipExpander.isZipName(items.first.fileName)) {
       return items.first;
+    }
+
+    // Multiple files and/or ZIPs: expand ZIPs first so we package PDF/images.
+    // Backend unwrap only accepts flat PDF/JPG/PNG entries — not nested ZIPs.
+    final List<PodUploadItem> packable;
+    try {
+      packable = await PodZipExpander.expandItems(items);
+    } on PodZipExpandException catch (e) {
+      throw PodZipPackException(e.message);
+    }
+
+    if (packable.isEmpty) {
+      final zipCount =
+          items.where((i) => PodZipExpander.isZipName(i.fileName)).length;
+      if (zipCount > 0) {
+        throw PodZipPackException(
+          'No PDF or image files found inside the selected ZIP archive(s).',
+        );
+      }
+      throw PodZipPackException('No PDF or image files to package.');
     }
 
     final archive = Archive();
     final usedNames = <String>{};
 
-    for (final item in items) {
+    for (final item in packable) {
       if (!PodZipExpander.isSupportedUploadName(item.fileName)) {
         continue;
       }
