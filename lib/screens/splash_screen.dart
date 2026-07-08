@@ -205,19 +205,31 @@ class _SplashScreenState extends State<SplashScreen>
   Future<bool> _checkVersionAndPromptIfStale() async {
     final svc = AppVersionService();
     final latest = await svc.fetchLatest();
-    if (latest == null) return false; // network/server failure → skip silently
+    if (latest == null) return false;
+
     final current = await svc.getCurrent();
-    if (!svc.isOutdated(current, latest)) {
-      // Running bundle matches backend — record so we don't re-check every launch.
+
+    // Deployed bundle is newer than DB — self-heal app_versions, no prompt.
+    if (svc.isAheadOfServer(current, latest)) {
+      await svc.syncAheadBundleIfNeeded(current, latest);
+      await svc.acknowledge(current);
+      return false;
+    }
+
+    // Up to date — continue.
+    if (!svc.needsUpdate(current, latest)) {
       await svc.acknowledge(latest);
       return false;
     }
+
+    // Installed bundle is behind the server — block until user refreshes.
     if (!mounted) return true;
     await VersionUpdateDialog.show(
       context,
       currentVersion: current.display,
       latestVersion: latest.display,
       latestInfo: latest,
+      currentInfo: current,
     );
     return true;
   }

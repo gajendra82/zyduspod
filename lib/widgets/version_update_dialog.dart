@@ -5,29 +5,27 @@ import 'package:zydus_vistaar/services/app_version_service.dart';
 import 'package:zydus_vistaar/utils/app_hard_reload.dart'
     if (dart.library.io) 'package:zydus_vistaar/utils/app_hard_reload_stub.dart';
 
-/// "A new version is available" prompt. Non-dismissible — the only exit is
-/// the Refresh action, which clears any stale acknowledgement and triggers
-/// a platform-appropriate hard-reload so the browser fetches the new bundle.
+/// Blocking prompt when the installed bundle is **behind** the server version.
 class VersionUpdateDialog extends StatelessWidget {
   const VersionUpdateDialog({
     super.key,
     this.currentVersion,
     this.latestVersion,
     this.latestInfo,
+    this.currentInfo,
   });
 
   final String? currentVersion;
   final String? latestVersion;
-
-  /// The full backend version DTO. Passed for display only; acknowledgement
-  /// is recorded on splash once the running bundle matches [latestInfo].
   final AppVersionInfo? latestInfo;
+  final AppVersionInfo? currentInfo;
 
   static Future<void> show(
     BuildContext context, {
     String? currentVersion,
     String? latestVersion,
     AppVersionInfo? latestInfo,
+    AppVersionInfo? currentInfo,
   }) {
     return showDialog<void>(
       context: context,
@@ -38,6 +36,7 @@ class VersionUpdateDialog extends StatelessWidget {
           currentVersion: currentVersion,
           latestVersion: latestVersion,
           latestInfo: latestInfo,
+          currentInfo: currentInfo,
         ),
       ),
     );
@@ -85,12 +84,7 @@ class VersionUpdateDialog extends StatelessWidget {
       ),
       actions: [
         ElevatedButton.icon(
-          onPressed: () async {
-            // Do not acknowledge before reload — if the cache still serves
-            // the old bundle, splash must show this dialog again on next load.
-            await AppVersionService().clearAcknowledgement();
-            await hardReloadApp();
-          },
+          onPressed: () => _onRefreshPressed(context),
           icon: const Icon(Icons.refresh, size: 18),
           label: const Text('Refresh'),
           style: ElevatedButton.styleFrom(
@@ -104,5 +98,25 @@ class VersionUpdateDialog extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  Future<void> _onRefreshPressed(BuildContext context) async {
+    final svc = AppVersionService();
+    final installed = currentInfo ?? await svc.getCurrent();
+
+    // Sync DB when installed >= server (stops loop when DB was stale).
+    // When installed < server, this is a no-op on the server — hard reload
+    // still fetches the newer bundle from the CDN.
+    await svc.reportRefresh(installed);
+
+    if (latestInfo != null) {
+      await svc.acknowledge(latestInfo!);
+    }
+
+    if (context.mounted) {
+      Navigator.of(context).pop();
+    }
+
+    await hardReloadApp();
   }
 }

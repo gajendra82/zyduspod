@@ -28,9 +28,6 @@ class AppVersionInfo {
 class AppVersionService {
   static String get _endpoint => '${API_BASE_URL}app-version';
 
-  // SharedPreferences key for the per-device "I have already acknowledged
-  // this backend version" record. Kept here so callers don't drift on the
-  // string literal.
   static const String _ackPrefsKey = 'app_version_acknowledged';
 
   Future<AppVersionInfo?> fetchLatest({String platform = 'flutter'}) async {
@@ -43,15 +40,7 @@ class AppVersionService {
       final body = jsonDecode(resp.body) as Map<String, dynamic>;
       if (body['success'] != true) return null;
       final data = body['data'] as Map<String, dynamic>;
-      final raw = data['build_number'];
-      final build = raw is int
-          ? raw
-          : (raw == null ? null : int.tryParse(raw.toString()));
-      return AppVersionInfo(
-        version: (data['version'] ?? '').toString(),
-        buildNumber: build,
-        isForceUpdate: data['is_force_update'] == true,
-      );
+      return _fromJson(data);
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[AppVersionService] fetchLatest failed: $e');
@@ -68,25 +57,81 @@ class AppVersionService {
     );
   }
 
-  /// True when [latest] differs from the running [current] bundle. Any
-  /// mismatch (semver or build number) triggers a prompt — a rebuild bump
-  /// alone is enough to invalidate the cached web bundle.
-  bool isOutdated(AppVersionInfo current, AppVersionInfo latest) {
-    final v = latest.version.trim();
-    if (v.isEmpty) return false;
-    if (current.version.trim() != v) return true;
-    if (latest.buildNumber != null &&
-        current.buildNumber != null &&
-        latest.buildNumber != current.buildNumber) {
-      return true;
-    }
-    return false;
+  /// Negative when [current] is older than [latest], zero when equal, positive
+  /// when [current] is newer (deployed ahead of DB).
+  int compare(AppVersionInfo current, AppVersionInfo latest) {
+    final semver = _compareSemver(
+      current.version.trim(),
+      latest.version.trim(),
+    );
+    if (semver != 0) return semver;
+
+    final cb = current.buildNumber ?? 0;
+    final lb = latest.buildNumber ?? 0;
+    return cb.compareTo(lb);
   }
 
-  /// Returns the backend version this device has already acknowledged via
-  /// the Refresh button, or null if nothing recorded yet. Used to break the
-  /// re-prompt loop when the browser cache keeps serving the same stale
-  /// bundle after a hard-reload.
+  /// True only when the installed bundle is **behind** the server record.
+  bool needsUpdate(AppVersionInfo current, AppVersionInfo latest) {
+    if (latest.version.trim().isEmpty) return false;
+    return compare(current, latest) < 0;
+  }
+
+  /// True when the installed bundle is **ahead** of the server record
+  /// (common when web was deployed but app_versions was not updated).
+  bool isAheadOfServer(AppVersionInfo current, AppVersionInfo latest) {
+    if (latest.version.trim().isEmpty) return false;
+    return compare(current, latest) > 0;
+  }
+
+  /// @deprecated Use [needsUpdate] — kept for callers migrating gradually.
+  bool isOutdated(AppVersionInfo current, AppVersionInfo latest) =>
+      needsUpdate(current, latest);
+
+  /// POST installed version to the server. When the bundle is newer than DB,
+  /// app_versions is bumped so the update dialog stops looping.
+  Future<bool> reportRefresh(AppVersionInfo installed, {String platform = 'flutter'}) async {
+    try {
+      final uri = Uri.parse('$_endpoint/refresh');
+      final resp = await http
+          .post(
+            uri,
+            headers: {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({
+              'platform': platform,
+              'version': installed.version,
+              if (installed.buildNumber != null)
+                'build_number': installed.buildNumber,
+            }),
+          )
+          .timeout(const Duration(seconds: 12));
+
+      if (resp.statusCode != 200) return false;
+      final body = jsonDecode(resp.body) as Map<String, dynamic>;
+      if (body['success'] != true) return false;
+
+      final data = body['data'];
+      if (data is Map<String, dynamic>) {
+        return data['synced'] == true;
+      }
+      return false;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[AppVersionService] reportRefresh failed: $e');
+      }
+      return false;
+    }
+  }
+
+  /// If the running bundle is ahead of DB, sync server and return true.
+  Future<bool> syncAheadBundleIfNeeded(AppVersionInfo current, AppVersionInfo latest) async {
+    if (!isAheadOfServer(current, latest)) return false;
+    return reportRefresh(current);
+  }
+
   Future<String?> getAcknowledgedVersion() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -101,11 +146,10 @@ class AppVersionService {
     }
   }
 
-  /// Persists the backend [latest] after the running bundle matches it.
-  Future<void> acknowledge(AppVersionInfo latest) async {
+  Future<void> acknowledge(AppVersionInfo version) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_ackPrefsKey, latest.display);
+      await prefs.setString(_ackPrefsKey, version.display);
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[AppVersionService] acknowledge failed: $e');
@@ -113,7 +157,6 @@ class AppVersionService {
     }
   }
 
-  /// Clears a stale acknowledgement (e.g. before retrying a hard reload).
   Future<void> clearAcknowledgement() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -123,5 +166,38 @@ class AppVersionService {
         debugPrint('[AppVersionService] clearAcknowledgement failed: $e');
       }
     }
+  }
+
+  AppVersionInfo _fromJson(Map<String, dynamic> data) {
+    final raw = data['build_number'];
+    final build = raw is int
+        ? raw
+        : (raw == null ? null : int.tryParse(raw.toString()));
+    return AppVersionInfo(
+      version: (data['version'] ?? '').toString(),
+      buildNumber: build,
+      isForceUpdate: data['is_force_update'] == true,
+    );
+  }
+
+  int _compareSemver(String a, String b) {
+    final partsA = _parseSemver(a);
+    final partsB = _parseSemver(b);
+    final length = partsA.length > partsB.length ? partsA.length : partsB.length;
+
+    for (var i = 0; i < length; i++) {
+      final va = i < partsA.length ? partsA[i] : 0;
+      final vb = i < partsB.length ? partsB[i] : 0;
+      if (va != vb) return va.compareTo(vb);
+    }
+    return 0;
+  }
+
+  List<int> _parseSemver(String version) {
+    if (version.trim().isEmpty) return [0];
+    return version.split('.').map((part) {
+      final digits = RegExp(r'^\d+').firstMatch(part.trim());
+      return digits != null ? int.parse(digits.group(0)!) : 0;
+    }).toList();
   }
 }
