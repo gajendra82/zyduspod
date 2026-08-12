@@ -28,17 +28,17 @@ class _ModernDocumentUploadScreenState extends State<ModernDocumentUploadScreen>
       color: const Color(0xFF00A0A8),
       page: const PODUploadPage(),
     ),
+    TabInfo(
+      title: 'GRN Upload',
+      icon: Icons.inventory,
+      color: const Color(0xFF4CAF50),
+      page: const GRNUploadPage(),
+    ),
     // TabInfo(
     //   title: 'E-Invoice',
     //   icon: Icons.receipt_long,
     //   color: const Color(0xFF6EC1C7),
     //   page: const EInvoiceUploadPage(),
-    // ),
-    // TabInfo(
-    //   title: 'GRN Upload',
-    //   icon: Icons.inventory,
-    //   color: const Color(0xFF4CAF50),
-    //   page: const GRNUploadPage(),
     // ),
     // TabInfo(
     //   title: 'Documents',
@@ -156,8 +156,8 @@ class _PODUploadPageState extends State<PODUploadPage> {
           ),
           const SizedBox(height: 24),
           ModernUIComponents.buildUploadCard(
-            title: 'Upload POD Documents (PDF, Images or ZIP)',
-            subtitle: 'Supported formats: PDF, JPG, JPEG, PNG, ZIP',
+            title: 'Upload POD Documents (PDF, Image, Excel or ZIP)',
+            subtitle: 'Supported formats: PDF, JPG, JPEG, PNG, XLSX, XLS, ZIP',
             icon: Icons.upload_file,
             color: const Color(0xFF00A0A8),
             onTap: () async {
@@ -360,16 +360,16 @@ class _GRNUploadPageState extends State<GRNUploadPage> {
           ),
           const SizedBox(height: 24),
           ModernUIComponents.buildUploadCard(
-            title: 'Upload GRN Documents',
-            subtitle: 'Select and upload your GRN files',
+            title: 'Upload GRN Documents (PDF, Image, Excel or ZIP)',
+            subtitle: 'Same pipeline as POD — stored as pods with GRN flag',
             icon: Icons.inventory_2,
             color: const Color(0xFF4CAF50),
             onTap: () {
-              // Navigate to original DocumentUploadScreen with GRN type
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => const DocumentUploadScreen(),
+                  builder: (context) =>
+                      const PODUploadScreen(documentType: 'grn'),
                 ),
               );
             },

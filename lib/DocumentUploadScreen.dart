@@ -232,7 +232,7 @@ List<Uint8List> _extractBase64PdfBytes(dynamic decoded) {
 
 /// ===================== DATA MODEL =====================
 
-enum DocumentType { image, pdf }
+enum DocumentType { image, pdf, excel }
 
 class DocumentInfo {
   final File file;
@@ -873,12 +873,18 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       final name = p.basename(file.path);
       final size = await file.length();
       if (size < 100 || size > 50 * 1024 * 1024) {
+        DocumentType badType = DocumentType.image;
+        if (ext == '.pdf') {
+          badType = DocumentType.pdf;
+        } else if (ext == '.xlsx' || ext == '.xls') {
+          badType = DocumentType.excel;
+        }
         return DocumentInfo(
           file: file,
           isValid: false,
           errorMessage:
               'Invalid file size: ${(size / 1024 / 1024).toStringAsFixed(1)}MB',
-          type: ext == '.pdf' ? DocumentType.pdf : DocumentType.image,
+          type: badType,
           displayName: name,
         );
       }
@@ -887,6 +893,14 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
           file: file,
           isValid: true,
           type: DocumentType.pdf,
+          displayName: name,
+        );
+      }
+      if (ext == '.xlsx' || ext == '.xls') {
+        return DocumentInfo(
+          file: file,
+          isValid: true,
+          type: DocumentType.excel,
           displayName: name,
         );
       }
@@ -1061,6 +1075,23 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   }
 
   Future<void> _pickPdfsFromFiles() async {
+    await _pickFilesFromDevice(
+      allowedExtensions: const ['pdf', 'xlsx', 'xls'],
+      label: 'file',
+    );
+  }
+
+  Future<void> _pickExcelFromFiles() async {
+    await _pickFilesFromDevice(
+      allowedExtensions: const ['xlsx', 'xls'],
+      label: 'Excel',
+    );
+  }
+
+  Future<void> _pickFilesFromDevice({
+    required List<String> allowedExtensions,
+    required String label,
+  }) async {
     try {
       setState(() {
         _isProcessingImage = true;
@@ -1068,7 +1099,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       });
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['pdf'],
+        allowedExtensions: allowedExtensions,
         allowMultiple: true,
       );
       if (result != null && result.files.isNotEmpty) {
@@ -1080,7 +1111,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('Added PDF $added/${result.files.length}'),
+                content: Text('Added $label $added/${result.files.length}'),
                 duration: const Duration(milliseconds: 400),
               ),
             );
@@ -1091,7 +1122,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Pick PDF error: $e')));
+      ).showSnackBar(SnackBar(content: Text('Pick $label error: $e')));
     } finally {
       if (mounted)
         setState(() {
@@ -1115,6 +1146,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
 
       final List<File> finalPdfFiles = [];
       final List<String?> finalDisplayNames = [];
+      final List<DocumentType> finalTypes = [];
       final String displayNameBase = p.basenameWithoutExtension(
         info.displayName,
       );
@@ -1127,6 +1159,12 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         );
         finalPdfFiles.add(converted);
         finalDisplayNames.add('$displayNameBase.pdf');
+        finalTypes.add(DocumentType.pdf);
+      } else if (info.type == DocumentType.excel) {
+        // Excel: upload as-is. Do not convert to PDF or run split/QR.
+        finalPdfFiles.add(originalFile);
+        finalDisplayNames.add(info.displayName);
+        finalTypes.add(DocumentType.excel);
       } else {
         // ========= NEW: Split first =========
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1148,11 +1186,13 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                     ? 'Invoice_${part.invoiceNo}.pdf'
                     : '${displayNameBase}_part${i + 1}.pdf';
             finalDisplayNames.add(disp);
+            finalTypes.add(DocumentType.pdf);
           }
         } else {
           // Fallback to original single PDF
           finalPdfFiles.add(originalFile);
           finalDisplayNames.add('$displayNameBase.pdf');
+          finalTypes.add(DocumentType.pdf);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
@@ -1164,21 +1204,26 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         }
       }
 
-      // Persist each final PDF into temp (copy) and enqueue QR
+      // Persist each final file into temp (copy) and enqueue QR for PDFs only
       final tmp = await getTemporaryDirectory();
       for (int i = 0; i < finalPdfFiles.length; i++) {
         final f = finalPdfFiles[i];
+        final savedType = finalTypes[i];
+        final ext = p.extension(f.path).toLowerCase();
+        final savedExt = ext.isNotEmpty
+            ? ext
+            : (savedType == DocumentType.excel ? '.xlsx' : '.pdf');
         final savedPath =
-            '${tmp.path}/doc_${DateTime.now().millisecondsSinceEpoch}_${_capturedDocuments.length}_$i.pdf';
+            '${tmp.path}/doc_${DateTime.now().millisecondsSinceEpoch}_${_capturedDocuments.length}_$i$savedExt';
         final saved = await f.copy(savedPath);
 
-        final dispName = finalDisplayNames[i] ?? '${displayNameBase}.pdf';
+        final dispName = finalDisplayNames[i] ?? '${displayNameBase}$savedExt';
 
         if (!mounted) return;
         final newDoc = DocumentInfo(
           file: saved,
           isValid: true,
-          type: DocumentType.pdf,
+          type: savedType,
           displayName: dispName,
         );
 
@@ -1186,7 +1231,8 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
           _capturedDocuments.add(newDoc);
         });
 
-        if (_isPodDoc() || _isEinvoiceDoc()) {
+        if (savedType == DocumentType.pdf &&
+            (_isPodDoc() || _isEinvoiceDoc())) {
           final idx = _capturedDocuments.length - 1;
           _enqueueExtraction(newDoc, idx); // ← your existing QR pipeline
         }
@@ -1435,6 +1481,13 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
   MediaType _inferContentType(File file) {
     final ext = p.extension(file.path).toLowerCase();
     if (ext == '.pdf') return MediaType('application', 'pdf');
+    if (ext == '.xlsx') {
+      return MediaType(
+        'application',
+        'vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+    }
+    if (ext == '.xls') return MediaType('application', 'vnd.ms-excel');
     if (ext == '.png') return MediaType('image', 'png');
     if (ext == '.heic' || ext == '.heif') return MediaType('image', 'heic');
     return MediaType('image', 'jpeg');
@@ -1952,11 +2005,20 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
               ),
               ListTile(
                 leading: const Icon(Icons.picture_as_pdf),
-                title: const Text('Pick PDF File(s)'),
-                subtitle: const Text('Select PDF files'),
+                title: const Text('Pick PDF / Excel'),
+                subtitle: const Text('Select PDF or Excel (.xlsx/.xls) files'),
                 onTap: () {
                   Navigator.pop(context);
                   _pickPdfsFromFiles();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.table_chart),
+                title: const Text('Pick Excel File(s)'),
+                subtitle: const Text('Select .xlsx / .xls files'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _pickExcelFromFiles();
                 },
               ),
             ],
@@ -2162,7 +2224,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                     icon: Icons.add_a_photo,
                     title: 'Add Documents',
                     subtitle:
-                        'Images converted to PDF. POD & E-INVOICE types auto-extract QR.',
+                        'Choose PDF, Image or Excel. Images convert to PDF; Excel uploads as-is. POD & E-INVOICE auto-extract QR on PDFs.',
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -2653,6 +2715,7 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
 
   Widget _buildDocumentThumbnail(DocumentInfo docInfo, int index) {
     final hasQR = docInfo.qrData != null;
+    final isExcel = docInfo.type == DocumentType.excel;
     final width = (MediaQuery.of(context).size.width - 64) / 3;
 
     return SizedBox(
@@ -2662,24 +2725,36 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
         children: [
           // Main thumbnail container
           GestureDetector(
-            onTap:
-                () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => PdfPreviewScreen(pdfFile: docInfo.file),
-                  ),
-                ),
+            onTap: isExcel
+                ? () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(docInfo.displayName),
+                        duration: const Duration(seconds: 2),
+                      ),
+                    );
+                  }
+                : () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            PdfPreviewScreen(pdfFile: docInfo.file),
+                      ),
+                    ),
             child: Container(
               decoration: BoxDecoration(
-                color: hasQR ? Colors.green.shade50 : Colors.grey.shade100,
+                color: hasQR
+                    ? Colors.green.shade50
+                    : (isExcel ? Colors.green.shade50 : Colors.grey.shade100),
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
-                  color:
-                      hasQR
-                          ? Colors.green.shade400
-                          : (docInfo.isValid
-                              ? Colors.grey.shade300
-                              : Colors.red.shade300),
+                  color: hasQR
+                      ? Colors.green.shade400
+                      : (docInfo.isValid
+                          ? (isExcel
+                              ? Colors.green.shade300
+                              : Colors.grey.shade300)
+                          : Colors.red.shade300),
                   width: hasQR ? 2 : (docInfo.isValid ? 1 : 2),
                 ),
               ),
@@ -2687,23 +2762,27 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(
-                    Icons.picture_as_pdf,
+                    isExcel ? Icons.table_chart : Icons.picture_as_pdf,
                     size: 34,
-                    color:
-                        hasQR
-                            ? Colors.green.shade600
-                            : (docInfo.isValid
-                                ? Colors.red.shade600
-                                : Colors.red.shade400),
+                    color: hasQR
+                        ? Colors.green.shade600
+                        : (docInfo.isValid
+                            ? (isExcel
+                                ? Colors.green.shade700
+                                : Colors.red.shade600)
+                            : Colors.red.shade400),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'PDF',
+                    isExcel ? 'Excel' : 'PDF',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
-                      color:
-                          hasQR ? Colors.green.shade700 : Colors.red.shade700,
+                      color: hasQR
+                          ? Colors.green.shade700
+                          : (isExcel
+                              ? Colors.green.shade800
+                              : Colors.red.shade700),
                     ),
                   ),
                   if (hasQR)

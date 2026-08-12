@@ -27,9 +27,11 @@ import 'package:zydus_vistaar/services/ChunkedUploader.dart';
 import 'package:zydus_vistaar/services/BlobDirectUploader.dart';
 import 'package:zydus_vistaar/services/PodZipPackager.dart';
 import 'package:zydus_vistaar/services/PodZipExpander.dart';
+import 'package:zydus_vistaar/services/pod_upload_file_types.dart';
 import 'package:zydus_vistaar/services/PythonQRService.dart'; // COMMENTED OUT: Used for QR processing
 import 'package:zydus_vistaar/widgets/EInvoiceQRExtractor.dart'; // COMMENTED OUT: Used for QR processing
 import 'package:zydus_vistaar/widgets/PdfPreviewScreen.dart'; // existing File-based preview
+import 'package:zydus_vistaar/widgets/excel_upload_month_picker.dart';
 import 'package:zydus_vistaar/widgets/modern_ui_components.dart';
 import 'package:zydus_vistaar/screens/upload_status_screen.dart';
 import 'package:zydus_vistaar/routes.dart';
@@ -333,7 +335,10 @@ Future<List<_SplitMem>> _splitPdfViaApiBytes(
 }
 
 class PODUploadScreen extends StatefulWidget {
-  const PODUploadScreen({super.key});
+  /// `pod` (default) or `grn` — same upload pipeline; backend stores as pods.
+  final String documentType;
+
+  const PODUploadScreen({super.key, this.documentType = 'pod'});
 
   @override
   State<PODUploadScreen> createState() => _PODUploadScreenState();
@@ -341,6 +346,22 @@ class PODUploadScreen extends StatefulWidget {
 
 class _PODUploadScreenState extends State<PODUploadScreen>
     with SingleTickerProviderStateMixin {
+  bool get _isGrn => widget.documentType.toLowerCase() == 'grn';
+
+  String get _normalizedDocumentType => _isGrn ? 'grn' : 'pod';
+
+  String get _screenTitle => _isGrn ? 'GRN Upload' : 'POD Upload';
+
+  String get _screenSubtitle => _isGrn
+      ? 'Upload Goods Receipt Note documents'
+      : 'Upload Proof of Delivery documents';
+
+  Color get _accentColor =>
+      _isGrn ? const Color(0xFF4CAF50) : const Color(0xFF00A0A8);
+
+  IconData get _screenIcon =>
+      _isGrn ? Icons.inventory : Icons.description;
+
   bool _isLoadingLists = false;
   bool _isUploading = false;
   bool _isRefreshing = false;
@@ -362,6 +383,10 @@ class _PODUploadScreenState extends State<PODUploadScreen>
   _SelectItem? _selectedChemist;
 
   List<DocumentInfo> _capturedDocuments = [];
+
+  /// Fallback month for Excel rows that carry no invoice date (`YYYY-MM`).
+  /// Defaults to the current month; only sent when the batch includes Excel.
+  DateTime? _excelMonth = currentExcelUploadMonth();
 
   Key _stockistKey = UniqueKey();
   Key _chemistKey = UniqueKey();
@@ -387,6 +412,15 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       _capturedDocuments
           .where((d) => d.isValid && (d.isGoodForExtraction == false))
           .length;
+
+  /// True when any valid document in the batch is an .xlsx/.xls spreadsheet.
+  bool get _batchHasExcel => _capturedDocuments.any(
+        (d) => d.isValid && PodUploadFileTypes.isExcel(d.displayName),
+      );
+
+  List<DocumentInfo> get _excelDocuments => _capturedDocuments
+      .where((d) => d.isValid && PodUploadFileTypes.isExcel(d.displayName))
+      .toList();
 
   @override
   void dispose() {
@@ -652,11 +686,13 @@ class _PODUploadScreenState extends State<PODUploadScreen>
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // PDF Files option - FIRST
+                // PDF / Image / Excel / ZIP Files option - FIRST
                 ListTile(
                   leading: const Icon(Icons.picture_as_pdf),
-                  title: const Text('PDF Files'),
-                  subtitle: const Text('Select PDF, image or ZIP files'),
+                  title: const Text('PDF / Image / Excel / ZIP'),
+                  subtitle: const Text(
+                    'Select PDF, image, Excel (.xlsx/.xls) or ZIP files',
+                  ),
                   onTap: () {
                     Navigator.pop(context);
                     _pickPDFFiles();
@@ -920,12 +956,12 @@ class _PODUploadScreenState extends State<PODUploadScreen>
     });
 
     try {
-      // Allowed formats: PDF, JPG, JPEG, PNG and ZIP archives.
+      // Allowed formats: PDF, JPG, JPEG, PNG, Excel, and ZIP archives.
       // ZIPs are uploaded as-is — the backend unpacks them and feeds each
       // supported entry through the existing POD extraction pipeline.
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: const ['pdf', 'jpg', 'jpeg', 'png', 'zip'],
+        allowedExtensions: PodUploadFileTypes.pickerExtensions,
         allowMultiple: true,
         withData: true, // IMPORTANT for Web
       );
@@ -974,15 +1010,15 @@ class _PODUploadScreenState extends State<PODUploadScreen>
     });
 
     try {
-      final displayNameBase = p.basenameWithoutExtension(originalFile.path);
       final extension = p.extension(originalFile.path).toLowerCase();
       final fileName = p.basename(originalFile.path);
 
-      final isPdf = extension == '.pdf';
-      final isImage = const ['.jpg', '.jpeg', '.png'].contains(extension);
-      final isZip = extension == '.zip';
+      final isPdf = PodUploadFileTypes.isPdf(fileName);
+      final isImage = PodUploadFileTypes.isImage(fileName);
+      final isZip = PodUploadFileTypes.isZip(fileName);
+      final isExcel = PodUploadFileTypes.isExcel(fileName);
 
-      if (!isPdf && !isImage && !isZip) {
+      if (!isPdf && !isImage && !isZip && !isExcel) {
         // Unsupported file format
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1002,11 +1038,8 @@ class _PODUploadScreenState extends State<PODUploadScreen>
             : 'Adding $fileName...';
       });
 
-      final String qualityMessage = isPdf
-          ? 'PDF - Backend will process'
-          : isImage
-              ? 'Image - Backend will process'
-              : 'ZIP archive — extracted and uploaded to cloud storage';
+      final String qualityMessage =
+          PodUploadFileTypes.qualityMessageForName(fileName);
 
       final newDoc = DocumentInfo(
         file: originalFile,
@@ -1064,16 +1097,11 @@ class _PODUploadScreenState extends State<PODUploadScreen>
 
     try {
       final extension = p.extension(displayName).toLowerCase();
-      final isPdf = extension == '.pdf';
-      final isImage = [
-        '.jpg',
-        '.jpeg',
-        '.png',
-        '.gif',
-        '.bmp',
-        '.webp',
-      ].contains(extension);
-      final isZip = extension == '.zip';
+      final isPdf = PodUploadFileTypes.isPdf(displayName);
+      final isImage = PodUploadFileTypes.isImage(displayName) ||
+          ['.gif', '.bmp', '.webp'].contains(extension);
+      final isZip = PodUploadFileTypes.isZip(displayName);
+      final isExcel = PodUploadFileTypes.isExcel(displayName);
 
       // CREATE A COPY of bytes to prevent reference issues
       final bytesCopy = Uint8List.fromList(bytes);
@@ -1131,6 +1159,27 @@ class _PODUploadScreenState extends State<PODUploadScreen>
             ),
           );
         }
+
+        _scheduleScrollToBottom();
+        return;
+      }
+
+      if (isExcel) {
+        final newDoc = DocumentInfo(
+          file: null,
+          webBytes: bytesCopy,
+          displayName: displayName,
+          isValid: true,
+          qrData: null,
+          qrStatus: QRProcessingStatus.completed,
+          isGoodForExtraction: true,
+          ocrConfidence: 100.0,
+          qualityMessage: PodUploadFileTypes.qualityMessageForName(displayName),
+        );
+
+        setState(() {
+          _capturedDocuments.add(newDoc);
+        });
 
         _scheduleScrollToBottom();
         return;
@@ -1262,7 +1311,88 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       return;
     }
 
+    final hasExcel = validDocs.any(
+      (d) => PodUploadFileTypes.isExcel(d.displayName),
+    );
+    if (hasExcel) {
+      if (_excelMonth == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please select the Excel month before uploading.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+
+      final confirmed = await _confirmExcelUploadMonth(validDocs);
+      if (confirmed != true) return;
+    }
+
     await _performUpload(validDocs);
+  }
+
+  /// Summary dialog: files + selected Excel month, Cancel / Upload.
+  Future<bool?> _confirmExcelUploadMonth(List<DocumentInfo> validDocs) {
+    final excelNames = validDocs
+        .where((d) => PodUploadFileTypes.isExcel(d.displayName))
+        .map((d) => d.displayName)
+        .toList();
+    final month = _excelMonth ?? currentExcelUploadMonth();
+
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Upload Excel'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'File:',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                for (final name in excelNames)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: Text(name),
+                  ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Excel Month:',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                Text(formatExcelUploadMonthLabel(month)),
+                const SizedBox(height: 12),
+                Text(
+                  'Invoice dates in the spreadsheet take priority. '
+                  'This month is used only when a row has no invoice date.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00A0A8),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Upload'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _performUpload(List<DocumentInfo> validDocs) async {
@@ -1313,11 +1443,19 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         return;
       }
 
+      final Map<String, dynamic> uploadContext = {
+        'stockist_id': int.tryParse(stockistIdStr) ?? stockistIdStr,
+        'document_type': _normalizedDocumentType,
+      };
+      // Excel-only: fallback month when the sheet has no invoice date.
+      if (validDocs.any((d) => PodUploadFileTypes.isExcel(d.displayName)) &&
+          _excelMonth != null) {
+        uploadContext['excel_month'] = formatExcelUploadMonth(_excelMonth!);
+      }
+
       final uploader = BlobDirectUploader(
         authToken: token ?? '',
-        context: {
-          'stockist_id': int.tryParse(stockistIdStr) ?? stockistIdStr,
-        },
+        context: uploadContext,
         onProgress: (p) {
           if (!mounted) return;
           if (p.stage == 'done') {
@@ -1393,6 +1531,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
         );
         setState(() {
           _capturedDocuments.clear();
+          _excelMonth = currentExcelUploadMonth();
         });
       }
       return;
@@ -1473,7 +1612,12 @@ class _PODUploadScreenState extends State<PODUploadScreen>
 
     final Map<String, dynamic> baseContext = {
       'stockist_id': int.tryParse(stockistIdStr) ?? stockistIdStr,
+      'document_type': _normalizedDocumentType,
     };
+    if (uploadItems.any((i) => PodUploadFileTypes.isExcel(i.fileName)) &&
+        _excelMonth != null) {
+      baseContext['excel_month'] = formatExcelUploadMonth(_excelMonth!);
+    }
 
     int? lastBatchDbId;
     String? lastExternalBatchId;
@@ -1602,6 +1746,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       );
       setState(() {
         _capturedDocuments.clear();
+        _excelMonth = currentExcelUploadMonth();
       });
     }
   }
@@ -1629,7 +1774,12 @@ class _PODUploadScreenState extends State<PODUploadScreen>
 
     final Map<String, String> baseContext = {
       'stockist_id': stockistIdStr,
+      'document_type': _normalizedDocumentType,
     };
+    if (validDocs.any((d) => PodUploadFileTypes.isExcel(d.displayName)) &&
+        _excelMonth != null) {
+      baseContext['excel_month'] = formatExcelUploadMonth(_excelMonth!);
+    }
 
     int? lastBatchDbId;
     String? lastExternalBatchId;
@@ -1767,6 +1917,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
       );
       setState(() {
         _capturedDocuments.clear();
+        _excelMonth = currentExcelUploadMonth();
       });
     }
   }
@@ -1792,39 +1943,14 @@ class _PODUploadScreenState extends State<PODUploadScreen>
   }
 
   MediaType _inferContentTypeByName(String filename, {File? fallbackFromFile}) {
-    final ext = p.extension(filename).toLowerCase();
-    switch (ext) {
-      case '.zip':
-        return MediaType('application', 'zip');
-      case '.pdf':
-        return MediaType('application', 'pdf');
-      case '.jpg':
-      case '.jpeg':
-        return MediaType('image', 'jpeg');
-      case '.png':
-        return MediaType('image', 'png');
-      default:
-        if (fallbackFromFile != null)
-          return _inferContentTypeFile(fallbackFromFile);
-        return MediaType('application', 'octet-stream');
-    }
+    final mt = PodUploadFileTypes.mediaTypeForName(filename);
+    if (mt.subtype != 'octet-stream') return mt;
+    if (fallbackFromFile != null) return _inferContentTypeFile(fallbackFromFile);
+    return mt;
   }
 
   MediaType _inferContentTypeFile(File file) {
-    final ext = p.extension(file.path).toLowerCase();
-    switch (ext) {
-      case '.zip':
-        return MediaType('application', 'zip');
-      case '.pdf':
-        return MediaType('application', 'pdf');
-      case '.jpg':
-      case '.jpeg':
-        return MediaType('image', 'jpeg');
-      case '.png':
-        return MediaType('image', 'png');
-      default:
-        return MediaType('application', 'octet-stream');
-    }
+    return PodUploadFileTypes.mediaTypeForName(file.path);
   }
 
   String _buildPhpStyleJson(List<DocumentInfo> docs) {
@@ -1846,6 +1972,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
     if (_isBusy) return;
     setState(() {
       _capturedDocuments.clear();
+      _excelMonth = currentExcelUploadMonth();
     });
   }
 
@@ -1895,10 +2022,10 @@ class _PODUploadScreenState extends State<PODUploadScreen>
 
     return Scaffold(
       appBar: ModernUIComponents.buildModernAppBar(
-        title: 'POD Upload',
-        subtitle: 'Upload Proof of Delivery documents',
-        icon: Icons.description,
-        color: const Color(0xFF00A0A8),
+        title: _screenTitle,
+        subtitle: _screenSubtitle,
+        icon: _screenIcon,
+        color: _accentColor,
       ),
       body: RefreshIndicator(
         onRefresh: _onRefresh,
@@ -2003,7 +2130,7 @@ class _PODUploadScreenState extends State<PODUploadScreen>
                     icon: Icons.add_a_photo,
                     title: 'Add Documents',
                     subtitle:
-                        'Images converted to PDF. POD documents ready for upload.',
+                        'Choose PDF, Image, Excel (.xlsx/.xls) or ZIP. Backend processes all formats.',
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -2164,6 +2291,37 @@ class _PODUploadScreenState extends State<PODUploadScreen>
                                   vertical: 8,
                                 ),
                               ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  if (_batchHasExcel) ...[
+                    _buildSectionCard(
+                      icon: Icons.calendar_month,
+                      title: 'Select Excel Month',
+                      subtitle:
+                          'Excel does not always contain invoice dates. '
+                          'Select the month for this upload.',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          ExcelUploadMonthPicker(
+                            selectedMonth:
+                                _excelMonth ?? currentExcelUploadMonth(),
+                            onMonthChanged: (m) {
+                              setState(() => _excelMonth = m);
+                            },
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            'Applies to all Excel files in this batch '
+                            '(${_excelDocuments.length}): '
+                            '${formatExcelUploadMonthLabel(_excelMonth ?? currentExcelUploadMonth())}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade700,
                             ),
                           ),
                         ],
@@ -2450,7 +2608,11 @@ class _PODUploadScreenState extends State<PODUploadScreen>
               children: [
                 Row(
                   children: [
-                    Icon(Icons.description, color: borderColor, size: 20),
+                    Icon(
+                      PodUploadFileTypes.iconForName(doc.displayName),
+                      color: PodUploadFileTypes.iconColorForName(doc.displayName),
+                      size: 20,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -2619,15 +2781,21 @@ class _PODUploadScreenState extends State<PODUploadScreen>
 
   void _previewDocument(DocumentInfo doc) {
     final extension = p.extension(doc.displayName).toLowerCase();
-    final isPdf = extension == '.pdf';
-    final isImage = [
-      '.jpg',
-      '.jpeg',
-      '.png',
-      '.gif',
-      '.bmp',
-      '.webp',
-    ].contains(extension);
+    final isPdf = PodUploadFileTypes.isPdf(doc.displayName);
+    final isImage = PodUploadFileTypes.isImage(doc.displayName) ||
+        ['.gif', '.bmp', '.webp'].contains(extension);
+    final isExcel = PodUploadFileTypes.isExcel(doc.displayName);
+
+    if (isExcel) {
+      // Excel: show filename only — do not attempt workbook preview.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(doc.displayName),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
 
     if (isImage) {
       // Preview image

@@ -16,6 +16,8 @@ import 'package:zydus_vistaar/services/ChunkedUploader.dart';
 import 'package:zydus_vistaar/services/BlobDirectUploader.dart';
 import 'package:zydus_vistaar/services/PodZipExpander.dart';
 import 'package:zydus_vistaar/services/PodZipPackager.dart';
+import 'package:zydus_vistaar/services/pod_upload_file_types.dart';
+import 'package:zydus_vistaar/widgets/excel_upload_month_picker.dart';
 import 'package:zydus_vistaar/widgets/modern_ui_components.dart';
 
 /// Dedicated POD upload screen for stockist logins.
@@ -52,8 +54,17 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
   // Picked files.
   final List<_PickedFile> _files = [];
 
+  /// Fallback month for Excel rows that carry no invoice date (`YYYY-MM`).
+  DateTime? _excelMonth = currentExcelUploadMonth();
+
   // Cached lookups (for the popup search dialogs).
   List<_HospitalOption> _hospitalCache = const [];
+
+  bool get _batchHasExcel =>
+      _files.any((f) => PodUploadFileTypes.isExcel(f.name));
+
+  List<_PickedFile> get _excelFiles =>
+      _files.where((f) => PodUploadFileTypes.isExcel(f.name)).toList();
 
   @override
   void initState() {
@@ -210,13 +221,13 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
   // ── File picker ───────────────────────────────────────────────────────
   Future<void> _pickFiles() async {
     try {
-      // Allowed formats: PDF, JPG, JPEG, PNG and ZIP archives.
+      // Allowed formats: PDF, JPG, JPEG, PNG, Excel, and ZIP archives.
       // ZIPs are uploaded as-is — the backend unpacks them server-side
       // and feeds each supported entry through the existing pipeline.
       final result = await FilePicker.platform.pickFiles(
         allowMultiple: true,
         type: FileType.custom,
-        allowedExtensions: const ['pdf', 'jpg', 'jpeg', 'png', 'zip'],
+        allowedExtensions: PodUploadFileTypes.pickerExtensions,
         withData: kIsWeb,
       );
       if (result == null) return;
@@ -257,7 +268,12 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
   }
 
   void _removeFile(int index) {
-    setState(() => _files.removeAt(index));
+    setState(() {
+      _files.removeAt(index);
+      if (!_batchHasExcel) {
+        _excelMonth = currentExcelUploadMonth();
+      }
+    });
   }
 
   // ── Upload ────────────────────────────────────────────────────────────
@@ -267,6 +283,21 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
         const SnackBar(content: Text('Pick at least one file first.')),
       );
       return;
+    }
+
+    if (_batchHasExcel) {
+      if (_excelMonth == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please select the Excel month before uploading.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+
+      final confirmed = await _confirmExcelUploadMonth();
+      if (confirmed != true) return;
     }
 
     setState(() => _uploading = true);
@@ -316,6 +347,65 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
     }
   }
 
+  Future<bool?> _confirmExcelUploadMonth() {
+    final excelNames = _excelFiles.map((f) => f.name).toList();
+    final month = _excelMonth ?? currentExcelUploadMonth();
+
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Upload Excel'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'File:',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                for (final name in excelNames)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: Text(name),
+                  ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Excel Month:',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                Text(formatExcelUploadMonthLabel(month)),
+                const SizedBox(height: 12),
+                Text(
+                  'Invoice dates in the spreadsheet take priority. '
+                  'This month is used only when a row has no invoice date.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00A0A8),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Upload'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   // ── UI ────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
@@ -338,6 +428,10 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
             _buildInvoiceSection(),
             const SizedBox(height: 16),
             _buildFilesSection(),
+            if (_batchHasExcel) ...[
+              const SizedBox(height: 16),
+              _buildExcelMonthSection(),
+            ],
           ],
         ),
       ),
@@ -591,11 +685,11 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
           children: [
             Row(
               children: [
-                const Icon(Icons.picture_as_pdf, color: Color(0xFF00A0A8)),
+                const Icon(Icons.upload_file, color: Color(0xFF00A0A8)),
                 const SizedBox(width: 8),
                 const Expanded(
                   child: Text(
-                    'POD files',
+                    'POD files (PDF / Image / Excel / ZIP)',
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
@@ -614,7 +708,7 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 12),
                 child: Text(
-                  'No PDFs picked yet.',
+                  'No files picked yet. Supported: PDF, JPG, PNG, XLSX, XLS, ZIP.',
                   style: TextStyle(color: Colors.black54),
                 ),
               )
@@ -625,7 +719,10 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
                   return ListTile(
                     contentPadding: const EdgeInsets.symmetric(horizontal: 4),
                     dense: true,
-                    leading: const Icon(Icons.description, color: Colors.redAccent),
+                    leading: Icon(
+                      PodUploadFileTypes.iconForName(f.name),
+                      color: PodUploadFileTypes.iconColorForName(f.name),
+                    ),
                     title: Text(f.name, style: const TextStyle(fontSize: 13)),
                     subtitle: Text(
                       '${(f.sizeBytes / 1024).toStringAsFixed(1)} KB',
@@ -638,6 +735,45 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
                   );
                 }),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExcelMonthSection() {
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Select Excel Month',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Excel does not always contain invoice dates. '
+              'Select the month for this upload.',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+            ),
+            const SizedBox(height: 12),
+            ExcelUploadMonthPicker(
+              selectedMonth: _excelMonth ?? currentExcelUploadMonth(),
+              onMonthChanged: (m) => setState(() => _excelMonth = m),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Applies to all Excel files in this batch '
+              '(${_excelFiles.length}): '
+              '${formatExcelUploadMonthLabel(_excelMonth ?? currentExcelUploadMonth())}',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+            ),
           ],
         ),
       ),
@@ -670,6 +806,9 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
     if (_selectedInvoiceIds.isNotEmpty) {
       baseContext['sales_statement_ids'] =
           _selectedInvoiceIds.map((id) => id).toList();
+    }
+    if (_batchHasExcel && _excelMonth != null) {
+      baseContext['excel_month'] = formatExcelUploadMonth(_excelMonth!);
     }
 
     int? lastBatchDbId;
@@ -764,6 +903,7 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
       setState(() {
         _files.clear();
         _selectedInvoiceIds.clear();
+        _excelMonth = currentExcelUploadMonth();
       });
     }
   }
@@ -796,6 +936,9 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
     for (final invoiceId in _selectedInvoiceIds) {
       baseContext['sales_statement_ids[$i]'] = invoiceId.toString();
       i++;
+    }
+    if (_batchHasExcel && _excelMonth != null) {
+      baseContext['excel_month'] = formatExcelUploadMonth(_excelMonth!);
     }
 
     int? lastBatchDbId;
@@ -929,7 +1072,10 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
           },
         );
       }
-      setState(() => _files.clear());
+      setState(() {
+        _files.clear();
+        _excelMonth = currentExcelUploadMonth();
+      });
     }
   }
 
@@ -938,14 +1084,7 @@ class _StockistPodUploadScreenState extends State<StockistPodUploadScreen> {
   /// back to application/octet-stream and the server's MIME sniffer
   /// figures it out.
   MediaType _mediaTypeForName(String name) {
-    final lower = name.toLowerCase();
-    if (lower.endsWith('.zip')) return MediaType('application', 'zip');
-    if (lower.endsWith('.pdf')) return MediaType('application', 'pdf');
-    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
-      return MediaType('image', 'jpeg');
-    }
-    if (lower.endsWith('.png')) return MediaType('image', 'png');
-    return MediaType('application', 'octet-stream');
+    return PodUploadFileTypes.mediaTypeForName(name);
   }
 
   /// True if the current batch about to be uploaded contains any .zip

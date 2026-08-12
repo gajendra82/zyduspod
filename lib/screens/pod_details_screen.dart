@@ -123,6 +123,7 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
     final stockist = pod['stockist'];
     final hospital = pod['hospital'];
     final items = pod['items'] as List<dynamic>;
+    final hasPricingData = _hasPricingData(items);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -233,14 +234,34 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
           const SizedBox(height: 16),
 
           // Items List
-          _buildItemsCard(items),
-          const SizedBox(height: 16),
+          _buildItemsCard(items, hasPricingData),
 
           // Summary Card
-          _buildSummaryCard(pod),
+          if (hasPricingData) ...[
+            const SizedBox(height: 16),
+            _buildSummaryCard(pod),
+          ],
         ],
       ),
     );
+  }
+
+  /// A POD can arrive with quantities only — an Excel upload with no rate column
+  /// whose products also carry no Product Master price. Money fields are dropped
+  /// in that case rather than shown as a column of ₹0.00.
+  bool _hasPricingData(List<dynamic> items) {
+    return items.any(
+      (item) =>
+          _toAmount(item['rate']) > 0 ||
+          _toAmount(item['amount']) > 0 ||
+          _toAmount(item['final_total']) > 0,
+    );
+  }
+
+  double _toAmount(dynamic value) {
+    if (value is num) return value.toDouble();
+
+    return double.tryParse(value?.toString() ?? '') ?? 0;
   }
 
   Widget _buildHeaderCard(Map<String, dynamic> pod) {
@@ -507,7 +528,7 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
     );
   }
 
-  Widget _buildItemsCard(List<dynamic> items) {
+  Widget _buildItemsCard(List<dynamic> items, bool hasPricingData) {
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -543,14 +564,14 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
               ],
             ),
             const SizedBox(height: 16),
-            ...items.map((item) => _buildItemCard(item)).toList(),
+            ...items.map((item) => _buildItemCard(item, hasPricingData)),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildItemCard(Map<String, dynamic> item) {
+  Widget _buildItemCard(Map<String, dynamic> item, bool hasPricingData) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
@@ -590,16 +611,18 @@ class _PodDetailsScreenState extends State<PodDetailsScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              _buildItemDetail('Rate', '₹${item['rate']}'),
-              const SizedBox(width: 16),
-              _buildItemDetail('Amount', '₹${item['amount']}'),
-              const SizedBox(width: 16),
-              _buildItemDetail('Total', '₹${item['final_total']}'),
-            ],
-          ),
+          if (hasPricingData) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                _buildItemDetail('Rate', '₹${item['rate']}'),
+                const SizedBox(width: 16),
+                _buildItemDetail('Amount', '₹${item['amount']}'),
+                const SizedBox(width: 16),
+                _buildItemDetail('Total', '₹${item['final_total']}'),
+              ],
+            ),
+          ],
           if (item['batch_number'] != null) ...[
             const SizedBox(height: 8),
             Row(

@@ -67,8 +67,11 @@ class RouteGenerator {
         );
 
       case AppRoutes.podUpload:
+        final docType = (args is Map<String, dynamic>)
+            ? (args['documentType'] as String? ?? 'pod')
+            : 'pod';
         return MaterialPageRoute(
-          builder: (_) => const PODUploadScreen(),
+          builder: (_) => PODUploadScreen(documentType: docType),
         );
 
       case AppRoutes.salesAnalytics:

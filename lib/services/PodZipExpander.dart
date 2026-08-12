@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:path/path.dart' as p;
 
+import 'package:zydus_vistaar/services/pod_upload_file_types.dart';
+
 /// One file ready for direct blob upload (from a pick or a ZIP entry).
 class PodUploadItem {
   final String fileName;
@@ -22,20 +24,16 @@ class PodUploadItem {
   }
 }
 
-/// Expands ZIP archives client-side so each PDF/image is uploaded via blob.
+/// Expands ZIP archives client-side so each PDF/image/Excel is uploaded via blob.
 class PodZipExpander {
-  static const Set<String> _supportedExt = {'.pdf', '.jpg', '.jpeg', '.png'};
-  /// Max PDF/image files per ZIP (matches backend `pod.max_files_per_request`).
+  /// Max processable files per ZIP (matches backend `pod.max_files_per_request`).
   static const int maxSupportedFilesPerZip = 500;
   static const int maxTotalUncompressedBytes = 10 * 1024 * 1024 * 1024; // 10 GB
 
-  static bool isZipName(String name) =>
-      p.extension(name).toLowerCase() == '.zip';
+  static bool isZipName(String name) => PodUploadFileTypes.isZip(name);
 
-  static bool isSupportedUploadName(String name) {
-    final ext = p.extension(name).toLowerCase();
-    return _supportedExt.contains(ext);
-  }
+  static bool isSupportedUploadName(String name) =>
+      PodUploadFileTypes.isSupportedUploadName(name);
 
   /// Junk paths created by macOS/Windows archivers — not real POD files.
   static bool _isSkippableArchivePath(String name) {
@@ -52,8 +50,7 @@ class PodZipExpander {
   static bool _isSupportedArchiveEntry(ArchiveFile entry) {
     if (!entry.isFile || entry.name.isEmpty) return false;
     if (_isSkippableArchivePath(entry.name)) return false;
-    final ext = p.extension(p.basename(entry.name)).toLowerCase();
-    return _supportedExt.contains(ext);
+    return PodUploadFileTypes.isSupportedUploadName(p.basename(entry.name));
   }
 
   /// Expand [PodUploadItem] list — ZIPs become individual supported files.

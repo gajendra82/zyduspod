@@ -559,6 +559,7 @@ class BlobDirectUploader {
   }
 
   static String _inferContentType(String fileName) {
+    // Keep in sync with PodUploadFileTypes (PDF / image / Excel / ZIP).
     final ext = fileName.split('.').last.toLowerCase();
     switch (ext) {
       case 'jpg':
@@ -566,6 +567,14 @@ class BlobDirectUploader {
         return 'image/jpeg';
       case 'png':
         return 'image/png';
+      case 'xlsx':
+        return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      case 'xls':
+        return 'application/vnd.ms-excel';
+      case 'zip':
+        return 'application/zip';
+      case 'pdf':
+        return 'application/pdf';
       default:
         return 'application/pdf';
     }

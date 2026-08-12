@@ -8,7 +8,7 @@ import 'package:zydus_vistaar/services/PodZipExpander.dart';
 /// Build a single ZIP for blob upload (server extracts and processes).
 class PodZipPackager {
   /// If [items] is already one ZIP, return it unchanged. Otherwise expand any
-  /// nested ZIPs client-side and pack all supported PDF/image files into a
+  /// nested ZIPs client-side and pack all supported PDF/image/Excel files into a
   /// new ZIP archive (handles multi-ZIP picks and mixed ZIP + PDF selections).
   static Future<PodUploadItem> packageForUpload(
     List<PodUploadItem> items, {
@@ -23,8 +23,8 @@ class PodZipPackager {
       return items.first;
     }
 
-    // Multiple files and/or ZIPs: expand ZIPs first so we package PDF/images.
-    // Backend unwrap only accepts flat PDF/JPG/PNG entries — not nested ZIPs.
+    // Multiple files and/or ZIPs: expand ZIPs first so we package PDF/images/Excel.
+    // Backend unwrap accepts flat PDF/JPG/PNG/XLSX/XLS entries — not nested ZIPs.
     final List<PodUploadItem> packable;
     try {
       packable = await PodZipExpander.expandItems(items);
@@ -37,10 +37,10 @@ class PodZipPackager {
           items.where((i) => PodZipExpander.isZipName(i.fileName)).length;
       if (zipCount > 0) {
         throw PodZipPackException(
-          'No PDF or image files found inside the selected ZIP archive(s).',
+          'No PDF, image, or Excel files found inside the selected ZIP archive(s).',
         );
       }
-      throw PodZipPackException('No PDF or image files to package.');
+      throw PodZipPackException('No PDF, image, or Excel files to package.');
     }
 
     final archive = Archive();
@@ -78,7 +78,7 @@ class PodZipPackager {
     }
 
     if (archive.files.isEmpty) {
-      throw PodZipPackException('No PDF or image files to package.');
+      throw PodZipPackException('No PDF, image, or Excel files to package.');
     }
 
     final zipBytes = ZipEncoder().encode(archive);
